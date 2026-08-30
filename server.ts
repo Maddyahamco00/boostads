@@ -1,7 +1,31 @@
 import express from 'express';
 import path from 'path';
+import cookieParser from 'cookie-parser';
 import { createServer as createViteServer } from 'vite';
 import { db } from './src/server/db';
+import { authService } from './src/server/services/authService';
+import { emailService } from './src/server/services/emailService';
+import { authTestRunnerService } from './src/server/services/authTestRunnerService';
+import { 
+  authenticate, 
+  optionalAuthenticate, 
+  requireSuperAdmin, 
+  requireRole, 
+  AuthenticatedRequest 
+} from './src/server/middleware/authMiddleware';
+import { 
+  RegisterClientSchema, 
+  LoginSchema, 
+  VerifyEmailSchema, 
+  ResendVerificationSchema, 
+  ForgotPasswordSchema, 
+  ResetPasswordSchema, 
+  ChangePasswordSchema, 
+  AdminPasswordSetupSchema, 
+  EnableTwoFactorSchema, 
+  UpdateProfileSchema,
+  formatZodError 
+} from './src/server/validators/authValidators';
 import { aiService } from './src/server/services/aiService';
 import { fxService } from './src/server/services/fxService';
 import { paymentService } from './src/server/services/paymentService';
@@ -40,9 +64,10 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // Body parsers
+  // Body and cookie parsers
   app.use(express.json({ limit: '15mb' }));
   app.use(express.urlencoded({ extended: true, limit: '15mb' }));
+  app.use(cookieParser());
 
   // Request logging
   app.use((req, res, next) => {
@@ -73,6 +98,472 @@ async function startServer() {
   });
 
   // ==========================================
+  // AUTHENTICATION & AUTHORIZATION ENGINE
+  // ==========================================
+
+  // 1. Client Registration (STRICTLY role: CLIENT)
+  app.post('/api/auth/register', async (req, res) => {
+    try {
+      const validation = RegisterClientSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({
+          success: false,
+          error: formatZodError(validation.error)
+        });
+      }
+
+      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'browser';
+      const origin = `${req.protocol}://${req.get('host')}`;
+
+      const result = await authService.registerClient({
+        ...validation.data,
+        origin
+      }, clientIp, userAgent);
+
+      res.status(201).json(result);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Registration failed';
+      res.status(400).json({ success: false, error: message });
+    }
+  });
+
+  // 2. Login
+  app.post('/api/auth/login', async (req, res) => {
+    try {
+      const validation = LoginSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({
+          success: false,
+          error: formatZodError(validation.error)
+        });
+      }
+
+      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'browser';
+
+      const result = await authService.login(validation.data, clientIp, userAgent);
+
+      if (result.accessToken) {
+        res.cookie('boost_access_token', result.accessToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          maxAge: 60 * 60 * 1000 // 1 hour
+        });
+      }
+
+      if (result.refreshToken) {
+        res.cookie('boost_refresh_token', result.refreshToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+        });
+      }
+
+      res.json(result);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Authentication failed';
+      res.status(401).json({ success: false, error: message });
+    }
+  });
+
+  // 3. Two-Factor Login Verification
+  app.post('/api/auth/2fa/verify', async (req, res) => {
+    try {
+      const { preAuthToken, code } = req.body;
+      if (!preAuthToken || !code) {
+        return res.status(400).json({ success: false, error: '2FA token and code are required' });
+      }
+
+      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'browser';
+
+      const result = await authService.verifyTwoFactorLogin(preAuthToken, code, clientIp, userAgent);
+
+      res.cookie('boost_access_token', result.accessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 60 * 60 * 1000
+      });
+
+      res.cookie('boost_refresh_token', result.refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 30 * 24 * 60 * 60 * 1000
+      });
+
+      res.json(result);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Two-factor verification failed';
+      res.status(401).json({ success: false, error: message });
+    }
+  });
+
+  // 4. Logout & Logout All
+  app.post('/api/auth/logout', (req: AuthenticatedRequest, res) => {
+    if (req.sessionId) {
+      authService.logout(req.sessionId);
+    }
+    res.clearCookie('boost_access_token');
+    res.clearCookie('boost_refresh_token');
+    res.json({ success: true, message: 'Logged out successfully' });
+  });
+
+  app.post('/api/auth/logout-all', authenticate, (req: AuthenticatedRequest, res) => {
+    if (req.user) {
+      authService.logoutAll(req.user.id);
+    }
+    res.clearCookie('boost_access_token');
+    res.clearCookie('boost_refresh_token');
+    res.json({ success: true, message: 'All active sessions have been revoked' });
+  });
+
+  // 5. Refresh Access Token
+  app.post('/api/auth/refresh', (req, res) => {
+    const refreshToken = req.cookies?.boost_refresh_token || req.body?.refreshToken;
+    if (!refreshToken) {
+      return res.status(401).json({ success: false, error: 'No refresh token provided' });
+    }
+
+    const payload = authService.verifyRefreshToken(refreshToken);
+    if (!payload || !payload.userId) {
+      return res.status(401).json({ success: false, error: 'Invalid or expired refresh token' });
+    }
+
+    const user = db.users.get(payload.userId);
+    if (!user || user.status === 'SUSPENDED' || user.status === 'DELETED') {
+      return res.status(403).json({ success: false, error: 'Account is not authorized' });
+    }
+
+    const newAccessToken = authService.generateAccessToken(authService.getSafeUser(user), payload.sessionId);
+    res.cookie('boost_access_token', newAccessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 1000
+    });
+
+    res.json({
+      success: true,
+      accessToken: newAccessToken,
+      user: authService.getSafeUser(user)
+    });
+  });
+
+  // 6. Email Verification
+  app.post('/api/auth/verify-email', async (req, res) => {
+    try {
+      const validation = VerifyEmailSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({
+          success: false,
+          error: formatZodError(validation.error)
+        });
+      }
+
+      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'browser';
+
+      const result = await authService.verifyEmail(validation.data.token, clientIp, userAgent);
+      res.json(result);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Verification failed';
+      res.status(400).json({ success: false, error: message });
+    }
+  });
+
+  // 7. Resend Verification Link
+  app.post('/api/auth/resend-verification', async (req, res) => {
+    try {
+      const validation = ResendVerificationSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ success: false, error: formatZodError(validation.error) });
+      }
+
+      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'browser';
+      const origin = `${req.protocol}://${req.get('host')}`;
+
+      const result = await authService.resendVerification(validation.data.email, origin, clientIp, userAgent);
+      res.json(result);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to resend verification';
+      res.status(400).json({ success: false, error: message });
+    }
+  });
+
+  // 8. Forgot Password
+  app.post('/api/auth/forgot-password', async (req, res) => {
+    try {
+      const validation = ForgotPasswordSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ success: false, error: formatZodError(validation.error) });
+      }
+
+      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'browser';
+      const origin = `${req.protocol}://${req.get('host')}`;
+
+      const result = await authService.forgotPassword(validation.data.email, origin, clientIp, userAgent);
+      res.json(result);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to process request';
+      res.status(400).json({ success: false, error: message });
+    }
+  });
+
+  // 9. Reset Password
+  app.post('/api/auth/reset-password', async (req, res) => {
+    try {
+      const validation = ResetPasswordSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({
+          success: false,
+          error: formatZodError(validation.error)
+        });
+      }
+
+      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'browser';
+
+      const result = await authService.resetPassword(validation.data.token, validation.data.newPassword, clientIp, userAgent);
+      res.json(result);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to reset password';
+      res.status(400).json({ success: false, error: message });
+    }
+  });
+
+  // 10. Change Password (Authenticated)
+  app.post('/api/auth/change-password', authenticate, async (req: AuthenticatedRequest, res) => {
+    try {
+      const validation = ChangePasswordSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({
+          success: false,
+          error: formatZodError(validation.error)
+        });
+      }
+
+      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'browser';
+
+      const result = await authService.changePassword(
+        req.user!.id,
+        validation.data.currentPassword,
+        validation.data.newPassword,
+        clientIp,
+        userAgent
+      );
+
+      res.json(result);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to change password';
+      res.status(400).json({ success: false, error: message });
+    }
+  });
+
+  // 11. Current Session Profile (Me)
+  app.get('/api/auth/me', optionalAuthenticate, (req: AuthenticatedRequest, res) => {
+    if (!req.user) {
+      return res.json({ authenticated: false, user: null });
+    }
+
+    const safeUser = authService.getSafeUser(req.user);
+    const sessions = authService.getActiveSessions(req.user.id);
+
+    res.json({
+      authenticated: true,
+      user: safeUser,
+      sessionsCount: sessions.length
+    });
+  });
+
+  // 12. Super Admin First-Time Setup Link Dispatch
+  app.post('/api/auth/admin/init-setup', async (req, res) => {
+    try {
+      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'browser';
+      const origin = `${req.protocol}://${req.get('host')}`;
+
+      const result = await authService.initAdminSetup(origin, clientIp, userAgent);
+      res.json(result);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Admin setup initialization failed';
+      res.status(400).json({ success: false, error: message });
+    }
+  });
+
+  // 13. Super Admin Set Password
+  app.post('/api/auth/admin/setup-password', async (req, res) => {
+    try {
+      const validation = AdminPasswordSetupSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({
+          success: false,
+          error: formatZodError(validation.error)
+        });
+      }
+
+      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'browser';
+
+      const result = await authService.setupAdminPassword(validation.data.token, validation.data.newPassword, clientIp, userAgent);
+      res.json(result);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Admin password setup failed';
+      res.status(400).json({ success: false, error: message });
+    }
+  });
+
+  // 14. Two-Factor Authentication Setup & Config
+  app.post('/api/auth/2fa/setup', authenticate, (req: AuthenticatedRequest, res) => {
+    try {
+      const result = authService.generateTwoFactor(req.user!.id);
+      res.json({ success: true, ...result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to generate 2FA secret';
+      res.status(400).json({ success: false, error: message });
+    }
+  });
+
+  app.post('/api/auth/2fa/enable', authenticate, (req: AuthenticatedRequest, res) => {
+    try {
+      const { totpCode, recoveryCodes } = req.body;
+      if (!totpCode || !Array.isArray(recoveryCodes)) {
+        return res.status(400).json({ success: false, error: 'TOTP code and recovery codes are required' });
+      }
+
+      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'browser';
+
+      const result = authService.enableTwoFactor(req.user!.id, totpCode, recoveryCodes, clientIp, userAgent);
+      res.json(result);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to enable 2FA';
+      res.status(400).json({ success: false, error: message });
+    }
+  });
+
+  app.post('/api/auth/2fa/disable', authenticate, (req: AuthenticatedRequest, res) => {
+    try {
+      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'browser';
+
+      const result = authService.disableTwoFactor(req.user!.id, clientIp, userAgent);
+      res.json(result);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to disable 2FA';
+      res.status(400).json({ success: false, error: message });
+    }
+  });
+
+  // 15. Sessions Management
+  app.get('/api/auth/sessions', authenticate, (req: AuthenticatedRequest, res) => {
+    const sessions = authService.getActiveSessions(req.user!.id);
+    res.json({
+      success: true,
+      sessions: sessions.map(s => ({
+        id: s.id,
+        ipAddress: s.ipAddress,
+        userAgent: s.userAgent,
+        createdAt: s.createdAt,
+        lastActiveAt: s.lastActiveAt,
+        isCurrent: s.id === req.sessionId
+      }))
+    });
+  });
+
+  app.delete('/api/auth/sessions/:id', authenticate, (req: AuthenticatedRequest, res) => {
+    const session = db.sessions.get(req.params.id);
+    if (session && session.userId === req.user!.id) {
+      authService.logout(session.id);
+    }
+    res.json({ success: true, message: 'Session revoked' });
+  });
+
+  // 16. Outbox / Email Inspector (For local testing & demo in preview)
+  app.get('/api/auth/outbox', (req, res) => {
+    const emails = emailService.getOutbox();
+    res.json({ success: true, count: emails.length, emails });
+  });
+
+  app.delete('/api/auth/outbox', (req, res) => {
+    emailService.clearOutbox();
+    res.json({ success: true, message: 'Email outbox cleared' });
+  });
+
+  // 17. Super Admin Security Audit Logs & User Governance
+  app.get('/api/admin/security-logs', authenticate, requireSuperAdmin, (req, res) => {
+    const logs = [...db.securityLogs].reverse();
+    res.json({ success: true, logs });
+  });
+
+  app.get('/api/admin/users', authenticate, requireSuperAdmin, (req, res) => {
+    const safeUsers = Array.from(db.users.values()).map(u => authService.getSafeUser(u));
+    res.json({ success: true, users: safeUsers });
+  });
+
+  app.patch('/api/admin/users/:id/status', authenticate, requireSuperAdmin, (req: AuthenticatedRequest, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    const user = db.users.get(id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    // Protect Super Admin from suspension or deletion
+    if (user.role === 'SUPER_ADMIN') {
+      return res.status(403).json({ success: false, error: 'Super Admin account status cannot be altered.' });
+    }
+
+    user.status = status;
+    user.updatedAt = new Date().toISOString();
+
+    authService.logSecurityEvent('ACCOUNT_STATUS_CHANGED', {
+      userId: user.id,
+      userEmail: user.email,
+      role: user.role,
+      ipAddress: req.ip || '127.0.0.1',
+      userAgent: req.headers['user-agent'],
+      severity: 'WARNING',
+      details: { newStatus: status, changedBy: req.user!.email }
+    });
+
+    res.json({ success: true, user: authService.getSafeUser(user) });
+  });
+
+  // 18. Automated Auth & Security Suite Runner
+  app.post('/api/tests/auth-suite', async (req, res) => {
+    try {
+      const startTime = Date.now();
+      const results = await authTestRunnerService.runAllSecurityTests();
+      const passedCount = results.filter(r => r.status === 'passed').length;
+      const failedCount = results.filter(r => r.status === 'failed').length;
+
+      res.json({
+        success: true,
+        summary: {
+          total: results.length,
+          passed: passedCount,
+          failed: failedCount,
+          passRatePercent: Math.round((passedCount / results.length) * 100),
+          durationMs: Date.now() - startTime
+        },
+        results
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  // ==========================================
   // 2. USERS & PROFILES
   // ==========================================
   app.get('/api/users', (req, res) => {
@@ -89,13 +580,16 @@ async function startServer() {
   });
 
   app.post('/api/users/profile', (req, res) => {
-    const { id, name, email, phone, role, bio, location, avatarUrl } = req.body;
+    const { id, name, email, phone, role, bio, location, avatarUrl, clientType } = req.body;
     let user = db.users.get(id);
     if (user) {
       user.name = name || user.name;
       user.email = email || user.email;
       user.phone = phone || user.phone;
-      user.role = role || user.role;
+      if (role && (role === 'SUPER_ADMIN' || role === 'CLIENT')) {
+        user.role = role;
+      }
+      if (clientType) user.clientType = clientType;
       user.bio = bio !== undefined ? bio : user.bio;
       user.location = location || user.location;
       user.avatarUrl = avatarUrl || user.avatarUrl;
@@ -105,7 +599,11 @@ async function startServer() {
         name: name || 'Anonymous User',
         email: email || 'user@boostmarket.ng',
         phone,
-        role: role || 'customer',
+        role: (role === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : 'CLIENT'),
+        status: 'ACTIVE',
+        clientType: clientType || 'customer',
+        failedLoginAttempts: 0,
+        twoFactorEnabled: false,
         tier: 'free',
         avatarUrl: avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80',
         bio,
@@ -284,7 +782,7 @@ async function startServer() {
       if (ownerId && db.users.has(ownerId)) {
         const u = db.users.get(ownerId)!;
         u.businessId = id;
-        u.role = 'business';
+        u.clientType = 'business';
       }
 
       auditService.log('BUSINESS_CREATED', id, ownerId || 'user', 'merchant', { businessName: name });
@@ -773,11 +1271,15 @@ async function startServer() {
 
   app.post('/api/conversations/create', (req, res) => {
     const { customerId, businessId, initialMessage, adId } = req.body;
-    const cust = db.users.get(customerId) || Array.from(db.users.values()).find(u => u.role === 'customer') || {
+    const cust = db.users.get(customerId) || Array.from(db.users.values()).find(u => u.clientType === 'customer') || {
       id: customerId || 'usr_cust',
       name: 'Customer',
       avatarUrl: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=200&auto=format&fit=crop&q=80',
-      role: 'customer' as const
+      role: 'CLIENT' as const,
+      status: 'ACTIVE' as const,
+      clientType: 'customer' as const,
+      tier: 'free' as const,
+      createdAt: new Date().toISOString()
     };
 
     const biz = db.businesses.get(businessId) || Array.from(db.businesses.values())[0];

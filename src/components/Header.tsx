@@ -16,8 +16,18 @@ import {
   ChevronDown,
   Navigation,
   Check,
-  Megaphone
+  Megaphone,
+  Mail,
+  Key,
+  ShieldAlert,
+  LogIn,
+  LogOut,
+  Smartphone
 } from 'lucide-react';
+import { AuthModal } from './AuthModal';
+import { SecuritySettingsModal } from './SecuritySettingsModal';
+import { EmailOutboxDrawer } from './EmailOutboxDrawer';
+import { AuthTestSuiteModal } from './AuthTestSuiteModal';
 
 const CITIES = [
   { name: 'All Nigeria', state: 'Nationwide', lat: 9.0820, lng: 8.6753 },
@@ -50,8 +60,28 @@ export const Header: React.FC = () => {
   const [isLocationDropdownOpen, setIsLocationDropdownOpen] = useState(false);
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
 
+  // Security & Auth Modals
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authModalTab, setAuthModalTab] = useState<'login' | 'register' | 'forgot' | 'admin_setup' | 'verify'>('login');
+  const [authModalToken, setAuthModalToken] = useState('');
+  const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
+  const [isOutboxOpen, setIsOutboxOpen] = useState(false);
+  const [isTestSuiteOpen, setIsTestSuiteOpen] = useState(false);
+
   const unreadNotifsCount = notifications.filter(n => !n.read).length;
   const unreadMsgsCount = conversations.reduce((acc, c) => acc + (c.unreadCount || 0), 0);
+
+  const handleApplyTokenFromOutbox = (template: string, token: string) => {
+    setAuthModalToken(token);
+    if (template === 'verification') {
+      setAuthModalTab('verify');
+    } else if (template === 'admin_setup') {
+      setAuthModalTab('admin_setup');
+    } else if (template === 'password_reset') {
+      setAuthModalTab('login');
+    }
+    setIsAuthModalOpen(true);
+  };
 
   return (
     <header id="boost-market-header" className="sticky top-0 z-40 bg-slate-900/95 backdrop-blur-md border-b border-slate-800 text-white">
@@ -65,6 +95,21 @@ export const Header: React.FC = () => {
           <span className="text-slate-300 hidden sm:inline">Official Platform by CEO Maddy (Muhammad Kabir Ahmad)</span>
         </div>
         <div className="flex items-center gap-3 text-xs">
+          <button
+            onClick={() => setIsOutboxOpen(true)}
+            className="text-slate-300 hover:text-emerald-400 font-medium flex items-center gap-1 bg-slate-800/80 px-2.5 py-0.5 rounded-full border border-slate-700 hover:border-emerald-500/50 transition-all"
+            title="Inspect mock outbound emails with single-use verification/activation tokens"
+          >
+            <Mail className="w-3 h-3 text-emerald-400" />
+            <span>Email Outbox (Tokens)</span>
+          </button>
+          <button
+            onClick={() => setIsTestSuiteOpen(true)}
+            className="text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-1 bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/30"
+          >
+            <ShieldAlert className="w-3 h-3" />
+            <span>Auth Suite (10 Tests)</span>
+          </button>
           <span className="text-emerald-400 font-medium hidden md:inline">⚡ Instant NGN & FX Settlement via Flutterwave</span>
           <button 
             onClick={() => setActiveView('pricing_plans')}
@@ -272,7 +317,7 @@ export const Header: React.FC = () => {
             <span className="hidden xl:inline">My Business</span>
           </button>
 
-          {currentUser.role === 'ceo' || currentUser.role === 'admin' ? (
+          {currentUser.role === 'SUPER_ADMIN' ? (
             <button
               id="nav-admin-btn"
               onClick={() => setActiveView('admin_panel')}
@@ -332,7 +377,7 @@ export const Header: React.FC = () => {
                   {currentUser.name.split(' ')[0]}
                 </div>
                 <div className="text-[10px] text-emerald-400 capitalize font-medium">
-                  {currentUser.role === 'ceo' ? '👑 CEO Maddy' : currentUser.role}
+                  {currentUser.role === 'SUPER_ADMIN' ? '👑 Super Admin Maddy' : 'Client Account'}
                 </div>
               </div>
               <ChevronDown className="w-3 h-3 text-slate-400" />
@@ -365,12 +410,12 @@ export const Header: React.FC = () => {
                       setIsUserDropdownOpen(false);
                     }}
                     className={`w-full text-left px-3 py-2 rounded-lg text-xs flex items-center gap-2.5 transition-colors ${
-                      currentUser.role === 'ceo' ? 'bg-amber-500/20 text-amber-300 font-semibold' : 'text-slate-300 hover:bg-slate-800'
+                      currentUser.role === 'SUPER_ADMIN' ? 'bg-amber-500/20 text-amber-300 font-semibold' : 'text-slate-300 hover:bg-slate-800'
                     }`}
                   >
                     <Crown className="w-4 h-4 text-amber-400" />
                     <div>
-                      <div className="font-bold">Maddy (CEO & Admin)</div>
+                      <div className="font-bold">Maddy (SUPER_ADMIN)</div>
                       <div className="text-[10px] text-slate-400">Full system & platform governance</div>
                     </div>
                   </button>
@@ -381,7 +426,7 @@ export const Header: React.FC = () => {
                       setIsUserDropdownOpen(false);
                     }}
                     className={`w-full text-left px-3 py-2 rounded-lg text-xs flex items-center gap-2.5 transition-colors ${
-                      currentUser.role === 'business' ? 'bg-emerald-500/20 text-emerald-300 font-semibold' : 'text-slate-300 hover:bg-slate-800'
+                      currentUser.clientType === 'business' ? 'bg-emerald-500/20 text-emerald-300 font-semibold' : 'text-slate-300 hover:bg-slate-800'
                     }`}
                   >
                     <Store className="w-4 h-4 text-emerald-400" />
@@ -397,7 +442,7 @@ export const Header: React.FC = () => {
                       setIsUserDropdownOpen(false);
                     }}
                     className={`w-full text-left px-3 py-2 rounded-lg text-xs flex items-center gap-2.5 transition-colors ${
-                      currentUser.role === 'customer' ? 'bg-indigo-500/20 text-indigo-300 font-semibold' : 'text-slate-300 hover:bg-slate-800'
+                      currentUser.clientType === 'customer' ? 'bg-indigo-500/20 text-indigo-300 font-semibold' : 'text-slate-300 hover:bg-slate-800'
                     }`}
                   >
                     <Layers className="w-4 h-4 text-indigo-400" />
@@ -411,6 +456,48 @@ export const Header: React.FC = () => {
                 <div className="pt-2 border-t border-slate-800 flex flex-col gap-1">
                   <button
                     onClick={() => {
+                      setAuthModalTab('login');
+                      setAuthModalToken('');
+                      setIsAuthModalOpen(true);
+                      setIsUserDropdownOpen(false);
+                    }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-emerald-400 hover:bg-slate-800 rounded font-medium flex items-center gap-2"
+                  >
+                    <LogIn className="w-3.5 h-3.5" /> Sign In / Register / Switch
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setIsSecurityModalOpen(true);
+                      setIsUserDropdownOpen(false);
+                    }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800 rounded font-medium flex items-center gap-2"
+                  >
+                    <Key className="w-3.5 h-3.5 text-slate-400" /> Security, 2FA & Active Sessions
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setIsOutboxOpen(true);
+                      setIsUserDropdownOpen(false);
+                    }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800 rounded font-medium flex items-center gap-2"
+                  >
+                    <Mail className="w-3.5 h-3.5 text-slate-400" /> Outbox Tokens & Links
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setIsTestSuiteOpen(true);
+                      setIsUserDropdownOpen(false);
+                    }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-amber-400 hover:bg-slate-800 rounded font-medium flex items-center gap-2"
+                  >
+                    <ShieldAlert className="w-3.5 h-3.5" /> Run Security Verification Suite
+                  </button>
+
+                  <button
+                    onClick={() => {
                       setActiveView('pricing_plans');
                       setIsUserDropdownOpen(false);
                     }}
@@ -418,12 +505,54 @@ export const Header: React.FC = () => {
                   >
                     <Crown className="w-3.5 h-3.5" /> Upgrade Plan (Free/Pro/Enterprise)
                   </button>
+
+                  <button
+                    onClick={async () => {
+                      try {
+                        await fetch('/api/auth/logout', { method: 'POST' });
+                      } catch (e) {
+                        console.error(e);
+                      }
+                      switchUserRole('customer');
+                      setIsUserDropdownOpen(false);
+                    }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-rose-400 hover:bg-rose-500/10 rounded font-medium flex items-center gap-2 border-t border-slate-800/80 mt-1"
+                  >
+                    <LogOut className="w-3.5 h-3.5" /> Terminate Session / Sign Out
+                  </button>
                 </div>
               </div>
             )}
           </div>
         </div>
       </div>
+
+      {/* Auth Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        initialTab={authModalTab}
+        initialToken={authModalToken}
+      />
+
+      {/* Security & 2FA Settings Modal */}
+      <SecuritySettingsModal
+        isOpen={isSecurityModalOpen}
+        onClose={() => setIsSecurityModalOpen(false)}
+      />
+
+      {/* Email Outbox Drawer */}
+      <EmailOutboxDrawer
+        isOpen={isOutboxOpen}
+        onClose={() => setIsOutboxOpen(false)}
+        onApplyToken={handleApplyTokenFromOutbox}
+      />
+
+      {/* Automated Auth & Authorization Test Suite Runner */}
+      <AuthTestSuiteModal
+        isOpen={isTestSuiteOpen}
+        onClose={() => setIsTestSuiteOpen(false)}
+      />
     </header>
   );
 };

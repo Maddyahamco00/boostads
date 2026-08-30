@@ -13,6 +13,13 @@ export function normalizeEmail(email: string): string {
   return email.toLowerCase().trim();
 }
 
+export function formatZodError(err: z.ZodError): string {
+  if (err.issues && err.issues.length > 0) {
+    return err.issues[0].message;
+  }
+  return 'Validation error';
+}
+
 // 1. Client Registration DTO
 export const RegisterClientSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters').max(100),

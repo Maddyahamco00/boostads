@@ -928,3 +928,28 @@ export interface TestScenarioItem {
   errorMessage?: string;
   executionTimeMs?: number;
 }
+
+export interface AuditLogEntity {
+  id: string;
+  timestamp: string;
+  actorUserId?: string;
+  actorEmail: string;
+  actorRole: string;
+  action: string;
+  targetId?: string;
+  ipAddress: string;
+  userAgent?: string;
+  severity: 'INFO' | 'WARN' | 'CRITICAL';
+  details: string;
+}
+
+export interface SessionEntity {
+  id: string;
+  userId: string;
+  createdAt: string;
+  expiresAt: string;
+  ipAddress: string;
+  userAgent: string;
+  lastActiveAt: string;
+}
+

@@ -93,7 +93,8 @@ const defaultUser: UserProfile = {
   name: 'Muhammad Kabir Ahmad (Maddy)',
   email: 'maddyahamco00@gmail.com',
   phone: '+2348039876543',
-  role: 'ceo',
+  role: 'SUPER_ADMIN',
+  status: 'ACTIVE',
   tier: 'enterprise',
   avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80',
   bio: 'Founder & CEO of Real Boosters / Boost Market.',
@@ -185,18 +186,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const switchUserRole = (role: 'customer' | 'business' | 'ceo') => {
     if (role === 'ceo') {
-      const u = allUsers.find(x => x.role === 'ceo') || defaultUser;
+      const u = allUsers.find(x => x.role === 'SUPER_ADMIN') || defaultUser;
       setCurrentUser(u);
     } else if (role === 'business') {
-      const u = allUsers.find(x => x.role === 'business') || allUsers.find(x => x.id === 'usr_farouk_tech') || defaultUser;
+      const u = allUsers.find(x => x.clientType === 'business') || allUsers.find(x => x.id === 'usr_farouk_tech') || defaultUser;
       setCurrentUser(u);
     } else {
-      const u = allUsers.find(x => x.role === 'customer') || allUsers.find(x => x.id === 'usr_david_customer') || {
+      const u = allUsers.find(x => x.clientType === 'customer') || allUsers.find(x => x.id === 'usr_david_customer') || {
         id: 'usr_david_customer',
         name: 'David Okonjo',
         email: 'david.okonjo@gmail.com',
         phone: '+2348123456789',
-        role: 'customer' as const,
+        role: 'CLIENT' as const,
+        status: 'ACTIVE' as const,
+        clientType: 'customer' as const,
         tier: 'free' as const,
         avatarUrl: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=200&auto=format&fit=crop&q=80',
         bio: 'Customer looking for top-rated services.',

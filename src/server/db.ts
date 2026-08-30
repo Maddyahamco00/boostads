@@ -1473,6 +1473,57 @@ export class DatabaseStore {
     this.merchants.set(merchantMaddy.id, merchantMaddy);
   }
 
+  public getUserByEmail(email: string): UserEntity | undefined {
+    if (!email) return undefined;
+    const normalized = email.toLowerCase().trim();
+    return Array.from(this.users.values()).find(u => u.email.toLowerCase().trim() === normalized);
+  }
+
+  public enforceSuperAdminInvariant(): void {
+    const SUPER_ADMIN_EMAIL = 'maddyahamco00@gmail.com';
+    const SUPER_ADMIN_ID = 'usr_maddy_ceo';
+
+    // 1. Ensure no user other than Maddy has role SUPER_ADMIN
+    for (const user of this.users.values()) {
+      if (user.email.toLowerCase().trim() !== SUPER_ADMIN_EMAIL && user.role === 'SUPER_ADMIN') {
+        console.warn(`[Security Invariant Violation] Demoting unauthorized super admin: ${user.email} -> CLIENT`);
+        user.role = 'CLIENT';
+      }
+    }
+
+    // 2. Ensure Maddy exists as SUPER_ADMIN
+    let maddy = this.users.get(SUPER_ADMIN_ID) || this.getUserByEmail(SUPER_ADMIN_EMAIL);
+    if (!maddy) {
+      maddy = {
+        id: SUPER_ADMIN_ID,
+        name: 'Muhammad Kabir Ahmad (Maddy)',
+        email: SUPER_ADMIN_EMAIL,
+        phone: '+2348030000000',
+        role: 'SUPER_ADMIN',
+        status: 'ACTIVE',
+        tier: 'enterprise',
+        avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80',
+        bio: 'Founder & CEO of Real Boosters / Boost Market. Empowering African and global businesses with world-class discovery, advertising, and instant settlement.',
+        location: {
+          city: 'Kaduna',
+          state: 'Kaduna State',
+          country: 'Nigeria',
+          lat: 10.5105,
+          lng: 7.4165,
+          address: 'Real Boosters HQ, Independence Way, Kaduna'
+        },
+        businessId: 'biz_real_boosters',
+        failedLoginAttempts: 0,
+        twoFactorEnabled: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      this.users.set(maddy.id, maddy);
+    } else {
+      maddy.role = 'SUPER_ADMIN';
+    }
+  }
+
   public getPlatformStats(): PlatformStats {
     let totalVol = 0;
     for (const inv of this.invoices.values()) {

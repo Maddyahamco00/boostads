@@ -39,8 +39,8 @@ export const MerchantDashboardView: React.FC = () => {
 
   const userBiz = businesses.find(b => b.ownerId === currentUser.id) || businesses[0];
   const userAds = advertisements.filter(a => a.businessId === userBiz?.id);
-  const userCampaigns = campaigns.filter(c => c.businessId === userBiz?.id || currentUser.role === 'ceo');
-  const userLeads = leads.filter(l => l.businessId === userBiz?.id || currentUser.role === 'ceo');
+  const userCampaigns = campaigns.filter(c => c.businessId === userBiz?.id || currentUser.role === 'SUPER_ADMIN');
+  const userLeads = leads.filter(l => l.businessId === userBiz?.id || currentUser.role === 'SUPER_ADMIN');
 
   const [activeTab, setActiveTab] = useState<'overview' | 'ads' | 'products' | 'services' | 'portfolio' | 'bank_payouts'>('overview');
 
