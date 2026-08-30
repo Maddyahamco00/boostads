@@ -1,6 +1,10 @@
 export type SupportedCurrency = 'NGN' | 'USD' | 'EUR' | 'GBP' | 'AED' | 'CAD' | 'ZAR' | 'KES' | 'GHS';
 
-export type UserRole = 'customer' | 'business' | 'admin' | 'ceo';
+export type UserRole = 'SUPER_ADMIN' | 'CLIENT';
+
+export type AccountStatus = 'PENDING_VERIFICATION' | 'ACTIVE' | 'SUSPENDED' | 'DISABLED' | 'DELETED';
+
+export type ClientType = 'customer' | 'business' | 'freelancer' | 'advertiser' | 'service_provider';
 
 export type SubscriptionTier = 'free' | 'pro' | 'enterprise';
 
@@ -35,6 +39,8 @@ export interface UserProfile {
   email: string;
   phone?: string;
   role: UserRole;
+  status: AccountStatus;
+  clientType?: ClientType;
   tier: SubscriptionTier;
   avatarUrl?: string;
   bio?: string;
@@ -42,7 +48,90 @@ export interface UserProfile {
   businessId?: string;
   savedAdIds?: string[];
   savedBusinessIds?: string[];
+  emailVerifiedAt?: string | null;
+  twoFactorEnabled?: boolean;
+  lastLoginAt?: string | null;
   createdAt: string;
+  updatedAt?: string;
+}
+
+export interface UserEntity extends UserProfile {
+  passwordHash?: string;
+  twoFactorSecret?: string;
+  twoFactorRecoveryCodes?: string[]; // Hashed recovery codes
+  failedLoginAttempts: number;
+  lockedUntil?: string | null;
+}
+
+export interface AuthSession {
+  id: string;
+  userId: string;
+  email: string;
+  role: UserRole;
+  tokenHash: string;
+  ipAddress: string;
+  userAgent: string;
+  createdAt: string;
+  lastActiveAt: string;
+  expiresAt: string;
+  isRevoked: boolean;
+}
+
+export interface VerificationToken {
+  id: string;
+  tokenHash: string;
+  userId: string;
+  email: string;
+  type: 'email_verification' | 'password_reset' | 'admin_setup';
+  expiresAt: string;
+  isUsed: boolean;
+  createdAt: string;
+}
+
+export interface SecurityAuditEvent {
+  id: string;
+  timestamp: string;
+  eventType: 
+    | 'LOGIN_SUCCESS'
+    | 'LOGIN_FAILED'
+    | 'LOGOUT'
+    | 'LOGOUT_ALL_SESSIONS'
+    | 'REGISTER'
+    | 'PASSWORD_SETUP'
+    | 'PASSWORD_RESET_REQUESTED'
+    | 'PASSWORD_RESET_COMPLETED'
+    | 'PASSWORD_CHANGED'
+    | 'EMAIL_VERIFIED'
+    | 'EMAIL_RESENT'
+    | '2FA_ENABLED'
+    | '2FA_DISABLED'
+    | '2FA_VERIFIED'
+    | 'SUSPICIOUS_LOGIN'
+    | 'ACCOUNT_LOCKED'
+    | 'ACCOUNT_STATUS_CHANGED'
+    | 'SUPER_ADMIN_INVARIANT_CHECK'
+    | 'UNAUTHORIZED_ACCESS_ATTEMPT'
+    | 'ADMIN_ACTION';
+  userId?: string;
+  userEmail?: string;
+  role?: string;
+  ipAddress?: string;
+  userAgent?: string;
+  details?: Record<string, unknown>;
+  severity: 'INFO' | 'WARNING' | 'CRITICAL';
+}
+
+export interface EmailLog {
+  id: string;
+  to: string;
+  subject: string;
+  template: 'verification' | 'password_reset' | 'admin_setup' | 'password_changed' | 'security_alert' | 'invoice_receipt';
+  htmlContent: string;
+  textContent: string;
+  actionUrl?: string;
+  token?: string;
+  sentAt: string;
+  status: 'sent' | 'failed';
 }
 
 export interface OpeningHour {

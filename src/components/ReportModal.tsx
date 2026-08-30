@@ -3,13 +3,13 @@ import { useApp } from '../context/AppContext';
 import { AlertTriangle, X, ShieldAlert, Check } from 'lucide-react';
 
 export const ReportModal: React.FC = () => {
-  const { reportModalData, closeReportModal, currentUser, refreshData } = useApp();
+  const { isReportModalOpen, reportingTarget, closeReportModal, currentUser, refreshData } = useApp();
   const [reason, setReason] = useState('Misleading or False Information');
   const [details, setDetails] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
-  if (!reportModalData.isOpen) return null;
+  if (!isReportModalOpen || !reportingTarget) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,10 +20,11 @@ export const ReportModal: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           reporterId: currentUser.id,
-          targetType: reportModalData.targetType,
-          targetId: reportModalData.targetId,
-          targetName: reportModalData.targetName,
-          reason,
+          reporterName: currentUser.name,
+          targetType: reportingTarget.type,
+          targetId: reportingTarget.id,
+          targetTitle: reportingTarget.title,
+          reason: `${reason} - ${details}`,
           details
         })
       });
@@ -62,7 +63,7 @@ export const ReportModal: React.FC = () => {
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4 mt-4 text-xs">
             <p className="text-slate-400">
-              You are reporting <strong className="text-white">{reportModalData.targetName}</strong> ({reportModalData.targetType}).
+              You are reporting <strong className="text-white">{reportingTarget.title}</strong> ({reportingTarget.type}).
             </p>
 
             <div>

@@ -1,3 +1,4 @@
+import bcrypt from 'bcryptjs';
 import { 
   Merchant, 
   Customer, 
@@ -15,6 +16,10 @@ import {
   CurrencyConfig,
   NigerianBank,
   UserProfile,
+  UserEntity,
+  AuthSession,
+  VerificationToken,
+  SecurityAuditEvent,
   Business,
   Product,
   Service,
@@ -35,7 +40,10 @@ import {
 
 export class DatabaseStore {
   // Core E-commerce & Marketplace Entities
-  public users: Map<string, UserProfile> = new Map();
+  public users: Map<string, UserEntity> = new Map();
+  public sessions: Map<string, AuthSession> = new Map();
+  public tokens: Map<string, VerificationToken> = new Map();
+  public securityLogs: SecurityAuditEvent[] = [];
   public businesses: Map<string, Business> = new Map();
   public products: Map<string, Product> = new Map();
   public services: Map<string, Service> = new Map();
@@ -359,13 +367,17 @@ export class DatabaseStore {
       }
     ];
 
-    // 3. Seed Users
-    const ceoUser: UserProfile = {
+    // 3. Seed Users with Authentication Passwords and strictly enforced Roles
+    const defaultPasswordHash = bcrypt.hashSync('Client123!', 10);
+    const adminPasswordHash = bcrypt.hashSync('Admin2026!', 10);
+
+    const ceoUser: UserEntity = {
       id: 'usr_maddy_ceo',
       name: 'Muhammad Kabir Ahmad (Maddy)',
       email: 'maddyahamco00@gmail.com',
       phone: '+2348039876543',
-      role: 'ceo',
+      role: 'SUPER_ADMIN', // STRICT SINGLE SUPER ADMIN
+      status: 'ACTIVE',
       tier: 'enterprise',
       avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80',
       bio: 'Founder & CEO of Real Boosters / Boost Market. Empowering African and global businesses with world-class discovery, advertising, and instant settlement.',
@@ -378,16 +390,23 @@ export class DatabaseStore {
         address: 'Real Boosters HQ, Independence Way, Kaduna'
       },
       businessId: 'biz_real_boosters',
-      createdAt: new Date(Date.now() - 90 * 86400000).toISOString()
+      passwordHash: adminPasswordHash,
+      emailVerifiedAt: new Date(Date.now() - 90 * 86400000).toISOString(),
+      failedLoginAttempts: 0,
+      twoFactorEnabled: false,
+      createdAt: new Date(Date.now() - 90 * 86400000).toISOString(),
+      updatedAt: new Date().toISOString()
     };
     this.users.set(ceoUser.id, ceoUser);
 
-    const bizUser1: UserProfile = {
+    const bizUser1: UserEntity = {
       id: 'usr_farouk_tech',
       name: 'Farouk Usman',
       email: 'farouk@kadunacode.com',
       phone: '+2348021112233',
-      role: 'business',
+      role: 'CLIENT',
+      status: 'ACTIVE',
+      clientType: 'business',
       tier: 'pro',
       avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&auto=format&fit=crop&q=80',
       bio: 'Lead Architect at Arewa Tech Labs - Building high-performance mobile apps & cloud platforms.',
@@ -400,16 +419,23 @@ export class DatabaseStore {
         address: 'Barnawa Shopping Complex, Kaduna'
       },
       businessId: 'biz_arewa_tech',
-      createdAt: new Date(Date.now() - 60 * 86400000).toISOString()
+      passwordHash: defaultPasswordHash,
+      emailVerifiedAt: new Date(Date.now() - 60 * 86400000).toISOString(),
+      failedLoginAttempts: 0,
+      twoFactorEnabled: false,
+      createdAt: new Date(Date.now() - 60 * 86400000).toISOString(),
+      updatedAt: new Date().toISOString()
     };
     this.users.set(bizUser1.id, bizUser1);
 
-    const bizUser2: UserProfile = {
+    const bizUser2: UserEntity = {
       id: 'usr_amina_couture',
       name: 'Hajiya Amina Bello',
       email: 'amina@zeenatcouture.ng',
       phone: '+2348035557788',
-      role: 'business',
+      role: 'CLIENT',
+      status: 'ACTIVE',
+      clientType: 'business',
       tier: 'pro',
       avatarUrl: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=200&auto=format&fit=crop&q=80',
       bio: 'Creative Director at Zeenat Northern Couture - Bespoke Northern Nigerian luxury Kaftans & bridal attire.',
@@ -422,16 +448,23 @@ export class DatabaseStore {
         address: 'Bompai Road, Commercial Area, Kano'
       },
       businessId: 'biz_zeenat_couture',
-      createdAt: new Date(Date.now() - 45 * 86400000).toISOString()
+      passwordHash: defaultPasswordHash,
+      emailVerifiedAt: new Date(Date.now() - 45 * 86400000).toISOString(),
+      failedLoginAttempts: 0,
+      twoFactorEnabled: false,
+      createdAt: new Date(Date.now() - 45 * 86400000).toISOString(),
+      updatedAt: new Date().toISOString()
     };
     this.users.set(bizUser2.id, bizUser2);
 
-    const bizUser3: UserProfile = {
+    const bizUser3: UserEntity = {
       id: 'usr_tunde_auto',
       name: 'Babajide Tunde',
       email: 'tunde@apexautolagos.com',
       phone: '+2348083334455',
-      role: 'business',
+      role: 'CLIENT',
+      status: 'ACTIVE',
+      clientType: 'business',
       tier: 'enterprise',
       avatarUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&auto=format&fit=crop&q=80',
       bio: 'Master Certified Automobile Technician & Diagnostic Specialist at Apex Auto Works.',
@@ -444,16 +477,23 @@ export class DatabaseStore {
         address: 'Oregun Industrial Area, Ikeja, Lagos'
       },
       businessId: 'biz_apex_auto',
-      createdAt: new Date(Date.now() - 30 * 86400000).toISOString()
+      passwordHash: defaultPasswordHash,
+      emailVerifiedAt: new Date(Date.now() - 30 * 86400000).toISOString(),
+      failedLoginAttempts: 0,
+      twoFactorEnabled: false,
+      createdAt: new Date(Date.now() - 30 * 86400000).toISOString(),
+      updatedAt: new Date().toISOString()
     };
     this.users.set(bizUser3.id, bizUser3);
 
-    const bizUser4: UserProfile = {
+    const bizUser4: UserEntity = {
       id: 'usr_mallam_farms',
       name: 'Alhaji Sani Daurawa',
       email: 'sani@arewafreshfarms.ng',
       phone: '+2348067778899',
-      role: 'business',
+      role: 'CLIENT',
+      status: 'ACTIVE',
+      clientType: 'business',
       tier: 'pro',
       avatarUrl: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=200&auto=format&fit=crop&q=80',
       bio: 'Managing Partner at Savannah Agro & Grain Millers - Bulk grain, fertilizer and tractor services.',
@@ -466,16 +506,23 @@ export class DatabaseStore {
         address: 'Zaria Road Agro Industrial Hub, Kaduna'
       },
       businessId: 'biz_savannah_agro',
-      createdAt: new Date(Date.now() - 40 * 86400000).toISOString()
+      passwordHash: defaultPasswordHash,
+      emailVerifiedAt: new Date(Date.now() - 40 * 86400000).toISOString(),
+      failedLoginAttempts: 0,
+      twoFactorEnabled: false,
+      createdAt: new Date(Date.now() - 40 * 86400000).toISOString(),
+      updatedAt: new Date().toISOString()
     };
     this.users.set(bizUser4.id, bizUser4);
 
-    const customerUser: UserProfile = {
+    const customerUser: UserEntity = {
       id: 'usr_david_customer',
       name: 'David Okonjo',
       email: 'david.okonjo@gmail.com',
       phone: '+2348123456789',
-      role: 'customer',
+      role: 'CLIENT',
+      status: 'ACTIVE',
+      clientType: 'customer',
       tier: 'free',
       avatarUrl: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=200&auto=format&fit=crop&q=80',
       bio: 'Entrepreneur & Tech enthusiast looking for high-quality verified vendors & services.',
@@ -489,9 +536,17 @@ export class DatabaseStore {
       },
       savedAdIds: ['ad_zeenat_kaftan', 'ad_arewa_dev'],
       savedBusinessIds: ['biz_real_boosters', 'biz_zeenat_couture'],
-      createdAt: new Date(Date.now() - 20 * 86400000).toISOString()
+      passwordHash: defaultPasswordHash,
+      emailVerifiedAt: new Date(Date.now() - 20 * 86400000).toISOString(),
+      failedLoginAttempts: 0,
+      twoFactorEnabled: false,
+      createdAt: new Date(Date.now() - 20 * 86400000).toISOString(),
+      updatedAt: new Date().toISOString()
     };
     this.users.set(customerUser.id, customerUser);
+
+    // Enforce Super Admin Invariant check at startup
+    this.enforceSuperAdminInvariant();
 
     // 4. Seed Businesses
     const bizRealBoosters: Business = {
