@@ -158,7 +158,9 @@ export const RegisterView: React.FC<RegisterViewProps> = ({ onNavigateToLogin })
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        if (data.details && Array.isArray(data.details)) {
+        if (data.errors && typeof data.errors === 'object') {
+          setFieldErrors(data.errors);
+        } else if (data.details && Array.isArray(data.details)) {
           const newErrors: Record<string, string> = {};
           data.details.forEach((d: { path?: string; message?: string }) => {
             if (d.path) newErrors[d.path] = d.message || 'Invalid input';
@@ -342,10 +344,25 @@ export const RegisterView: React.FC<RegisterViewProps> = ({ onNavigateToLogin })
               <div 
                 id="register-error-banner"
                 role="alert"
-                className="mb-5 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex items-start gap-2.5 animate-in fade-in"
+                className="mb-5 p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex items-start gap-2.5 animate-in fade-in"
               >
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <div className="flex-1 font-medium">{error}</div>
+                <div className="flex-1">
+                  <div className="font-medium">{error}</div>
+                  {(error.toLowerCase().includes('already exists') || error.toLowerCase().includes('already registered')) && (
+                    <div className="mt-2 pt-2 border-t border-rose-500/20 flex items-center gap-2">
+                      <span className="text-slate-300">Already have an account?</span>
+                      <button
+                        type="button"
+                        id="error-signin-cta"
+                        onClick={handleSignInClick}
+                        className="font-bold text-emerald-400 hover:text-emerald-300 underline cursor-pointer"
+                      >
+                        Sign in now
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 

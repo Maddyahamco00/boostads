@@ -1,5 +1,4 @@
 import crypto from 'crypto';
-import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { 
   UserEntity, 
@@ -12,6 +11,8 @@ import {
 } from '../../types';
 import { db } from '../db';
 import { emailService } from './emailService';
+import { passwordService } from './passwordService';
+import { emailVerificationTokenService } from './emailVerificationTokenService';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'boost_market_jwt_production_secret_key_2026_9881726';
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'boost_market_refresh_secret_key_2026_7718291';
@@ -47,13 +48,11 @@ export class AuthService {
   }
 
   public async hashPassword(password: string): Promise<string> {
-    const salt = await bcrypt.genSalt(12);
-    return bcrypt.hash(password, salt);
+    return passwordService.hash(password);
   }
 
   public async comparePassword(password: string, hash: string): Promise<boolean> {
-    if (!password || !hash) return false;
-    return bcrypt.compare(password, hash);
+    return passwordService.verify(password, hash);
   }
 
   public generateAccessToken(user: UserProfile, sessionId?: string): string {
@@ -278,33 +277,34 @@ export class AuthService {
       twoFactorEnabled: false
     };
 
-    db.users.set(newUser.id, newUser);
+    // Persist user entity via database store with strict UNIQUE constraint enforcement
+    try {
+      db.createUser(newUser);
+    } catch (err: unknown) {
+      this.logSecurityEvent('REGISTER', {
+        userEmail: normalizedEmail,
+        ipAddress: ip,
+        userAgent,
+        severity: 'WARNING',
+        details: { reason: 'Database unique constraint violation / race-condition duplicate registration' }
+      });
+      throw new Error('An account with this email address already exists. Please sign in or reset your password.');
+    }
 
-    // Create single-use Email Verification Token
-    const rawToken = this.generateRandomToken(32);
-    const tokenHash = this.hashToken(rawToken);
-    const verificationToken: VerificationToken = {
-      id: `tok_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
-      tokenHash,
-      userId: newUser.id,
-      email: newUser.email,
-      type: 'email_verification',
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // 24 hours
-      isUsed: false,
-      createdAt: new Date().toISOString()
-    };
-    db.tokens.set(verificationToken.id, verificationToken);
+    // Create single-use Email Verification Token using dedicated token service
+    const { rawToken, verificationUrl } = await emailVerificationTokenService.create(
+      newUser.id,
+      newUser.email,
+      { origin: data.origin }
+    );
 
     // Dispatch verification email
-    const origin = data.origin || 'http://localhost:3000';
-    const actionUrl = `${origin}/?verifyToken=${rawToken}`;
     await emailService.sendEmail({
       to: newUser.email,
       subject: 'Verify Your Boost Market Account',
       template: 'verification',
       userName: newUser.name,
-      actionUrl,
-      token: rawToken
+      actionUrl: verificationUrl
     });
 
     this.logSecurityEvent('REGISTER', {
@@ -327,36 +327,83 @@ export class AuthService {
   // ----------------------------------------------------
   // 2. VERIFY EMAIL
   // ----------------------------------------------------
-  public async verifyEmail(rawToken: string, ip: string, userAgent: string): Promise<{ success: boolean; user: UserProfile; message: string }> {
-    const tokenHash = this.hashToken(rawToken.trim());
-    const tokenRecord = Array.from(db.tokens.values()).find(
-      t => t.tokenHash === tokenHash && t.type === 'email_verification' && !t.isUsed
-    );
+  public async verifyEmail(
+    rawToken: string, 
+    ip: string, 
+    userAgent: string
+  ): Promise<{ success: boolean; user: UserProfile; message: string; alreadyVerified?: boolean }> {
+    if (!rawToken || typeof rawToken !== 'string' || !rawToken.trim()) {
+      throw new Error('Verification token is required.');
+    }
 
-    if (!tokenRecord) {
+    const trimmedToken = rawToken.trim();
+
+    // 1. Inspect token validity without consuming yet (guarantees atomic transaction)
+    const tokenLookup = emailVerificationTokenService.findValidToken(trimmedToken);
+    if (!tokenLookup.valid || !tokenLookup.tokenRecord) {
+      const reason = tokenLookup.reason || 'This verification link is invalid.';
       this.logSecurityEvent('EMAIL_VERIFIED', {
         ipAddress: ip,
         userAgent,
         severity: 'WARNING',
-        details: { reason: 'Invalid or already used verification token' }
+        details: { reason }
       });
-      throw new Error('Verification token is invalid or has already been used.');
+      throw new Error(reason);
     }
 
-    if (new Date(tokenRecord.expiresAt).getTime() < Date.now()) {
-      throw new Error('Verification link has expired. Please request a new verification email.');
-    }
+    const tokenRecord = tokenLookup.tokenRecord;
 
+    // 2. Resolve associated user
     const user = db.users.get(tokenRecord.userId);
     if (!user) {
+      this.logSecurityEvent('EMAIL_VERIFIED', {
+        ipAddress: ip,
+        userAgent,
+        severity: 'WARNING',
+        details: { reason: 'User not found for valid token', userId: tokenRecord.userId }
+      });
       throw new Error('Associated user account was not found.');
     }
 
-    // Activate user
+    // 3. Prevent bypass of administrative restrictions (e.g. SUSPENDED or DELETED accounts)
+    if (user.status === 'SUSPENDED' || user.status === 'DELETED') {
+      this.logSecurityEvent('EMAIL_VERIFIED', {
+        userId: user.id,
+        userEmail: user.email,
+        ipAddress: ip,
+        userAgent,
+        severity: 'CRITICAL',
+        details: { reason: `Attempted verification on account with status ${user.status}` }
+      });
+      throw new Error('Account is suspended or restricted. Email verification cannot bypass administrative restrictions.');
+    }
+
+    // 4. Handle already verified accounts idempotently
+    if (user.emailVerifiedAt && user.status === 'ACTIVE') {
+      // Mark token as used to prevent replay
+      tokenRecord.isUsed = true;
+      tokenRecord.usedAt = new Date().toISOString();
+
+      return {
+        success: true,
+        alreadyVerified: true,
+        user: this.getSafeUser(user),
+        message: 'Your email has already been verified. You can sign in immediately.'
+      };
+    }
+
+    // 5. Atomic State Transition:
+    // PENDING_VERIFICATION -> ACTIVE
+    // emailVerifiedAt -> current UTC timestamp
+    // token.isUsed -> true, token.usedAt -> current UTC timestamp
+    // Role remains strictly unchanged (e.g. CLIENT remains CLIENT)
+    const nowUtc = new Date().toISOString();
     user.status = 'ACTIVE';
-    user.emailVerifiedAt = new Date().toISOString();
-    user.updatedAt = new Date().toISOString();
+    user.emailVerifiedAt = nowUtc;
+    user.updatedAt = nowUtc;
+
     tokenRecord.isUsed = true;
+    tokenRecord.usedAt = nowUtc;
 
     this.logSecurityEvent('EMAIL_VERIFIED', {
       userId: user.id,
@@ -364,13 +411,14 @@ export class AuthService {
       role: user.role,
       ipAddress: ip,
       userAgent,
-      severity: 'INFO'
+      severity: 'INFO',
+      details: { verifiedAt: nowUtc, status: user.status }
     });
 
     return {
       success: true,
       user: this.getSafeUser(user),
-      message: 'Email successfully verified! Your Boost Market account is now fully active.'
+      message: 'Email verified successfully! Your Boost Market account is now active.'
     };
   }
 
@@ -389,35 +437,18 @@ export class AuthService {
       return { success: true, message: 'This account email is already verified. You can sign in immediately.' };
     }
 
-    // Invalidate old verification tokens
-    Array.from(db.tokens.values()).forEach(t => {
-      if (t.userId === user.id && t.type === 'email_verification') {
-        t.isUsed = true;
-      }
-    });
+    const { verificationUrl } = await emailVerificationTokenService.create(
+      user.id,
+      user.email,
+      { origin }
+    );
 
-    const rawToken = this.generateRandomToken(32);
-    const tokenHash = this.hashToken(rawToken);
-    const verificationToken: VerificationToken = {
-      id: `tok_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
-      tokenHash,
-      userId: user.id,
-      email: user.email,
-      type: 'email_verification',
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-      isUsed: false,
-      createdAt: new Date().toISOString()
-    };
-    db.tokens.set(verificationToken.id, verificationToken);
-
-    const actionUrl = `${origin}/?verifyToken=${rawToken}`;
     await emailService.sendEmail({
       to: user.email,
       subject: 'Verify Your Boost Market Account',
       template: 'verification',
       userName: user.name,
-      actionUrl,
-      token: rawToken
+      actionUrl: verificationUrl
     });
 
     this.logSecurityEvent('EMAIL_RESENT', {

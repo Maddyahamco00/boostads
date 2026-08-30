@@ -24,7 +24,8 @@ import {
   AdminPasswordSetupSchema, 
   EnableTwoFactorSchema, 
   UpdateProfileSchema,
-  formatZodError 
+  formatZodError,
+  extractValidationErrors 
 } from './src/server/validators/authValidators';
 import { aiService } from './src/server/services/aiService';
 import { fxService } from './src/server/services/fxService';
@@ -106,9 +107,13 @@ async function startServer() {
     try {
       const validation = RegisterClientSchema.safeParse(req.body);
       if (!validation.success) {
+        const errorData = extractValidationErrors(validation.error);
         return res.status(400).json({
           success: false,
-          error: formatZodError(validation.error)
+          message: 'Validation failed',
+          error: errorData.error,
+          errors: errorData.errors,
+          details: errorData.details
         });
       }
 
@@ -124,7 +129,19 @@ async function startServer() {
       res.status(201).json(result);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Registration failed';
-      res.status(400).json({ success: false, error: message });
+      const isDuplicate = message.toLowerCase().includes('already exists') || 
+                          message.toLowerCase().includes('unique constraint') ||
+                          message.toLowerCase().includes('duplicate');
+      
+      const safeMessage = isDuplicate
+        ? 'An account with this email address already exists. Please sign in or reset your password.'
+        : message;
+
+      res.status(isDuplicate ? 409 : 400).json({ 
+        success: false, 
+        error: safeMessage,
+        code: isDuplicate ? 'DUPLICATE_EMAIL' : 'REGISTRATION_FAILED'
+      });
     }
   });
 
@@ -254,25 +271,64 @@ async function startServer() {
     });
   });
 
-  // 6. Email Verification
-  app.post('/api/auth/verify-email', async (req, res) => {
+  // 6. Email Verification (GET /api/auth/verify-email?token=<TOKEN>)
+  app.get('/api/auth/verify-email', async (req, res) => {
     try {
-      const validation = VerifyEmailSchema.safeParse(req.body);
-      if (!validation.success) {
+      const rawToken = (req.query.token as string) || (req.query.verifyToken as string);
+      if (!rawToken || typeof rawToken !== 'string' || !rawToken.trim()) {
         return res.status(400).json({
           success: false,
-          error: formatZodError(validation.error)
+          error: 'Verification token is required.',
+          code: 'MISSING_TOKEN'
         });
       }
 
       const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
       const userAgent = req.headers['user-agent'] || 'browser';
 
-      const result = await authService.verifyEmail(validation.data.token, clientIp, userAgent);
+      const result = await authService.verifyEmail(rawToken.trim(), clientIp, userAgent);
       res.json(result);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Verification failed';
-      res.status(400).json({ success: false, error: message });
+      const code = message.toLowerCase().includes('expired')
+        ? 'EXPIRED_TOKEN'
+        : message.toLowerCase().includes('already been used')
+        ? 'ALREADY_USED'
+        : message.toLowerCase().includes('suspended') || message.toLowerCase().includes('restricted')
+        ? 'ACCOUNT_RESTRICTED'
+        : 'INVALID_TOKEN';
+
+      res.status(400).json({ success: false, error: message, code });
+    }
+  });
+
+  app.post('/api/auth/verify-email', async (req, res) => {
+    try {
+      const rawToken = req.body?.token || req.body?.verifyToken;
+      if (!rawToken || typeof rawToken !== 'string' || !rawToken.trim()) {
+        return res.status(400).json({
+          success: false,
+          error: 'Verification token is required.',
+          code: 'MISSING_TOKEN'
+        });
+      }
+
+      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'browser';
+
+      const result = await authService.verifyEmail(rawToken.trim(), clientIp, userAgent);
+      res.json(result);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Verification failed';
+      const code = message.toLowerCase().includes('expired')
+        ? 'EXPIRED_TOKEN'
+        : message.toLowerCase().includes('already been used')
+        ? 'ALREADY_USED'
+        : message.toLowerCase().includes('suspended') || message.toLowerCase().includes('restricted')
+        ? 'ACCOUNT_RESTRICTED'
+        : 'INVALID_TOKEN';
+
+      res.status(400).json({ success: false, error: message, code });
     }
   });
 

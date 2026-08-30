@@ -85,6 +85,7 @@ export interface VerificationToken {
   type: 'email_verification' | 'password_reset' | 'admin_setup';
   expiresAt: string;
   isUsed: boolean;
+  usedAt?: string | null;
   createdAt: string;
 }
 

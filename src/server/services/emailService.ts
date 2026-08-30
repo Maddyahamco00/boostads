@@ -45,13 +45,14 @@ export class EmailService {
               </div>
               <p style="color: #64748b; font-size: 12px; line-height: 1.5;">If the button above does not work, copy and paste this verification link into your browser:<br/><span style="color: #38bdf8; word-break: break-all;">${actionUrl}</span></p>
               <p style="color: #64748b; font-size: 12px;">This single-use link expires in 24 hours.</p>
+              <p style="color: #64748b; font-size: 12px;">If you did not create an account on Boost Market, you can safely ignore this email.</p>
               <div style="margin-top: 32px; padding-top: 16px; border-top: 1px solid #1e293b; color: #475569; font-size: 11px;">
                 © ${new Date().getFullYear()} ${appName} by ${companyName}. Secure Authentication Engine.
               </div>
             </div>
           </div>
         `;
-        textContent = `Hello ${userName},\n\nPlease verify your email address for Boost Market by visiting this link:\n${actionUrl}\n\nThis single-use link expires in 24 hours.`;
+        textContent = `Hello ${userName},\n\nPlease verify your email address for Boost Market by visiting this link:\n${actionUrl}\n\nThis single-use link expires in 24 hours.\n\nIf you did not create an account, you can safely ignore this email.`;
         break;
 
       case 'admin_setup':

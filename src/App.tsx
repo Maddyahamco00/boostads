@@ -11,6 +11,7 @@ import { CampaignManagementView } from './components/CampaignManagementView';
 import { PricingPlansView } from './components/PricingPlansView';
 import { AdminPanelView } from './components/AdminPanelView';
 import { RegisterView } from './components/RegisterView';
+import { VerifyEmailView } from './components/VerifyEmailView';
 import { CreateAdModal } from './components/CreateAdModal';
 import { NotificationDrawer } from './components/NotificationDrawer';
 import { ReportModal } from './components/ReportModal';
@@ -45,6 +46,7 @@ const MainLayout: React.FC = () => {
         {activeView === 'pricing_plans' && <PricingPlansView />}
         {activeView === 'admin_panel' && <AdminPanelView />}
         {activeView === 'register' && <RegisterView />}
+        {activeView === 'verify_email' && <VerifyEmailView />}
       </main>
 
       {/* Modals & Drawers */}

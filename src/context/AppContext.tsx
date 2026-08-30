@@ -21,13 +21,14 @@ export type AppView =
   | 'business_detail' 
   | 'ai_marketing' 
   | 'create_ad' 
-  | 'campaigns'
+  | 'campaigns' 
   | 'messages' 
   | 'invoices' 
   | 'merchant_dashboard' 
   | 'pricing_plans' 
-  | 'admin_panel'
-  | 'register';
+  | 'admin_panel' 
+  | 'register' 
+  | 'verify_email';
 
 interface AppContextType {
   // State
@@ -113,8 +114,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [activeView, setActiveViewState] = useState<AppView>(() => {
-    if (typeof window !== 'undefined' && window.location.pathname === '/register') {
-      return 'register';
+    if (typeof window !== 'undefined') {
+      if (window.location.pathname === '/register') {
+        return 'register';
+      }
+      if (window.location.pathname === '/verify-email' || window.location.search.includes('verifyToken=') || (window.location.pathname === '/' && window.location.search.includes('token='))) {
+        return 'verify_email';
+      }
     }
     return 'discover';
   });
@@ -126,8 +132,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (window.location.pathname !== '/register') {
           window.history.pushState({}, '', '/register');
         }
+      } else if (view === 'verify_email') {
+        if (window.location.pathname !== '/verify-email') {
+          window.history.pushState({}, '', '/verify-email');
+        }
       } else {
-        if (window.location.pathname === '/register') {
+        if (window.location.pathname === '/register' || window.location.pathname === '/verify-email') {
           window.history.pushState({}, '', '/');
         }
       }
@@ -138,6 +148,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const handlePopState = () => {
       if (window.location.pathname === '/register') {
         setActiveViewState('register');
+      } else if (window.location.pathname === '/verify-email' || window.location.search.includes('verifyToken=') || (window.location.pathname === '/' && window.location.search.includes('token='))) {
+        setActiveViewState('verify_email');
       } else {
         setActiveViewState('discover');
       }

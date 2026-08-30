@@ -1,4 +1,4 @@
-import bcrypt from 'bcryptjs';
+import { passwordService } from './services/passwordService';
 import { 
   Merchant, 
   Customer, 
@@ -37,6 +37,15 @@ import {
   MultiPlatformCampaign,
   Lead
 } from '../types';
+
+export class DatabaseUniqueConstraintError extends Error {
+  public readonly code = 'P2002'; // Standard Prisma / DB unique constraint code
+  public readonly target = ['email'];
+  constructor(message = 'Unique constraint failed on the fields: (`email`)') {
+    super(message);
+    this.name = 'DatabaseUniqueConstraintError';
+  }
+}
 
 export class DatabaseStore {
   // Core E-commerce & Marketplace Entities
@@ -368,8 +377,8 @@ export class DatabaseStore {
     ];
 
     // 3. Seed Users with Authentication Passwords and strictly enforced Roles
-    const defaultPasswordHash = bcrypt.hashSync('Client123!', 10);
-    const adminPasswordHash = bcrypt.hashSync('Admin2026!', 10);
+    const defaultPasswordHash = passwordService.hashSync('Client123!', 12);
+    const adminPasswordHash = passwordService.hashSync('Admin2026!', 12);
 
     const ceoUser: UserEntity = {
       id: 'usr_maddy_ceo',
@@ -1477,6 +1486,33 @@ export class DatabaseStore {
     if (!email) return undefined;
     const normalized = email.toLowerCase().trim();
     return Array.from(this.users.values()).find(u => u.email.toLowerCase().trim() === normalized);
+  }
+
+  /**
+   * Database-Level User Creation with Strict UNIQUE Constraint Enforcement.
+   * Prevents race conditions and duplicate account creation at the data layer.
+   * Throws DatabaseUniqueConstraintError (P2002) if an account with this normalized email already exists.
+   */
+  public createUser(user: UserEntity): UserEntity {
+    if (!user || !user.email) {
+      throw new Error('User email is required for entity persistence');
+    }
+    const normalizedEmail = user.email.toLowerCase().trim();
+
+    // Check if normalized email is already persisted in the database store
+    const existing = Array.from(this.users.values()).find(
+      u => u.email.toLowerCase().trim() === normalizedEmail
+    );
+
+    if (existing) {
+      throw new DatabaseUniqueConstraintError(
+        `Unique constraint failed on the fields: (\`email\`). An account with email "${normalizedEmail}" already exists in the database.`
+      );
+    }
+
+    user.email = normalizedEmail;
+    this.users.set(user.id, user);
+    return user;
   }
 
   public enforceSuperAdminInvariant(): void {
