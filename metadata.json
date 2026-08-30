@@ -1,0 +1,7 @@
+{
+  "name": "Boost Market - Business Advertising & Local Marketplace",
+  "description": "Full-stack SaaS business advertising, local discovery, real-time messaging, portfolio showcase, and invoicing payment platform for all business types by Real Boosters.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
