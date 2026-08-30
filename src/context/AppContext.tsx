@@ -26,7 +26,8 @@ export type AppView =
   | 'invoices' 
   | 'merchant_dashboard' 
   | 'pricing_plans' 
-  | 'admin_panel';
+  | 'admin_panel'
+  | 'register';
 
 interface AppContextType {
   // State
@@ -111,7 +112,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [currentLocation, setCurrentLocation] = useState<LocationCoordinates>(defaultLocation);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [activeView, setActiveView] = useState<AppView>('discover');
+  const [activeView, setActiveViewState] = useState<AppView>(() => {
+    if (typeof window !== 'undefined' && window.location.pathname === '/register') {
+      return 'register';
+    }
+    return 'discover';
+  });
+
+  const setActiveView = useCallback((view: AppView) => {
+    setActiveViewState(view);
+    if (typeof window !== 'undefined') {
+      if (view === 'register') {
+        if (window.location.pathname !== '/register') {
+          window.history.pushState({}, '', '/register');
+        }
+      } else {
+        if (window.location.pathname === '/register') {
+          window.history.pushState({}, '', '/');
+        }
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      if (window.location.pathname === '/register') {
+        setActiveViewState('register');
+      } else {
+        setActiveViewState('discover');
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
   const [selectedBusinessId, setSelectedBusinessId] = useState<string | null>(null);
   const [selectedAdId, setSelectedAdId] = useState<string | null>(null);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);

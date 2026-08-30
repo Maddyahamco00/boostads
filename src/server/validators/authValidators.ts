@@ -22,22 +22,22 @@ export function formatZodError(err: z.ZodError): string {
 
 // 1. Client Registration DTO
 export const RegisterClientSchema = z.object({
-  name: z.string().min(2, 'Name must be at least 2 characters').max(100),
-  email: z.string().email('Invalid email address').max(255),
+  name: z.string({ message: 'Name is required' }).trim().min(2, 'Name must be at least 2 characters').max(100, 'Name must be at most 100 characters'),
+  email: z.string({ message: 'Email is required' }).trim().email('Invalid email address').max(255, 'Email is too long'),
   password: z
-    .string()
+    .string({ message: 'Password is required' })
     .min(8, 'Password must be at least 8 characters')
-    .max(128)
+    .max(128, 'Password is too long')
     .regex(/[A-Za-z]/, 'Password must contain at least one letter')
     .regex(/[0-9]/, 'Password must contain at least one number'),
   confirmPassword: z.string().optional(),
   phone: z.string().max(30).optional(),
   clientType: z.enum(['customer', 'business', 'freelancer', 'advertiser', 'service_provider']).optional(),
-  termsAccepted: z.boolean().refine(val => val === true, {
-    message: 'You must accept the terms and conditions'
-  }),
-  // Even if a malicious client sends role: 'SUPER_ADMIN', this schema or our service strictly ignores it or enforces 'CLIENT'
-  role: z.string().optional()
+  termsAccepted: z.boolean().optional(),
+  // Even if a malicious client sends role: 'SUPER_ADMIN' or isAdmin: true, backend strictly ignores or enforces 'CLIENT'
+  role: z.string().optional(),
+  isAdmin: z.boolean().optional(),
+  isSuperAdmin: z.boolean().optional()
 }).refine(data => !data.confirmPassword || data.password === data.confirmPassword, {
   message: 'Passwords do not match',
   path: ['confirmPassword']

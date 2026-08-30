@@ -10,6 +10,7 @@ import { MerchantDashboardView } from './components/MerchantDashboardView';
 import { CampaignManagementView } from './components/CampaignManagementView';
 import { PricingPlansView } from './components/PricingPlansView';
 import { AdminPanelView } from './components/AdminPanelView';
+import { RegisterView } from './components/RegisterView';
 import { CreateAdModal } from './components/CreateAdModal';
 import { NotificationDrawer } from './components/NotificationDrawer';
 import { ReportModal } from './components/ReportModal';
@@ -43,6 +44,7 @@ const MainLayout: React.FC = () => {
         {activeView === 'merchant_dashboard' && <MerchantDashboardView />}
         {activeView === 'pricing_plans' && <PricingPlansView />}
         {activeView === 'admin_panel' && <AdminPanelView />}
+        {activeView === 'register' && <RegisterView />}
       </main>
 
       {/* Modals & Drawers */}

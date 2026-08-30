@@ -22,7 +22,8 @@ import {
   ShieldAlert,
   LogIn,
   LogOut,
-  Smartphone
+  Smartphone,
+  UserPlus
 } from 'lucide-react';
 import { AuthModal } from './AuthModal';
 import { SecuritySettingsModal } from './SecuritySettingsModal';
@@ -455,15 +456,26 @@ export const Header: React.FC = () => {
 
                 <div className="pt-2 border-t border-slate-800 flex flex-col gap-1">
                   <button
+                    id="header-register-nav-btn"
+                    onClick={() => {
+                      setActiveView('register');
+                      setIsUserDropdownOpen(false);
+                    }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-emerald-400 hover:bg-slate-800 rounded font-medium flex items-center gap-2"
+                  >
+                    <UserPlus className="w-3.5 h-3.5" /> Client Registration (/register)
+                  </button>
+
+                  <button
                     onClick={() => {
                       setAuthModalTab('login');
                       setAuthModalToken('');
                       setIsAuthModalOpen(true);
                       setIsUserDropdownOpen(false);
                     }}
-                    className="w-full text-left px-3 py-1.5 text-xs text-emerald-400 hover:bg-slate-800 rounded font-medium flex items-center gap-2"
+                    className="w-full text-left px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800 rounded font-medium flex items-center gap-2"
                   >
-                    <LogIn className="w-3.5 h-3.5" /> Sign In / Register / Switch
+                    <LogIn className="w-3.5 h-3.5" /> Sign In / Account Switcher
                   </button>
 
                   <button
