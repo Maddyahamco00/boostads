@@ -85,12 +85,28 @@ export const RegisterClientSchema = z.object({
   path: ['confirmPassword']
 });
 
-// 2. Login DTO
+// 2. Login DTO (Authoritative Client Login Validation)
 export const LoginSchema = z.object({
-  email: z.string().email('Invalid email address').max(255),
-  password: z.string().min(1, 'Password is required'),
+  email: z
+    .string({ message: 'Email address is required' })
+    .trim()
+    .min(1, 'Email address is required')
+    .email('Please enter a valid email address')
+    .max(255, 'Email address is too long'),
+  password: z
+    .string({ message: 'Password is required' })
+    .min(1, 'Password is required')
+    .max(128, 'Password is too long'),
   twoFactorCode: z.string().optional(),
-  recoveryCode: z.string().optional()
+  recoveryCode: z.string().optional(),
+  // Explicitly ignore/strip any privilege or role escalation payloads
+  role: z.any().optional(),
+  isAdmin: z.any().optional(),
+  isSuperAdmin: z.any().optional(),
+  permissions: z.any().optional(),
+  status: z.any().optional(),
+  userId: z.any().optional(),
+  privileges: z.any().optional()
 });
 
 // 3. Verify Email DTO
@@ -100,7 +116,17 @@ export const VerifyEmailSchema = z.object({
 
 // 4. Resend Verification DTO
 export const ResendVerificationSchema = z.object({
-  email: z.string().email('Invalid email address')
+  email: z
+    .string({ message: 'Email address is required' })
+    .trim()
+    .min(1, 'Email address is required')
+    .email('Please enter a valid email address')
+    .max(255, 'Email address is too long'),
+  role: z.any().optional(),
+  status: z.any().optional(),
+  userId: z.any().optional(),
+  isAdmin: z.any().optional(),
+  permissions: z.any().optional()
 });
 
 // 5. Forgot Password DTO

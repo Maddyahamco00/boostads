@@ -44,6 +44,9 @@ const CITIES = [
 export const Header: React.FC = () => {
   const { 
     currentUser, 
+    isAuthenticated,
+    logout,
+    logoutAll,
     switchUserRole, 
     currentLocation, 
     setCurrentLocation, 
@@ -520,12 +523,7 @@ export const Header: React.FC = () => {
 
                   <button
                     onClick={async () => {
-                      try {
-                        await fetch('/api/auth/logout', { method: 'POST' });
-                      } catch (e) {
-                        console.error(e);
-                      }
-                      switchUserRole('customer');
+                      await logout();
                       setIsUserDropdownOpen(false);
                     }}
                     className="w-full text-left px-3 py-1.5 text-xs text-rose-400 hover:bg-rose-500/10 rounded font-medium flex items-center gap-2 border-t border-slate-800/80 mt-1"

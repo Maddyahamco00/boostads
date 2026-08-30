@@ -18,6 +18,20 @@ import bcrypt from 'bcryptjs';
 export class PasswordService {
   private readonly defaultSaltRounds: number = 12;
 
+  private static readonly DUMMY_HASH = '$2a$12$e8rG.MvP51W7qjB5y5uEoezTqQ0v9YV/6dE2L3.bX1zG0vB9YV/6d';
+
+  /**
+   * Performs a constant-time dummy verification against a static hash
+   * to eliminate timing side-channels when a user is not found.
+   */
+  public async dummyVerify(password: string): Promise<boolean> {
+    try {
+      return await bcrypt.compare(password || 'dummyPassword', PasswordService.DUMMY_HASH);
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * Hashes a plaintext password asynchronously using Bcrypt with a high work factor (12 rounds)
    * and a cryptographically random unique salt.

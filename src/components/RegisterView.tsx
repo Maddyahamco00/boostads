@@ -13,7 +13,8 @@ import {
   Sparkles,
   Building2,
   Check,
-  Send
+  Send,
+  Clock
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { UserProfile } from '../types';
@@ -49,6 +50,7 @@ export const RegisterView: React.FC<RegisterViewProps> = ({ onNavigateToLogin })
   const [registeredUser, setRegisteredUser] = useState<UserProfile | null>(null);
   const [resendStatus, setResendStatus] = useState<'idle' | 'loading' | 'sent' | 'error'>('idle');
   const [resendMessage, setResendMessage] = useState<string | null>(null);
+  const [cooldownSeconds, setCooldownSeconds] = useState<number>(0);
 
   // Sync URL to /register on mount
   useEffect(() => {
@@ -56,6 +58,15 @@ export const RegisterView: React.FC<RegisterViewProps> = ({ onNavigateToLogin })
       window.history.replaceState({}, '', '/register');
     }
   }, []);
+
+  // Resend cooldown timer
+  useEffect(() => {
+    if (cooldownSeconds <= 0) return;
+    const timer = setInterval(() => {
+      setCooldownSeconds(prev => (prev > 1 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [cooldownSeconds]);
 
   // Password strength calculation
   const getPasswordStrength = (pass: string) => {
@@ -188,7 +199,7 @@ export const RegisterView: React.FC<RegisterViewProps> = ({ onNavigateToLogin })
 
   // Handle Resend Verification Email
   const handleResendVerification = async () => {
-    if (!registeredUser?.email) return;
+    if (!registeredUser?.email || isSubmitting || resendStatus === 'loading' || cooldownSeconds > 0) return;
 
     setResendStatus('loading');
     setResendMessage(null);
@@ -202,14 +213,19 @@ export const RegisterView: React.FC<RegisterViewProps> = ({ onNavigateToLogin })
 
       const data = await res.json();
       if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Failed to resend verification email');
+        if (res.status === 429 || data.code === 'RATE_LIMITED') {
+          setCooldownSeconds(data.remainingSeconds || 60);
+          throw new Error('Too many requests. Please wait before requesting another verification email.');
+        }
+        throw new Error(data.error || 'Unable to send the verification email right now. Please try again later.');
       }
 
       setResendStatus('sent');
-      setResendMessage(data.message || 'Verification email has been resent successfully.');
+      setResendMessage('Verification email sent. Please check your inbox.');
+      setCooldownSeconds(60);
     } catch (err: unknown) {
       setResendStatus('error');
-      setResendMessage(err instanceof Error ? err.message : 'Could not resend email. Please try again.');
+      setResendMessage(err instanceof Error ? err.message : 'Unable to send the verification email right now. Please try again later.');
     }
   };
 
@@ -287,23 +303,28 @@ export const RegisterView: React.FC<RegisterViewProps> = ({ onNavigateToLogin })
                 id="resend-verification-btn"
                 type="button"
                 onClick={handleResendVerification}
-                disabled={resendStatus === 'loading' || resendStatus === 'sent'}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 text-xs font-semibold transition-colors disabled:opacity-50"
+                disabled={resendStatus === 'loading' || cooldownSeconds > 0}
+                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {resendStatus === 'loading' ? (
                   <>
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Resending email...</span>
+                    <span>Sending...</span>
+                  </>
+                ) : cooldownSeconds > 0 ? (
+                  <>
+                    <Clock className="w-3.5 h-3.5 text-slate-400" />
+                    <span className="text-slate-400">Resend available in {cooldownSeconds}s</span>
                   </>
                 ) : resendStatus === 'sent' ? (
                   <>
                     <Check className="w-3.5 h-3.5 text-emerald-400" />
-                    <span className="text-emerald-400">Verification Link Sent</span>
+                    <span className="text-emerald-400">Verification email sent</span>
                   </>
                 ) : (
                   <>
                     <Send className="w-3.5 h-3.5" />
-                    <span>Resend verification</span>
+                    <span>Resend verification email</span>
                   </>
                 )}
               </button>

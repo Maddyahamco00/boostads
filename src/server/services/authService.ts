@@ -31,6 +31,7 @@ export interface TokenPayload {
 
 export class AuthService {
   private failedAttempts: Map<string, { count: number; lockedUntil?: number }> = new Map();
+  private resendAttempts: Map<string, { count: number; windowStart: number; lockedUntil?: number }> = new Map();
 
   constructor() {
     console.log('[AuthService] Production Authentication & Authorization Engine Ready');
@@ -130,6 +131,48 @@ export class AuthService {
 
   private clearFailedAttempts(key: string): void {
     this.failedAttempts.delete(key);
+  }
+
+  // ----------------------------------------------------
+  // RESEND VERIFICATION RATE LIMITING
+  // ----------------------------------------------------
+  public checkResendRateLimit(key: string, maxRequests: number = 3, windowMs: number = 60 * 1000): { isLimited: boolean; remainingSeconds?: number } {
+    const now = Date.now();
+    const record = this.resendAttempts.get(key);
+    if (!record) return { isLimited: false };
+
+    if (record.lockedUntil && record.lockedUntil > now) {
+      const remainingSeconds = Math.ceil((record.lockedUntil - now) / 1000);
+      return { isLimited: true, remainingSeconds };
+    }
+
+    if (now - record.windowStart > windowMs) {
+      this.resendAttempts.delete(key);
+      return { isLimited: false };
+    }
+
+    if (record.count >= maxRequests) {
+      record.lockedUntil = now + windowMs;
+      const remainingSeconds = Math.ceil(windowMs / 1000);
+      return { isLimited: true, remainingSeconds };
+    }
+
+    return { isLimited: false };
+  }
+
+  public recordResendAttempt(key: string, windowMs: number = 60 * 1000): void {
+    const now = Date.now();
+    const record = this.resendAttempts.get(key);
+    if (!record || (now - record.windowStart > windowMs)) {
+      this.resendAttempts.set(key, { count: 1, windowStart: now });
+    } else {
+      record.count += 1;
+      this.resendAttempts.set(key, record);
+    }
+  }
+
+  public clearResendRateLimit(key: string): void {
+    this.resendAttempts.delete(key);
   }
 
   // ----------------------------------------------------
@@ -425,48 +468,153 @@ export class AuthService {
   // ----------------------------------------------------
   // 3. RESEND VERIFICATION EMAIL
   // ----------------------------------------------------
-  public async resendVerification(email: string, origin: string, ip: string, userAgent: string): Promise<{ success: boolean; message: string }> {
+  public async resendVerification(
+    email: string, 
+    origin: string, 
+    ip: string, 
+    userAgent: string
+  ): Promise<{ success: boolean; message: string }> {
+    const GENERIC_RESPONSE = 'If an account with that email requires verification, a verification email has been sent.';
+
+    if (!email || typeof email !== 'string' || !email.trim()) {
+      throw new Error('Email address is required.');
+    }
+
     const normalizedEmail = email.toLowerCase().trim();
+
+    // 1. Rate Limiting Check (by IP and by normalized email)
+    const ipLimit = this.checkResendRateLimit(`resend:ip:${ip}`);
+    if (ipLimit.isLimited) {
+      this.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+        userEmail: normalizedEmail,
+        ipAddress: ip,
+        userAgent,
+        severity: 'WARNING',
+        details: { action: 'resend_verification_rate_limit', key: `ip:${ip}`, remainingSeconds: ipLimit.remainingSeconds }
+      });
+      const error: any = new Error('Too many requests. Please wait before requesting another verification email.');
+      error.code = 'RATE_LIMITED';
+      error.remainingSeconds = ipLimit.remainingSeconds;
+      throw error;
+    }
+
+    const emailLimit = this.checkResendRateLimit(`resend:email:${normalizedEmail}`);
+    if (emailLimit.isLimited) {
+      this.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+        userEmail: normalizedEmail,
+        ipAddress: ip,
+        userAgent,
+        severity: 'WARNING',
+        details: { action: 'resend_verification_rate_limit', key: `email:${normalizedEmail}`, remainingSeconds: emailLimit.remainingSeconds }
+      });
+      const error: any = new Error('Too many requests. Please wait before requesting another verification email.');
+      error.code = 'RATE_LIMITED';
+      error.remainingSeconds = emailLimit.remainingSeconds;
+      throw error;
+    }
+
+    // Record rate limit attempt
+    this.recordResendAttempt(`resend:ip:${ip}`);
+    this.recordResendAttempt(`resend:email:${normalizedEmail}`);
+
+    // 2. Account Lookup
     const user = db.getUserByEmail(normalizedEmail);
 
+    // If account does not exist, return generic response without revealing account existence
     if (!user) {
-      return { success: true, message: 'If an unverified account exists for this email, a verification link has been sent.' };
+      this.logSecurityEvent('EMAIL_RESENT', {
+        userEmail: normalizedEmail,
+        ipAddress: ip,
+        userAgent,
+        severity: 'INFO',
+        details: { accountFound: false }
+      });
+      return {
+        success: true,
+        message: GENERIC_RESPONSE
+      };
     }
 
-    if (user.status === 'ACTIVE' && user.emailVerifiedAt) {
-      return { success: true, message: 'This account email is already verified. You can sign in immediately.' };
+    // 3. Already Verified Accounts: Return safe generic response, do not generate token or change state
+    if (user.emailVerifiedAt !== null || user.status === 'ACTIVE') {
+      this.logSecurityEvent('EMAIL_RESENT', {
+        userId: user.id,
+        userEmail: user.email,
+        role: user.role,
+        ipAddress: ip,
+        userAgent,
+        severity: 'INFO',
+        details: { reason: 'Account already verified', status: user.status }
+      });
+      return {
+        success: true,
+        message: GENERIC_RESPONSE
+      };
     }
 
+    // 4. Restricted Accounts (SUSPENDED, DISABLED, DELETED): Return safe generic response, never bypass restrictions
+    if (user.status === 'SUSPENDED' || user.status === 'DISABLED' || user.status === 'DELETED') {
+      this.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+        userId: user.id,
+        userEmail: user.email,
+        role: user.role,
+        ipAddress: ip,
+        userAgent,
+        severity: 'WARNING',
+        details: { reason: `Attempted resend for account with status ${user.status}` }
+      });
+      return {
+        success: true,
+        message: GENERIC_RESPONSE
+      };
+    }
+
+    // 5. Eligible Account (PENDING_VERIFICATION):
+    // Invalidate old tokens, generate new secure token, store only SHA-256 hash, dispatch email
     const { verificationUrl } = await emailVerificationTokenService.create(
       user.id,
       user.email,
       { origin }
     );
 
-    await emailService.sendEmail({
-      to: user.email,
-      subject: 'Verify Your Boost Market Account',
-      template: 'verification',
-      userName: user.name,
-      actionUrl: verificationUrl
-    });
+    try {
+      await emailService.sendEmail({
+        to: user.email,
+        subject: 'Verify Your Boost Market Account',
+        template: 'verification',
+        userName: user.name,
+        actionUrl: verificationUrl
+      });
+    } catch (err: unknown) {
+      this.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+        userId: user.id,
+        userEmail: user.email,
+        ipAddress: ip,
+        userAgent,
+        severity: 'WARNING',
+        details: { action: 'email_delivery_failed', error: err instanceof Error ? err.message : 'Unknown mail error' }
+      });
+      // Do NOT activate the account; user remains PENDING_VERIFICATION
+    }
 
     this.logSecurityEvent('EMAIL_RESENT', {
       userId: user.id,
       userEmail: user.email,
+      role: user.role,
       ipAddress: ip,
       userAgent,
-      severity: 'INFO'
+      severity: 'INFO',
+      details: { accountStatus: user.status }
     });
 
     return {
       success: true,
-      message: 'If an unverified account exists for this email, a verification link has been sent.'
+      message: GENERIC_RESPONSE
     };
   }
 
   // ----------------------------------------------------
-  // 4. LOGIN & AUTHENTICATION
+  // 4. CLIENT LOGIN & AUTHENTICATION (TASK 1.2.1)
   // ----------------------------------------------------
   public async login(data: {
     email: string;
@@ -485,7 +633,7 @@ export class AuthService {
     const normalizedEmail = data.email.toLowerCase().trim();
     const rateLimitKey = `${normalizedEmail}_${ip}`;
 
-    // Check rate limit / lockout
+    // 1. Check rate limit / lockout
     const rateStatus = this.checkRateLimit(rateLimitKey);
     if (rateStatus.isLocked) {
       this.logSecurityEvent('ACCOUNT_LOCKED', {
@@ -495,11 +643,17 @@ export class AuthService {
         severity: 'WARNING',
         details: { remainingSeconds: rateStatus.remainingSeconds }
       });
-      throw new Error(`Too many failed login attempts. Account temporarily locked for ${rateStatus.remainingSeconds} seconds.`);
+      const err: any = new Error(`Too many failed login attempts. Account temporarily locked for ${rateStatus.remainingSeconds} seconds.`);
+      err.code = 'RATE_LIMITED';
+      err.remainingSeconds = rateStatus.remainingSeconds;
+      throw err;
     }
 
+    // 2. User Lookup
     const user = db.getUserByEmail(normalizedEmail);
     if (!user) {
+      // Eliminate timing discrepancies between existing and non-existing accounts
+      await passwordService.dummyVerify(data.password);
       this.registerFailedAttempt(rateLimitKey);
       this.logSecurityEvent('LOGIN_FAILED', {
         userEmail: normalizedEmail,
@@ -508,27 +662,16 @@ export class AuthService {
         severity: 'WARNING',
         details: { reason: 'User not found' }
       });
-      throw new Error('Invalid email or password.');
+      const err: any = new Error('Invalid email or password.');
+      err.code = 'INVALID_CREDENTIALS';
+      throw err;
     }
 
-    // Check account status
-    if (user.status === 'SUSPENDED') {
-      throw new Error('Your account has been suspended by administration. Please contact support.');
-    }
-    if (user.status === 'DISABLED' || user.status === 'DELETED') {
-      throw new Error('This account is no longer active.');
-    }
-
-    // Special check for Super Admin without a password configured yet
-    if (user.role === 'SUPER_ADMIN' && !user.passwordHash) {
-      throw new Error('Super Admin account initial password setup is required. Please use the initialization link sent to your email.');
-    }
-
-    // Verify password
+    // 3. Constant-Time Password Verification
     const isPasswordValid = await this.comparePassword(data.password, user.passwordHash || '');
     if (!isPasswordValid) {
       this.registerFailedAttempt(rateLimitKey);
-      user.failedLoginAttempts += 1;
+      user.failedLoginAttempts = (user.failedLoginAttempts || 0) + 1;
       this.logSecurityEvent('LOGIN_FAILED', {
         userId: user.id,
         userEmail: user.email,
@@ -538,10 +681,83 @@ export class AuthService {
         severity: 'WARNING',
         details: { reason: 'Incorrect password', failedAttempts: user.failedLoginAttempts }
       });
-      throw new Error('Invalid email or password.');
+      const err: any = new Error('Invalid email or password.');
+      err.code = 'INVALID_CREDENTIALS';
+      throw err;
     }
 
-    // If 2FA is enabled, issue pre-auth token
+    // 4. Super Admin Separation: Public Client login must strictly enforce CLIENT role
+    if (user.role !== 'CLIENT') {
+      this.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+        userId: user.id,
+        userEmail: user.email,
+        role: user.role,
+        ipAddress: ip,
+        userAgent,
+        severity: 'CRITICAL',
+        details: { reason: 'Non-client account attempted login via client portal', attemptedRole: user.role }
+      });
+      const err: any = new Error('Administrative accounts must use the administrative portal.');
+      err.code = 'ADMIN_SEPARATION';
+      throw err;
+    }
+
+    // 5. Account Status Checks
+    if (user.status === 'SUSPENDED') {
+      this.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+        userId: user.id,
+        userEmail: user.email,
+        role: user.role,
+        ipAddress: ip,
+        userAgent,
+        severity: 'CRITICAL',
+        details: { reason: 'Suspended account login attempt' }
+      });
+      const err: any = new Error('Your account has been suspended. Please contact support.');
+      err.code = 'ACCOUNT_SUSPENDED';
+      throw err;
+    }
+
+    if (user.status === 'DISABLED' || user.status === 'DELETED') {
+      this.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+        userId: user.id,
+        userEmail: user.email,
+        role: user.role,
+        ipAddress: ip,
+        userAgent,
+        severity: 'CRITICAL',
+        details: { reason: 'Disabled or deleted account login attempt' }
+      });
+      const err: any = new Error('This account is no longer active.');
+      err.code = 'ACCOUNT_DISABLED';
+      throw err;
+    }
+
+    // 6. Email Verification Check (Unverified clients cannot receive authenticated access)
+    if (user.status === 'PENDING_VERIFICATION' || !user.emailVerifiedAt) {
+      this.logSecurityEvent('LOGIN_FAILED', {
+        userId: user.id,
+        userEmail: user.email,
+        role: user.role,
+        ipAddress: ip,
+        userAgent,
+        severity: 'WARNING',
+        details: { reason: 'Unverified email account login attempt', status: user.status }
+      });
+      const err: any = new Error('Please verify your email address before signing in.');
+      err.code = 'EMAIL_NOT_VERIFIED';
+      err.unverified = true;
+      err.email = user.email;
+      throw err;
+    }
+
+    if (user.status !== 'ACTIVE') {
+      const err: any = new Error('Account is not active.');
+      err.code = 'ACCOUNT_NOT_ACTIVE';
+      throw err;
+    }
+
+    // 7. If 2FA is enabled, handle TOTP challenge
     if (user.twoFactorEnabled && user.twoFactorSecret) {
       if (!data.twoFactorCode && !data.recoveryCode) {
         const preAuthToken = jwt.sign(
@@ -566,7 +782,6 @@ export class AuthService {
         const codeIdx = user.twoFactorRecoveryCodes.indexOf(codeHash);
         if (codeIdx !== -1) {
           is2faValid = true;
-          // Consume recovery code
           user.twoFactorRecoveryCodes.splice(codeIdx, 1);
         }
       }
@@ -582,22 +797,24 @@ export class AuthService {
           severity: 'WARNING',
           details: { reason: 'Invalid 2FA code or recovery code' }
         });
-        throw new Error('Invalid two-factor authentication code or recovery code.');
+        const err: any = new Error('Invalid two-factor authentication code or recovery code.');
+        err.code = 'INVALID_2FA_CODE';
+        throw err;
       }
     }
 
-    // Clear failed attempts on successful login
+    // 8. Successful Login: Clear Rate Limiting Counters
     this.clearFailedAttempts(rateLimitKey);
     user.failedLoginAttempts = 0;
     user.lastLoginAt = new Date().toISOString();
 
-    // Create session
+    // 9. Create Authenticated Session
     const sessionId = `ses_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
     const session: AuthSession = {
       id: sessionId,
       userId: user.id,
       email: user.email,
-      role: user.role,
+      role: user.role, // Strictly user's database role ('CLIENT')
       tokenHash: this.hashToken(sessionId),
       ipAddress: ip,
       userAgent,
@@ -608,9 +825,11 @@ export class AuthService {
     };
     db.sessions.set(sessionId, session);
 
+    // 10. Generate Tokens
     const accessToken = this.generateAccessToken(user, sessionId);
     const refreshToken = this.generateRefreshToken(user, sessionId);
 
+    // 11. Audit Logging
     this.logSecurityEvent('LOGIN_SUCCESS', {
       userId: user.id,
       userEmail: user.email,
@@ -618,7 +837,7 @@ export class AuthService {
       ipAddress: ip,
       userAgent,
       severity: 'INFO',
-      details: { sessionId }
+      details: { sessionId, clientType: user.clientType }
     });
 
     return {
@@ -626,7 +845,7 @@ export class AuthService {
       user: this.getSafeUser(user),
       accessToken,
       refreshToken,
-      message: 'Sign in successful.'
+      message: 'Login successful'
     };
   }
 
@@ -1061,18 +1280,33 @@ export class AuthService {
   // ----------------------------------------------------
   // 10. SESSION MANAGEMENT
   // ----------------------------------------------------
-  public logout(sessionId: string): void {
+  public logout(sessionId: string, ip?: string, userAgent?: string): void {
     const session = db.sessions.get(sessionId);
     if (session) {
       session.isRevoked = true;
+      this.logSecurityEvent('LOGOUT', {
+        userId: session.userId,
+        userEmail: session.email,
+        role: session.role,
+        ipAddress: ip || session.ipAddress,
+        userAgent: userAgent || session.userAgent,
+        severity: 'INFO',
+        details: { sessionId }
+      });
     }
   }
 
-  public logoutAll(userId: string): void {
+  public logoutAll(userId: string, ip?: string, userAgent?: string): void {
     Array.from(db.sessions.values()).forEach(s => {
       if (s.userId === userId) {
         s.isRevoked = true;
       }
+    });
+    this.logSecurityEvent('LOGOUT_ALL_SESSIONS', {
+      userId,
+      ipAddress: ip || '127.0.0.1',
+      userAgent: userAgent || 'server',
+      severity: 'INFO'
     });
   }
 

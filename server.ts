@@ -70,6 +70,46 @@ async function startServer() {
   app.use(express.urlencoded({ extended: true, limit: '15mb' }));
   app.use(cookieParser());
 
+  // Security Headers & Dynamic CORS Middleware
+  app.use((req, res, next) => {
+    // Standard Security Headers
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+
+    // CORS Configuration
+    const requestOrigin = req.headers.origin;
+    const configuredOrigins = (process.env.CORS_ORIGINS || '')
+      .split(',')
+      .map(o => o.trim().toLowerCase())
+      .filter(Boolean);
+
+    const appUrl = process.env.APP_URL ? new URL(process.env.APP_URL).origin.toLowerCase() : null;
+    const hostHeader = req.get('host') ? `${req.protocol}://${req.get('host')}`.toLowerCase() : null;
+
+    const isAllowedOrigin = !requestOrigin || 
+      requestOrigin === hostHeader ||
+      (appUrl && requestOrigin.toLowerCase() === appUrl) ||
+      requestOrigin.includes('localhost:') ||
+      requestOrigin.includes('127.0.0.1:') ||
+      configuredOrigins.includes(requestOrigin.toLowerCase()) ||
+      requestOrigin.endsWith('.run.app');
+
+    if (requestOrigin && isAllowedOrigin) {
+      res.setHeader('Access-Control-Allow-Origin', requestOrigin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+    }
+
+    if (req.method === 'OPTIONS') {
+      return res.status(204).end();
+    }
+
+    next();
+  });
+
   // Request logging
   app.use((req, res, next) => {
     if (req.path.startsWith('/api')) {
@@ -145,14 +185,15 @@ async function startServer() {
     }
   });
 
-  // 2. Login
+  // 2. Client Login (TASK 1.2.1)
   app.post('/api/auth/login', async (req, res) => {
     try {
       const validation = LoginSchema.safeParse(req.body);
       if (!validation.success) {
         return res.status(400).json({
           success: false,
-          error: formatZodError(validation.error)
+          error: formatZodError(validation.error),
+          code: 'VALIDATION_ERROR'
         });
       }
 
@@ -161,11 +202,16 @@ async function startServer() {
 
       const result = await authService.login(validation.data, clientIp, userAgent);
 
+      if (result.twoFactorRequired) {
+        return res.json(result);
+      }
+
       if (result.accessToken) {
         res.cookie('boost_access_token', result.accessToken, {
           httpOnly: true,
           secure: process.env.NODE_ENV === 'production',
           sameSite: 'lax',
+          path: '/',
           maxAge: 60 * 60 * 1000 // 1 hour
         });
       }
@@ -175,14 +221,40 @@ async function startServer() {
           httpOnly: true,
           secure: process.env.NODE_ENV === 'production',
           sameSite: 'lax',
+          path: '/',
           maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
         });
       }
 
       res.json(result);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Authentication failed';
-      res.status(401).json({ success: false, error: message });
+      const message = err instanceof Error ? err.message : 'Invalid email or password.';
+      const code = (err as any)?.code || (
+        message.toLowerCase().includes('verify your email')
+          ? 'EMAIL_NOT_VERIFIED'
+          : message.toLowerCase().includes('suspended')
+          ? 'ACCOUNT_SUSPENDED'
+          : message.toLowerCase().includes('locked') || message.toLowerCase().includes('too many')
+          ? 'RATE_LIMITED'
+          : message.toLowerCase().includes('administrative')
+          ? 'ADMIN_SEPARATION'
+          : 'INVALID_CREDENTIALS'
+      );
+
+      const status = code === 'RATE_LIMITED'
+        ? 429
+        : code === 'EMAIL_NOT_VERIFIED' || code === 'ACCOUNT_SUSPENDED' || code === 'ADMIN_SEPARATION'
+        ? 403
+        : 401;
+
+      res.status(status).json({
+        success: false,
+        error: message,
+        code,
+        unverified: (err as any)?.unverified,
+        email: (err as any)?.email,
+        remainingSeconds: (err as any)?.remainingSeconds
+      });
     }
   });
 
@@ -203,6 +275,7 @@ async function startServer() {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',
+        path: '/',
         maxAge: 60 * 60 * 1000
       });
 
@@ -210,6 +283,7 @@ async function startServer() {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',
+        path: '/',
         maxAge: 30 * 24 * 60 * 60 * 1000
       });
 
@@ -222,11 +296,43 @@ async function startServer() {
 
   // 4. Logout & Logout All
   app.post('/api/auth/logout', (req: AuthenticatedRequest, res) => {
-    if (req.sessionId) {
-      authService.logout(req.sessionId);
+    let sessionId = req.sessionId || req.body?.sessionId;
+
+    if (!sessionId) {
+      const token = req.cookies?.boost_access_token || (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.split(' ')[1] : undefined);
+      if (token) {
+        const payload = authService.verifyAccessToken(token);
+        if (payload?.sessionId) sessionId = payload.sessionId;
+      }
     }
-    res.clearCookie('boost_access_token');
-    res.clearCookie('boost_refresh_token');
+
+    if (!sessionId) {
+      const refreshToken = req.cookies?.boost_refresh_token || req.body?.refreshToken;
+      if (refreshToken) {
+        const payload = authService.verifyRefreshToken(refreshToken);
+        if (payload?.sessionId) sessionId = payload.sessionId;
+      }
+    }
+
+    if (sessionId) {
+      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'browser';
+      authService.logout(sessionId, clientIp, userAgent);
+    }
+
+    res.clearCookie('boost_access_token', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/'
+    });
+    res.clearCookie('boost_refresh_token', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/'
+    });
+
     res.json({ success: true, message: 'Logged out successfully' });
   });
 
@@ -234,8 +340,18 @@ async function startServer() {
     if (req.user) {
       authService.logoutAll(req.user.id);
     }
-    res.clearCookie('boost_access_token');
-    res.clearCookie('boost_refresh_token');
+    res.clearCookie('boost_access_token', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/'
+    });
+    res.clearCookie('boost_refresh_token', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/'
+    });
     res.json({ success: true, message: 'All active sessions have been revoked' });
   });
 
@@ -251,23 +367,39 @@ async function startServer() {
       return res.status(401).json({ success: false, error: 'Invalid or expired refresh token' });
     }
 
-    const user = db.users.get(payload.userId);
-    if (!user || user.status === 'SUSPENDED' || user.status === 'DELETED') {
-      return res.status(403).json({ success: false, error: 'Account is not authorized' });
+    if (payload.sessionId) {
+      const session = db.sessions.get(payload.sessionId);
+      if (!session || session.isRevoked || new Date(session.expiresAt).getTime() < Date.now()) {
+        return res.status(401).json({ success: false, error: 'Session has been revoked or expired' });
+      }
+      session.lastActiveAt = new Date().toISOString();
     }
 
-    const newAccessToken = authService.generateAccessToken(authService.getSafeUser(user), payload.sessionId);
+    const user = db.users.get(payload.userId);
+    if (!user) {
+      return res.status(401).json({ success: false, error: 'Account no longer exists' });
+    }
+    if (user.status === 'SUSPENDED') {
+      return res.status(403).json({ success: false, error: 'Your account has been suspended by administration.' });
+    }
+    if (user.status === 'DISABLED' || user.status === 'DELETED') {
+      return res.status(403).json({ success: false, error: 'This account is no longer active.' });
+    }
+
+    const safeUser = authService.getSafeUser(user);
+    const newAccessToken = authService.generateAccessToken(safeUser, payload.sessionId);
     res.cookie('boost_access_token', newAccessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
+      path: '/',
       maxAge: 60 * 60 * 1000
     });
 
     res.json({
       success: true,
       accessToken: newAccessToken,
-      user: authService.getSafeUser(user)
+      user: safeUser
     });
   });
 
@@ -348,6 +480,17 @@ async function startServer() {
       res.json(result);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to resend verification';
+      const isRateLimit = (err as any)?.code === 'RATE_LIMITED' || message.toLowerCase().includes('too many requests');
+      
+      if (isRateLimit) {
+        return res.status(429).json({
+          success: false,
+          error: message,
+          code: 'RATE_LIMITED',
+          remainingSeconds: (err as any)?.remainingSeconds
+        });
+      }
+
       res.status(400).json({ success: false, error: message });
     }
   });
@@ -424,18 +567,43 @@ async function startServer() {
   });
 
   // 11. Current Session Profile (Me)
-  app.get('/api/auth/me', optionalAuthenticate, (req: AuthenticatedRequest, res) => {
-    if (!req.user) {
-      return res.json({ authenticated: false, user: null });
+  app.get('/api/auth/me', (req: AuthenticatedRequest, res) => {
+    if (req.query.optional === 'true' || req.query.check === 'true') {
+      return optionalAuthenticate(req, res, () => {
+        if (!req.user) {
+          return res.json({ success: true, authenticated: false, user: null, sessionsCount: 0 });
+        }
+        const safeUser = authService.getSafeUser(req.user);
+        const sessions = authService.getActiveSessions(req.user.id);
+        return res.json({
+          success: true,
+          authenticated: true,
+          user: safeUser,
+          id: safeUser.id,
+          name: safeUser.name,
+          email: safeUser.email,
+          role: safeUser.role,
+          sessionsCount: sessions.length
+        });
+      });
     }
 
-    const safeUser = authService.getSafeUser(req.user);
-    const sessions = authService.getActiveSessions(req.user.id);
-
-    res.json({
-      authenticated: true,
-      user: safeUser,
-      sessionsCount: sessions.length
+    authenticate(req, res, () => {
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+      const safeUser = authService.getSafeUser(req.user);
+      const sessions = authService.getActiveSessions(req.user.id);
+      res.json({
+        success: true,
+        authenticated: true,
+        user: safeUser,
+        id: safeUser.id,
+        name: safeUser.name,
+        email: safeUser.email,
+        role: safeUser.role,
+        sessionsCount: sessions.length
+      });
     });
   });
 

@@ -143,7 +143,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        credentials: 'include',
         body: JSON.stringify({
           email,
           password,
@@ -154,7 +155,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
       const data = await res.json();
       if (!data.success) {
-        if (data.requiresTwoFactor) {
+        if (data.twoFactorRequired || data.requiresTwoFactor) {
           setPreAuthToken(data.preAuthToken);
           setTab('2fa');
           return;
@@ -188,7 +189,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     try {
       const res = await fetch('/api/auth/2fa/verify', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        credentials: 'include',
         body: JSON.stringify({
           preAuthToken,
           code: useRecoveryCode ? recoveryCode : twoFactorCode

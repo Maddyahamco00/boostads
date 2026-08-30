@@ -175,6 +175,19 @@ export class EmailVerificationTokenService {
     }
     return removed;
   }
+
+  /**
+   * Returns all email verification tokens currently stored in the database.
+   */
+  public listTokens(): VerificationToken[] {
+    const list: VerificationToken[] = [];
+    for (const token of db.tokens.values()) {
+      if (token.type === 'email_verification') {
+        list.push(token);
+      }
+    }
+    return list;
+  }
 }
 
 export const emailVerificationTokenService = new EmailVerificationTokenService();

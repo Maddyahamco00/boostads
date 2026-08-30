@@ -4,6 +4,9 @@ import { emailService } from './emailService';
 import { passwordService } from './passwordService';
 import { emailVerificationTokenService } from './emailVerificationTokenService';
 import { RegisterClientSchema, formatZodError } from '../validators/authValidators';
+import { UserEntity } from '../../types';
+import jwt from 'jsonwebtoken';
+import { authenticate, AuthenticatedRequest } from '../middleware/authMiddleware';
 
 export interface AuthTestResult {
   id: string;
@@ -1049,12 +1052,25 @@ export class AuthTestRunnerService {
       'Session Lifecycle & Revocation',
       'Verify session creation, tracking, and global logout (logout-all)',
       async (logs) => {
-        const user = db.users.get('usr_maddy_ceo')!;
-        logs.push(`Creating session for: ${user.email}`);
+        const testEmail = `session_revoc_${Date.now()}@example.com`;
+        const testPassword = 'SessionPassword123!';
+        const reg = await authService.registerClient({
+          name: 'Session Revoc Client',
+          email: testEmail,
+          password: testPassword,
+          clientType: 'business'
+        }, '127.0.0.1', 'TestRunner');
+
+        const user = db.getUserByEmail(testEmail)!;
+        user.status = 'ACTIVE';
+        user.emailVerifiedAt = new Date().toISOString();
+        db.users.set(user.id, user);
+
+        logs.push(`Creating session for client: ${user.email}`);
 
         await authService.login({
           email: user.email,
-          password: 'Admin2026!'
+          password: testPassword
         }, '127.0.0.1', 'TestDevice/1.0');
 
         const activeSessions = authService.getActiveSessions(user.id);
@@ -1258,6 +1274,764 @@ export class AuthTestRunnerService {
         const tokenLookupTest = emailVerificationTokenService.findValidToken('nonexistent_token_hash_probe');
         if (tokenLookupTest.valid) throw new Error('Test 10 Failed: Token probe was valid');
         logs.push('Test 10 Passed: Verification state transition is atomic and consistent');
+      }
+    ));
+
+    // Test 8: Resend Email Verification (Task 1.1.9)
+    results.push(await this.runTest(
+      'auth_08_resend_verification',
+      'Resend Email Verification',
+      'Verify resend verification email flow: rate limiting, token invalidation, generic responses, account status checks, and security protections',
+      async (logs) => {
+        // --- SCENARIO 1: Pending Client Resend ---
+        logs.push('Scenario 1: Pending client requests resend verification email');
+        const user1Email = `resend_client_1_${Date.now()}@example.com`;
+        await authService.registerClient({
+          name: 'Pending Client 1',
+          email: user1Email,
+          password: 'Password123!'
+        }, '127.0.0.1', 'TestRunner');
+
+        const initialEmails = emailService.getEmailsFor(user1Email);
+        if (initialEmails.length === 0) throw new Error('Scenario 1 Failed: Initial registration email not sent');
+        const initialToken = decodeURIComponent(initialEmails[0]?.actionUrl?.match(/[?&](?:token|verifyToken)=([^&]+)/)![1]);
+
+        authService.clearResendRateLimit('resend:ip:127.0.0.1');
+        authService.clearResendRateLimit(`resend:email:${user1Email}`);
+
+        const resendResult1 = await authService.resendVerification(
+          user1Email,
+          'http://localhost:3000',
+          '127.0.0.1',
+          'TestRunner'
+        );
+
+        if (!resendResult1.success || !resendResult1.message) {
+          throw new Error('Scenario 1 Failed: Resend request did not return success');
+        }
+
+        const resentEmails = emailService.getEmailsFor(user1Email);
+        if (resentEmails.length < 2) {
+          throw new Error('Scenario 1 Failed: New verification email was not dispatched');
+        }
+        // Since outbox prepends with unshift, resentEmails[0] is the newest email
+        const newToken = decodeURIComponent(resentEmails[0]?.actionUrl?.match(/[?&](?:token|verifyToken)=([^&]+)/)![1]);
+        if (newToken === initialToken) {
+          throw new Error('Scenario 1 Failed: New token is identical to old token');
+        }
+        logs.push('Scenario 1 Passed: Resend dispatched a new unique verification token');
+
+        // --- SCENARIO 2: Unknown Email (Anti-Enumeration) ---
+        logs.push('Scenario 2: Resend for unknown email returns safe generic response');
+        authService.clearResendRateLimit('resend:ip:127.0.0.1');
+        const unknownEmail = `nonexistent_user_${Date.now()}@example.com`;
+        const resendResult2 = await authService.resendVerification(
+          unknownEmail,
+          'http://localhost:3000',
+          '127.0.0.1',
+          'TestRunner'
+        );
+
+        if (!resendResult2.success) {
+          throw new Error('Scenario 2 Failed: Resend for unknown email returned failure');
+        }
+        if (resendResult2.message !== resendResult1.message) {
+          throw new Error('Scenario 2 Failed: Response message differs between existent and non-existent accounts');
+        }
+        const unknownUserEmails = emailService.getEmailsFor(unknownEmail);
+        if (unknownUserEmails.length > 0) {
+          throw new Error('Scenario 2 Failed: Email was dispatched for non-existent account');
+        }
+        logs.push('Scenario 2 Passed: Safe generic response returned without leaking account existence');
+
+        // --- SCENARIO 3: Already Verified Account ---
+        logs.push('Scenario 3: Resend for already verified account returns generic response without resending or mutating state');
+        authService.clearResendRateLimit('resend:ip:127.0.0.1');
+        const user3Email = `verified_user_3_${Date.now()}@example.com`;
+        await authService.registerClient({
+          name: 'Verified Client 3',
+          email: user3Email,
+          password: 'Password123!'
+        }, '127.0.0.1', 'TestRunner');
+
+        const emails3 = emailService.getEmailsFor(user3Email);
+        const token3 = decodeURIComponent(emails3[0]?.actionUrl?.match(/[?&](?:token|verifyToken)=([^&]+)/)![1]);
+        await authService.verifyEmail(token3, '127.0.0.1', 'TestRunner');
+
+        const verifiedUser = db.getUserByEmail(user3Email)!;
+        if (verifiedUser.status !== 'ACTIVE' || !verifiedUser.emailVerifiedAt) {
+          throw new Error('Scenario 3 Setup Failed: User not verified');
+        }
+
+        const emailCountBefore = emailService.getEmailsFor(user3Email).length;
+        const resendResult3 = await authService.resendVerification(
+          user3Email,
+          'http://localhost:3000',
+          '127.0.0.1',
+          'TestRunner'
+        );
+
+        if (!resendResult3.success) {
+          throw new Error('Scenario 3 Failed: Resend for verified user returned failure');
+        }
+        const emailCountAfter = emailService.getEmailsFor(user3Email).length;
+        if (emailCountAfter !== emailCountBefore) {
+          throw new Error('Scenario 3 Failed: Verification email was sent to already verified user');
+        }
+        logs.push('Scenario 3 Passed: Already verified account safely handled with generic response');
+
+        // --- SCENARIO 4: Old Token Invalidation ---
+        logs.push('Scenario 4: Verifying old token is invalidated after resend');
+        let oldTokenBlocked = false;
+        try {
+          await authService.verifyEmail(initialToken, '127.0.0.1', 'TestRunner');
+        } catch (e: any) {
+          oldTokenBlocked = true;
+          logs.push(`Scenario 4: Old token correctly rejected with: "${e.message}"`);
+        }
+        if (!oldTokenBlocked) {
+          throw new Error('Scenario 4 Failed: Old token was still valid after resend!');
+        }
+        logs.push('Scenario 4 Passed: Old token strictly invalidated');
+
+        // --- SCENARIO 5: New Token Activates Account ---
+        logs.push('Scenario 5: Verifying new token successfully activates the account');
+        const activationResult = await authService.verifyEmail(newToken, '127.0.0.1', 'TestRunner');
+        if (!activationResult.success || activationResult.user.status !== 'ACTIVE') {
+          throw new Error('Scenario 5 Failed: New token failed to activate user');
+        }
+        const user1Refreshed = db.getUserByEmail(user1Email)!;
+        if (user1Refreshed.status !== 'ACTIVE' || !user1Refreshed.emailVerifiedAt) {
+          throw new Error('Scenario 5 Failed: User database record not updated to ACTIVE');
+        }
+        logs.push('Scenario 5 Passed: New token successfully activated the user account');
+
+        // --- SCENARIO 6: Rate Limiting ---
+        logs.push('Scenario 6: Verifying rate limit throttles excessive requests');
+        const rateLimitUserEmail = `ratelimit_user_${Date.now()}@example.com`;
+        await authService.registerClient({
+          name: 'Rate Limit Test',
+          email: rateLimitUserEmail,
+          password: 'Password123!'
+        }, '127.0.0.1', 'TestRunner');
+
+        const uniqueIp = `192.168.100.${Math.floor(Math.random() * 200 + 10)}`;
+        authService.clearResendRateLimit(`resend:ip:${uniqueIp}`);
+        authService.clearResendRateLimit(`resend:email:${rateLimitUserEmail}`);
+
+        // Send 3 requests (allowed)
+        await authService.resendVerification(rateLimitUserEmail, 'http://localhost:3000', uniqueIp, 'TestRunner');
+        await authService.resendVerification(rateLimitUserEmail, 'http://localhost:3000', uniqueIp, 'TestRunner');
+        await authService.resendVerification(rateLimitUserEmail, 'http://localhost:3000', uniqueIp, 'TestRunner');
+
+        // 4th request must be rate limited
+        let rateLimitBlocked = false;
+        try {
+          await authService.resendVerification(rateLimitUserEmail, 'http://localhost:3000', uniqueIp, 'TestRunner');
+        } catch (e: any) {
+          rateLimitBlocked = true;
+          logs.push(`Scenario 6: 4th resend request blocked with: "${e.message}"`);
+        }
+        if (!rateLimitBlocked) {
+          throw new Error('Scenario 6 Failed: Excessive resend requests were not rate limited!');
+        }
+        logs.push('Scenario 6 Passed: Resend verification rate limiting enforced');
+
+        // --- SCENARIO 7: No Privilege Escalation ---
+        logs.push('Scenario 7: Verifying privilege escalation fields are stripped/ignored');
+        const unverifiedUser7 = `priv_test_${Date.now()}@example.com`;
+        await authService.registerClient({
+          name: 'Priv Test User',
+          email: unverifiedUser7,
+          password: 'Password123!'
+        }, '127.0.0.1', 'TestRunner');
+
+        authService.clearResendRateLimit('resend:ip:127.0.0.1');
+        authService.clearResendRateLimit(`resend:email:${unverifiedUser7}`);
+
+        await authService.resendVerification(unverifiedUser7, 'http://localhost:3000', '127.0.0.1', 'TestRunner');
+        const user7 = db.getUserByEmail(unverifiedUser7)!;
+        if (user7.role !== 'CLIENT' || user7.status !== 'PENDING_VERIFICATION') {
+          throw new Error('Scenario 7 Failed: User role or status escalated!');
+        }
+        logs.push('Scenario 7 Passed: Role and status remain strictly untouched');
+
+        // --- SCENARIO 8: Designated Administrator Security ---
+        logs.push('Scenario 8: Verifying designated administrator account security');
+        const superAdmin = db.getUserByEmail('maddyahamco00@gmail.com');
+        if (superAdmin) {
+          authService.clearResendRateLimit('resend:ip:127.0.0.1');
+          await authService.resendVerification('maddyahamco00@gmail.com', 'http://localhost:3000', '127.0.0.1', 'TestRunner');
+          const adminRefreshed = db.getUserByEmail('maddyahamco00@gmail.com')!;
+          if (adminRefreshed.role !== 'SUPER_ADMIN') {
+            throw new Error('Scenario 8 Failed: Super Admin role was altered!');
+          }
+        }
+        logs.push('Scenario 8 Passed: Super Admin privileges strictly preserved');
+
+        // --- SCENARIO 9: Token Hashing & Raw Token Secrecy ---
+        logs.push('Scenario 9: Verifying raw token is never stored in DB and only SHA-256 hash is saved');
+        const allDbTokens = emailVerificationTokenService.listTokens();
+        for (const tokenRecord of allDbTokens) {
+          if (tokenRecord.tokenHash.length !== 64) {
+            throw new Error('Scenario 9 Failed: Token hash length is not 64 characters (SHA-256)');
+          }
+        }
+        logs.push('Scenario 9 Passed: All tokens in DB are strictly 64-character SHA-256 hex hashes');
+
+        // --- SCENARIO 10: Suspended Accounts Restricted ---
+        logs.push('Scenario 10: Verifying suspended account cannot request resend or bypass restrictions');
+        const suspendedUserEmail = `suspended_resend_${Date.now()}@example.com`;
+        await authService.registerClient({
+          name: 'Suspended Resend User',
+          email: suspendedUserEmail,
+          password: 'Password123!'
+        }, '127.0.0.1', 'TestRunner');
+        const suspendedUser = db.getUserByEmail(suspendedUserEmail)!;
+        suspendedUser.status = 'SUSPENDED';
+
+        authService.clearResendRateLimit('resend:ip:127.0.0.1');
+        const countBeforeSuspended = emailService.getEmailsFor(suspendedUserEmail).length;
+        const resendResult10 = await authService.resendVerification(
+          suspendedUserEmail,
+          'http://localhost:3000',
+          '127.0.0.1',
+          'TestRunner'
+        );
+
+        if (!resendResult10.success) {
+          throw new Error('Scenario 10 Failed: Resend for suspended user did not return generic safe response');
+        }
+        const countAfterSuspended = emailService.getEmailsFor(suspendedUserEmail).length;
+        if (countAfterSuspended !== countBeforeSuspended) {
+          throw new Error('Scenario 10 Failed: Verification email was dispatched for suspended account');
+        }
+        if (suspendedUser.status !== 'SUSPENDED') {
+          throw new Error('Scenario 10 Failed: Suspended user status was changed');
+        }
+        logs.push('Scenario 10 Passed: Suspended account safely handled with no email dispatch and no status change');
+      }
+    ));
+
+    // Test 20: Client Login API Comprehensive Security Suite (Task 1.2.1)
+    results.push(await this.runTest(
+      'auth_18_client_login_api',
+      'Client Login API',
+      'Verify Client Login API: valid login, invalid password, unknown email, unverified email block, status checks, role injection rejection, super admin separation, password hash protection, rate limiting, and end-to-end lifecycle',
+      async (logs) => {
+        const testTimestamp = Date.now();
+        const baseEmail = `client_login_test_${testTimestamp}@example.com`;
+        const testPassword = 'ClientPassword123!';
+
+        // Step 1: Register New Client
+        logs.push(`Step 1: Registering new client: ${baseEmail}`);
+        const regRes = await authService.registerClient({
+          name: 'Jane Doe Client',
+          email: `  ${baseEmail.toUpperCase()}  `,
+          password: testPassword,
+          clientType: 'business'
+        }, '127.0.0.1', 'SecurityTestRunner/1.0');
+
+        const unverifiedUser = db.getUserByEmail(baseEmail);
+        if (!unverifiedUser) throw new Error('Registered user not found in database');
+        logs.push(`Registered user created: ID=${unverifiedUser.id}, Status=${unverifiedUser.status}, Role=${unverifiedUser.role}`);
+
+        // Test 4: Unverified Client Login Attempt
+        logs.push('Test 4 (Unverified Email): Attempting login for unverified account');
+        let unverifiedBlocked = false;
+        try {
+          await authService.login({
+            email: baseEmail,
+            password: testPassword
+          }, '127.0.0.1', 'SecurityTestRunner/1.0');
+        } catch (err: any) {
+          unverifiedBlocked = true;
+          logs.push(`Unverified account correctly rejected: "${err.message}" (code: ${err.code})`);
+          if (!err.message.includes('verify your email')) {
+            throw new Error(`Expected verification warning message but got: "${err.message}"`);
+          }
+        }
+        if (!unverifiedBlocked) {
+          throw new Error('Security defect: Unverified account was allowed to log in');
+        }
+
+        // Test 3: Unknown Email Attempt
+        logs.push('Test 3 (Unknown Email): Attempting login with non-existent email');
+        let unknownBlocked = false;
+        try {
+          await authService.login({
+            email: `non_existent_${Date.now()}@domain.com`,
+            password: 'SomePassword123!'
+          }, '127.0.0.1', 'SecurityTestRunner/1.0');
+        } catch (err: any) {
+          unknownBlocked = true;
+          if (err.message !== 'Invalid email or password.') {
+            throw new Error(`Expected generic 'Invalid email or password.' message but got: "${err.message}"`);
+          }
+          logs.push(`Unknown email correctly rejected with generic message: "${err.message}"`);
+        }
+        if (!unknownBlocked) {
+          throw new Error('Security defect: Unknown email did not fail authentication');
+        }
+
+        // Step 2: Verify the Account
+        logs.push('Step 2: Activating client account via token verification');
+        const tokenList = emailVerificationTokenService.listTokens();
+        const userToken = tokenList.find(t => t.userId === unverifiedUser.id && !t.isUsed);
+        if (!userToken) throw new Error('Verification token not found for user');
+
+        const emailLog = emailService.getEmailsFor(baseEmail)[0];
+        const rawToken = decodeURIComponent(emailLog.actionUrl.match(/[?&](?:token|verifyToken)=([^&]+)/)![1]);
+        await authService.verifyEmail(rawToken, '127.0.0.1', 'SecurityTestRunner/1.0');
+
+        const activeUser = db.getUserByEmail(baseEmail);
+        if (!activeUser || activeUser.status !== 'ACTIVE' || !activeUser.emailVerifiedAt) {
+          throw new Error('Account was not properly activated');
+        }
+        logs.push(`Account successfully activated: Status=${activeUser.status}, EmailVerifiedAt=${activeUser.emailVerifiedAt}`);
+
+        // Test 2: Wrong Password Attempt on Active Account
+        logs.push('Test 2 (Wrong Password): Attempting login with incorrect password');
+        let wrongPassBlocked = false;
+        try {
+          await authService.login({
+            email: baseEmail,
+            password: 'WrongPassword999!'
+          }, '127.0.0.1', 'SecurityTestRunner/1.0');
+        } catch (err: any) {
+          wrongPassBlocked = true;
+          if (err.message !== 'Invalid email or password.') {
+            throw new Error(`Expected generic 'Invalid email or password.' message but got: "${err.message}"`);
+          }
+          logs.push(`Wrong password correctly rejected with generic message: "${err.message}"`);
+        }
+        if (!wrongPassBlocked) {
+          throw new Error('Security defect: Wrong password was allowed');
+        }
+
+        // Test 1 & Test 7: Valid Client Login
+        logs.push('Test 1 & 7 (Valid Client Login): Logging in with valid credentials');
+        const loginRes = await authService.login({
+          email: `  ${baseEmail.toUpperCase()}  `,
+          password: testPassword
+        }, '127.0.0.1', 'SecurityTestRunner/1.0');
+
+        if (!loginRes.success || !loginRes.user || !loginRes.accessToken || !loginRes.refreshToken) {
+          throw new Error('Valid login failed or did not return tokens/user');
+        }
+        if (loginRes.user.role !== 'CLIENT') {
+          throw new Error(`Expected role 'CLIENT' but got '${loginRes.user.role}'`);
+        }
+        if (loginRes.user.id !== activeUser.id) {
+          throw new Error('Returned user ID mismatch');
+        }
+        logs.push(`Valid login succeeded: User ID=${loginRes.user.id}, Role=${loginRes.user.role}`);
+
+        // Test 10: Password Hash Protection
+        logs.push('Test 10 (Password Hash Protection): Verifying no password hash or secrets returned');
+        if ((loginRes.user as any).passwordHash || (loginRes.user as any).twoFactorSecret) {
+          throw new Error('Security defect: passwordHash or twoFactorSecret exposed in login response');
+        }
+        logs.push('Verified: Safe user profile returned with no sensitive security hashes');
+
+        // Test 8: Role Injection Attack via Login Payload
+        logs.push('Test 8 (Role Injection): Attempting privilege escalation via login payload');
+        const injectionRes = await authService.login({
+          email: baseEmail,
+          password: testPassword,
+          role: 'SUPER_ADMIN' as any,
+          isAdmin: true as any,
+          isSuperAdmin: true as any
+        } as any, '127.0.0.1', 'SecurityTestRunner/1.0');
+
+        if (injectionRes.user?.role !== 'CLIENT') {
+          throw new Error(`Role injection succeeded! Got role: ${injectionRes.user?.role}`);
+        }
+        const sessionPayload = authService.verifyAccessToken(injectionRes.accessToken!);
+        if (!sessionPayload || sessionPayload.role !== 'CLIENT') {
+          throw new Error(`Access token payload contained elevated role: ${sessionPayload?.role}`);
+        }
+        logs.push('Verified: Injected role fields completely ignored; token role is strictly CLIENT');
+
+        // Test 9: Super Admin Separation Check
+        logs.push('Test 9 (Super Admin Separation): Attempting to log in Super Admin via client endpoint');
+        let adminSeparationEnforced = false;
+        try {
+          await authService.login({
+            email: 'maddyahamco00@gmail.com',
+            password: 'Admin2026!'
+          }, '127.0.0.1', 'SecurityTestRunner/1.0');
+        } catch (err: any) {
+          adminSeparationEnforced = true;
+          logs.push(`Super Admin login via client endpoint correctly rejected: "${err.message}" (code: ${err.code})`);
+        }
+        if (!adminSeparationEnforced) {
+          throw new Error('Security defect: Super Admin was allowed to log in through public client login endpoint');
+        }
+        logs.push('Verified: Super Admin separation strictly enforced on public client login');
+
+        // Test 5: Suspended Account Login Attempt
+        logs.push('Test 5 (Suspended Account): Testing suspended account login rejection');
+        const suspendedEmail = `suspended_user_${Date.now()}@example.com`;
+        const suspendedUser: UserEntity = {
+          id: `usr_susp_${Date.now()}`,
+          name: 'Suspended User',
+          email: suspendedEmail,
+          role: 'CLIENT',
+          status: 'SUSPENDED',
+          clientType: 'customer',
+          tier: 'free',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          emailVerifiedAt: new Date().toISOString(),
+          passwordHash: await passwordService.hash('Password123!'),
+          failedLoginAttempts: 0,
+          twoFactorEnabled: false
+        };
+        db.users.set(suspendedUser.id, suspendedUser);
+
+        let suspendedBlocked = false;
+        try {
+          await authService.login({
+            email: suspendedEmail,
+            password: 'Password123!'
+          }, '127.0.0.1', 'SecurityTestRunner/1.0');
+        } catch (err: any) {
+          suspendedBlocked = true;
+          logs.push(`Suspended account correctly rejected: "${err.message}"`);
+        }
+        if (!suspendedBlocked) {
+          throw new Error('Security defect: Suspended account was allowed to log in');
+        }
+
+        // Test 6: Disabled Account Login Attempt
+        logs.push('Test 6 (Disabled Account): Testing disabled account login rejection');
+        const disabledEmail = `disabled_user_${Date.now()}@example.com`;
+        const disabledUser: UserEntity = {
+          id: `usr_dis_${Date.now()}`,
+          name: 'Disabled User',
+          email: disabledEmail,
+          role: 'CLIENT',
+          status: 'DISABLED',
+          clientType: 'customer',
+          tier: 'free',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          emailVerifiedAt: new Date().toISOString(),
+          passwordHash: await passwordService.hash('Password123!'),
+          failedLoginAttempts: 0,
+          twoFactorEnabled: false
+        };
+        db.users.set(disabledUser.id, disabledUser);
+
+        let disabledBlocked = false;
+        try {
+          await authService.login({
+            email: disabledEmail,
+            password: 'Password123!'
+          }, '127.0.0.1', 'SecurityTestRunner/1.0');
+        } catch (err: any) {
+          disabledBlocked = true;
+          logs.push(`Disabled account correctly rejected: "${err.message}"`);
+        }
+        if (!disabledBlocked) {
+          throw new Error('Security defect: Disabled account was allowed to log in');
+        }
+
+        // Test 11: Rate Limiting & Account Lockout
+        logs.push('Test 11 (Rate Limiting): Testing 5 consecutive invalid logins for rate-limiting lockout');
+        const rateLimitTarget = `ratelimit_${Date.now()}@example.com`;
+        const rateLimitUser: UserEntity = {
+          id: `usr_rl_${Date.now()}`,
+          name: 'Rate Limit Target',
+          email: rateLimitTarget,
+          role: 'CLIENT',
+          status: 'ACTIVE',
+          clientType: 'business',
+          tier: 'pro',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          emailVerifiedAt: new Date().toISOString(),
+          passwordHash: await passwordService.hash('CorrectPass123!'),
+          failedLoginAttempts: 0,
+          twoFactorEnabled: false
+        };
+        db.users.set(rateLimitUser.id, rateLimitUser);
+
+        const attackerIp = '10.0.0.99';
+        for (let i = 1; i <= 5; i++) {
+          try {
+            await authService.login({
+              email: rateLimitTarget,
+              password: 'WrongPassword!'
+            }, attackerIp, 'AttackerAgent/1.0');
+          } catch {
+            // expected
+          }
+        }
+
+        let rateLimitTriggered = false;
+        try {
+          await authService.login({
+            email: rateLimitTarget,
+            password: 'WrongPassword!'
+          }, attackerIp, 'AttackerAgent/1.0');
+        } catch (err: any) {
+          if (err.message.includes('locked') || err.message.includes('Too many failed')) {
+            rateLimitTriggered = true;
+            logs.push(`Rate limit lockout correctly triggered: "${err.message}"`);
+          }
+        }
+        if (!rateLimitTriggered) {
+          throw new Error('Rate limiter failed to lock out after 5 consecutive failures');
+        }
+
+        // Test 12: Credential Logging Audit
+        logs.push('Test 12 (Credential Logging): Inspecting security logs for exposed passwords');
+        const recentLogs = db.securityLogs.slice(-20);
+        for (const log of recentLogs) {
+          const logStr = JSON.stringify(log);
+          if (logStr.includes(testPassword) || logStr.includes('ClientPassword123!') || logStr.includes('CorrectPass123!')) {
+            throw new Error('Security defect: Plaintext password found in security audit logs');
+          }
+        }
+        logs.push('Verified: No credentials or plaintext passwords exist in security audit logs');
+
+        logs.push('ALL 12 TASK 1.2.1 CLIENT LOGIN API VERIFICATION TESTS PASSED SUCCESSFULLY');
+      }
+    ));
+
+    // Test 20: Comprehensive Client Authentication Session & Token Management (Task 1.2.2)
+    results.push(await this.runTest(
+      'auth_20_session_token_management',
+      'Session & Token Management',
+      'Verify complete session lifecycle, JWT signature integrity, expiration, middleware enforcement, role non-tampering, session revocation, and multi-session isolation (Task 1.2.2)',
+      async (logs) => {
+        const testUserEmail = `session_client_${Date.now()}@example.com`;
+        const testPassword = 'SessionPassword123!';
+        
+        // 1. Setup active client
+        logs.push(`Test 1 (Valid Authentication): Setting up verified active client: ${testUserEmail}`);
+        const user: UserEntity = {
+          id: `usr_sess_${Date.now()}`,
+          name: 'Session Test Client',
+          email: testUserEmail,
+          role: 'CLIENT',
+          status: 'ACTIVE',
+          clientType: 'business',
+          tier: 'pro',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          emailVerifiedAt: new Date().toISOString(),
+          passwordHash: await passwordService.hash(testPassword),
+          failedLoginAttempts: 0,
+          twoFactorEnabled: false
+        };
+        db.users.set(user.id, user);
+
+        const loginRes = await authService.login({
+          email: testUserEmail,
+          password: testPassword
+        }, '192.168.1.50', 'DeviceA/1.0');
+
+        if (!loginRes.success || !loginRes.accessToken || !loginRes.refreshToken) {
+          throw new Error('Valid login failed to produce access and refresh tokens');
+        }
+        logs.push('Verified: Valid credentials issue access token (JWT) and refresh token');
+
+        // Verify Session in Database
+        const payload = authService.verifyAccessToken(loginRes.accessToken);
+        if (!payload || !payload.sessionId) {
+          throw new Error('Access token payload missing valid sessionId claim');
+        }
+        const sessionRecord = db.sessions.get(payload.sessionId);
+        if (!sessionRecord || sessionRecord.userId !== user.id) {
+          throw new Error('Session record not found in database or mismatched userId');
+        }
+        if (sessionRecord.isRevoked) {
+          throw new Error('New session was initialized as revoked');
+        }
+        if (!sessionRecord.tokenHash || sessionRecord.tokenHash.length < 32) {
+          throw new Error('Session record does not contain secure SHA-256 token hash');
+        }
+        logs.push('Verified: Database session record exists with secure token hash and active status');
+
+        // 2. Test Invalid Token Signature (Forgery Attack)
+        logs.push('Test 2 (Invalid Signature): Attempting verification of forged JWT signed with attacker secret');
+        const forgedToken = jwt.sign({
+          userId: user.id,
+          email: user.email,
+          role: 'SUPER_ADMIN',
+          sessionId: payload.sessionId
+        }, 'attacker_malicious_secret_9988', { expiresIn: '1h' });
+
+        const verifiedForged = authService.verifyAccessToken(forgedToken);
+        if (verifiedForged !== null) {
+          throw new Error('Security defect: Forged token signature was accepted by verifyAccessToken');
+        }
+
+        // Test middleware with forged token
+        let middlewareBlocked = false;
+        let mockResCode = 200;
+        let mockResBody: any = null;
+        const mockReq: any = {
+          cookies: { boost_access_token: forgedToken },
+          headers: {},
+          ip: '127.0.0.1'
+        };
+        const mockRes: any = {
+          status: (code: number) => {
+            mockResCode = code;
+            return {
+              json: (data: any) => { mockResBody = data; }
+            };
+          }
+        };
+        authenticate(mockReq, mockRes, () => {
+          middlewareBlocked = false;
+        });
+        if (mockResCode !== 401) {
+          throw new Error(`Security defect: Middleware did not return 401 for forged token (got ${mockResCode})`);
+        }
+        logs.push('Verified: Forged signature token is rejected with 401 Unauthorized');
+
+        // 3. Test Expired Token
+        logs.push('Test 3 (Expired Token): Attempting verification of expired token');
+        const expiredToken = jwt.sign({
+          userId: user.id,
+          email: user.email,
+          role: 'CLIENT',
+          sessionId: payload.sessionId,
+          exp: Math.floor(Date.now() / 1000) - 100 // expired 100 seconds ago
+        }, process.env.JWT_SECRET || 'boost_market_jwt_secret_dev_key_2025_secure_sign');
+
+        const verifiedExpired = authService.verifyAccessToken(expiredToken);
+        if (verifiedExpired !== null) {
+          throw new Error('Security defect: Expired token was accepted');
+        }
+        logs.push('Verified: Expired access token is rejected');
+
+        // 4. Test Missing Authentication
+        logs.push('Test 4 (Missing Authentication): Testing protected route with no credentials');
+        let missingAuthBlocked = false;
+        const emptyReq: any = { cookies: {}, headers: {}, ip: '127.0.0.1' };
+        authenticate(emptyReq, mockRes, () => {
+          missingAuthBlocked = false;
+        });
+        if (mockResCode !== 401) {
+          throw new Error('Security defect: Missing credentials did not return 401');
+        }
+        logs.push('Verified: Protected request without session credentials returns 401');
+
+        // 5. Test Safe User Sanitization (/api/auth/me)
+        logs.push('Test 5 (/me Safe User Profile): Verifying safe user profile contains no secrets');
+        const safeUser = authService.getSafeUser(user);
+        if ((safeUser as any).password || (safeUser as any).passwordHash || (safeUser as any).twoFactorSecret || (safeUser as any).recoveryCodes) {
+          throw new Error('Security defect: Sensitive passwords/hashes/secrets found in safe user object');
+        }
+        if (safeUser.id !== user.id || safeUser.email !== user.email || safeUser.role !== 'CLIENT') {
+          throw new Error('Safe user profile missing required public identity attributes');
+        }
+        logs.push('Verified: User profile is sanitized and excludes all credential hashes and secrets');
+
+        // 6. Test Role Tampering Protection
+        logs.push('Test 6 (Role Tampering): Verifying server resolves trusted role from DB rather than client claims');
+        const validClientReq: any = {
+          cookies: { boost_access_token: loginRes.accessToken },
+          headers: {},
+          body: { role: 'SUPER_ADMIN', userId: 'usr_maddy_ceo' }, // Imposter attempt in body
+          ip: '127.0.0.1'
+        };
+        let nextCalled = false;
+        authenticate(validClientReq, mockRes, () => {
+          nextCalled = true;
+        });
+        if (!nextCalled || !validClientReq.user) {
+          throw new Error('Middleware failed on valid client token');
+        }
+        if (validClientReq.user.role !== 'CLIENT') {
+          throw new Error('CRITICAL SECURITY FLAW: Client role was overridden by request payload!');
+        }
+        if (validClientReq.user.id !== user.id) {
+          throw new Error('CRITICAL SECURITY FLAW: Client userId was overridden by request payload!');
+        }
+        logs.push('Verified: Client role and identity are authoritative from database and immune to client tampering');
+
+        // 7. Test Suspended / Disabled Account Mid-Session
+        logs.push('Test 7 (Suspended Mid-Session): Verifying suspended account active token is immediately rejected');
+        user.status = 'SUSPENDED';
+        db.users.set(user.id, user);
+
+        let suspendedCode = 200;
+        const suspendedRes: any = {
+          status: (code: number) => {
+            suspendedCode = code;
+            return { json: () => {} };
+          }
+        };
+        authenticate(validClientReq, suspendedRes, () => {});
+        if (suspendedCode !== 403) {
+          throw new Error(`Security defect: Suspended user token was not rejected with 403 (got ${suspendedCode})`);
+        }
+        logs.push('Verified: Suspended user session is immediately rejected with 403 Forbidden');
+
+        // Restore active status
+        user.status = 'ACTIVE';
+        db.users.set(user.id, user);
+
+        // 8. Test Session Logout & Revocation
+        logs.push('Test 8 (Session Logout): Verifying session termination and database revocation');
+        authService.logout(payload.sessionId, '127.0.0.1', 'LogoutAgent/1.0');
+        const revokedSession = db.sessions.get(payload.sessionId);
+        if (!revokedSession || !revokedSession.isRevoked) {
+          throw new Error('Logout failed to mark database session record as isRevoked=true');
+        }
+
+        let revokedReqCode = 200;
+        const revokedRes: any = {
+          status: (code: number) => {
+            revokedReqCode = code;
+            return { json: () => {} };
+          }
+        };
+        authenticate(validClientReq, revokedRes, () => {});
+        if (revokedReqCode !== 401) {
+          throw new Error(`Security defect: Revoked session token was accepted by middleware (got ${revokedReqCode})`);
+        }
+        logs.push('Verified: Terminated/logged out session is rejected with 401 Unauthorized');
+
+        // 9. Test Multi-Session Isolation
+        logs.push('Test 9 (Multi-Session Isolation): Verifying multiple concurrent device sessions');
+        const session1 = await authService.login({ email: testUserEmail, password: testPassword }, '10.0.0.1', 'Laptop/1.0');
+        const session2 = await authService.login({ email: testUserEmail, password: testPassword }, '10.0.0.2', 'Mobile/1.0');
+
+        const s1Payload = authService.verifyAccessToken(session1.accessToken!);
+        const s2Payload = authService.verifyAccessToken(session2.accessToken!);
+        if (!s1Payload?.sessionId || !s2Payload?.sessionId) throw new Error('Failed to issue distinct session IDs');
+        if (s1Payload.sessionId === s2Payload.sessionId) throw new Error('Concurrent logins generated identical session IDs');
+
+        // Logout only session1 (Laptop)
+        authService.logout(s1Payload.sessionId);
+        if (!db.sessions.get(s1Payload.sessionId)?.isRevoked) throw new Error('Session 1 was not revoked');
+        if (db.sessions.get(s2Payload.sessionId)?.isRevoked) throw new Error('Session 2 was improperly revoked when Session 1 logged out');
+
+        // Logout all sessions
+        authService.logoutAll(user.id);
+        if (!db.sessions.get(s2Payload.sessionId)?.isRevoked) throw new Error('logoutAll failed to revoke Session 2');
+        logs.push('Verified: Multi-session isolation and logout-all functionality verified');
+
+        // 10. Audit Store for Plaintext Passwords
+        logs.push('Test 10 (Store Audit): Auditing session storage for plaintext password exposure');
+        const sessions = Array.from(db.sessions.values());
+        for (const s of sessions) {
+          const sJson = JSON.stringify(s);
+          if (sJson.includes(testPassword) || sJson.includes('SessionPassword123!')) {
+            throw new Error('Security defect: Plaintext password found in session storage');
+          }
+        }
+        logs.push('Verified: Zero plaintext passwords stored across all session records');
+
+        logs.push('ALL 10 TASK 1.2.2 SESSION & TOKEN MANAGEMENT TESTS COMPLETED SUCCESSFULLY');
       }
     ));
 

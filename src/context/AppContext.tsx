@@ -15,6 +15,7 @@ import {
   MultiPlatformCampaign,
   Lead
 } from '../types';
+import { authApi, onAuthStateChange, ApiError } from '../lib/api';
 
 export type AppView = 
   | 'discover' 
@@ -31,8 +32,11 @@ export type AppView =
   | 'verify_email';
 
 interface AppContextType {
-  // State
+  // Authentication State
   currentUser: UserProfile;
+  isAuthenticated: boolean;
+  isAuthLoading: boolean;
+  authError: string | null;
   allUsers: UserProfile[];
   currentLocation: LocationCoordinates;
   selectedCategory: string;
@@ -59,6 +63,12 @@ interface AppContextType {
   leads: Lead[];
   platformStats: PlatformStats | null;
   isLoading: boolean;
+
+  // Auth & Session Actions
+  login: (credentials: { email: string; password: string; clientType?: 'business' | 'customer' }) => Promise<any>;
+  logout: () => Promise<void>;
+  logoutAll: () => Promise<void>;
+  checkAuth: () => Promise<UserProfile | null>;
 
   // Actions
   setCurrentUser: (user: UserProfile) => void;
@@ -105,10 +115,28 @@ const defaultUser: UserProfile = {
   createdAt: new Date().toISOString()
 };
 
+const guestUser: UserProfile = {
+  id: 'usr_david_customer',
+  name: 'David Okonjo',
+  email: 'david.okonjo@gmail.com',
+  phone: '+2348123456789',
+  role: 'CLIENT',
+  status: 'ACTIVE',
+  clientType: 'customer',
+  tier: 'free',
+  avatarUrl: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=200&auto=format&fit=crop&q=80',
+  bio: 'Customer looking for top-rated services.',
+  location: { city: 'Abuja', state: 'FCT', country: 'Nigeria', lat: 9.0765, lng: 7.3986 },
+  createdAt: new Date().toISOString()
+};
+
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<UserProfile>(defaultUser);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(true);
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [allUsers, setAllUsers] = useState<UserProfile[]>([defaultUser]);
   const [currentLocation, setCurrentLocation] = useState<LocationCoordinates>(defaultLocation);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -124,6 +152,88 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     return 'discover';
   });
+
+  // Check auth session on startup
+  const checkAuth = useCallback(async (): Promise<UserProfile | null> => {
+    try {
+      setIsAuthLoading(true);
+      const res = await authApi.getMe(true);
+      if (res.authenticated && res.user) {
+        setCurrentUser(res.user);
+        setIsAuthenticated(true);
+        setAuthError(null);
+        return res.user;
+      } else {
+        setIsAuthenticated(false);
+        return null;
+      }
+    } catch {
+      setIsAuthenticated(false);
+      return null;
+    } finally {
+      setIsAuthLoading(false);
+    }
+  }, []);
+
+  // Login handler
+  const login = useCallback(async (credentials: { email: string; password: string; clientType?: 'business' | 'customer' }) => {
+    try {
+      setAuthError(null);
+      const result = await authApi.login(credentials);
+      if (result.success && result.user) {
+        setCurrentUser(result.user);
+        setIsAuthenticated(true);
+      }
+      return result;
+    } catch (err: any) {
+      setAuthError(err.message || 'Login failed');
+      throw err;
+    }
+  }, []);
+
+  // Logout handler
+  const logout = useCallback(async () => {
+    try {
+      await authApi.logout();
+    } catch (err) {
+      console.error('Logout error:', err);
+    } finally {
+      setIsAuthenticated(false);
+      setCurrentUser(guestUser);
+      setAuthError(null);
+    }
+  }, []);
+
+  // Logout all sessions
+  const logoutAll = useCallback(async () => {
+    try {
+      await authApi.logoutAll();
+    } catch (err) {
+      console.error('Logout all error:', err);
+    } finally {
+      setIsAuthenticated(false);
+      setCurrentUser(guestUser);
+      setAuthError(null);
+    }
+  }, []);
+
+  // Listen to auth token expiration events from api client
+  useEffect(() => {
+    const unsub = onAuthStateChange((auth, user) => {
+      setIsAuthenticated(auth);
+      if (user) {
+        setCurrentUser(user);
+      } else if (!auth) {
+        setCurrentUser(guestUser);
+      }
+    });
+    return unsub;
+  }, []);
+
+  // Initial auth verification
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
 
   const setActiveView = useCallback((view: AppView) => {
     setActiveViewState(view);
@@ -363,6 +473,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     <AppContext.Provider
       value={{
         currentUser,
+        isAuthenticated,
+        isAuthLoading,
+        authError,
         allUsers,
         currentLocation,
         selectedCategory,
@@ -387,6 +500,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         leads,
         platformStats,
         isLoading,
+        login,
+        logout,
+        logoutAll,
+        checkAuth,
         setCurrentUser,
         switchUserRole,
         setCurrentLocation,

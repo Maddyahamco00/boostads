@@ -11,7 +11,10 @@ import {
   LogIn, 
   Compass, 
   Lock,
-  MailCheck
+  MailCheck,
+  Mail,
+  Send,
+  Check
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { AuthModal } from './AuthModal';
@@ -23,6 +26,22 @@ export const VerifyEmailView: React.FC = () => {
   const [errorCode, setErrorCode] = useState<string>('');
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
   const [userEmail, setUserEmail] = useState<string>('');
+
+  // Resend Form State
+  const [resendEmail, setResendEmail] = useState<string>('');
+  const [isResending, setIsResending] = useState<boolean>(false);
+  const [resendStatus, setResendStatus] = useState<'idle' | 'sent' | 'error'>('idle');
+  const [resendFeedback, setResendFeedback] = useState<string | null>(null);
+  const [cooldownSeconds, setCooldownSeconds] = useState<number>(0);
+
+  // Cooldown countdown timer
+  useEffect(() => {
+    if (cooldownSeconds <= 0) return;
+    const interval = setInterval(() => {
+      setCooldownSeconds(prev => (prev > 1 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [cooldownSeconds]);
 
   useEffect(() => {
     let isMounted = true;
@@ -58,6 +77,7 @@ export const VerifyEmailView: React.FC = () => {
         if (response.ok && data.success) {
           if (data.user?.email) {
             setUserEmail(data.user.email);
+            setResendEmail(data.user.email);
           }
           if (data.alreadyVerified) {
             setStatus('already_verified');
@@ -103,6 +123,47 @@ export const VerifyEmailView: React.FC = () => {
       isMounted = false;
     };
   }, []);
+
+  const handleResend = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resendEmail.trim() || isResending || cooldownSeconds > 0) return;
+
+    setIsResending(true);
+    setResendFeedback(null);
+    setResendStatus('idle');
+
+    try {
+      const response = await fetch('/api/auth/resend-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: resendEmail.trim() })
+      });
+
+      const data = await response.json();
+
+      if (response.status === 429 || data.code === 'RATE_LIMITED') {
+        setCooldownSeconds(data.remainingSeconds || 60);
+        setResendStatus('error');
+        setResendFeedback('Too many requests. Please wait before requesting another verification email.');
+        return;
+      }
+
+      if (!response.ok || !data.success) {
+        setResendStatus('error');
+        setResendFeedback(data.error || 'Unable to send the verification email right now. Please try again later.');
+        return;
+      }
+
+      setResendStatus('sent');
+      setResendFeedback(data.message || 'Verification email sent. Please check your inbox.');
+      setCooldownSeconds(60);
+    } catch {
+      setResendStatus('error');
+      setResendFeedback('Unable to send the verification email right now. Please try again later.');
+    } finally {
+      setIsResending(false);
+    }
+  };
 
   const handleOpenSignIn = () => {
     setIsAuthModalOpen(true);
@@ -275,18 +336,89 @@ export const VerifyEmailView: React.FC = () => {
                 </p>
               </div>
 
+              {/* Resend Verification Form */}
+              <div id="resend-verification-section" className="mb-6 p-4 rounded-xl bg-slate-950/80 border border-slate-800 text-left">
+                <div className="flex items-center gap-2 mb-2 text-slate-200 font-semibold text-xs">
+                  <Mail className="w-4 h-4 text-emerald-400" />
+                  <span>Request a New Verification Link</span>
+                </div>
+                <p className="text-[11px] text-slate-400 mb-3">
+                  Enter your email address to receive a fresh verification link.
+                </p>
+
+                <form onSubmit={handleResend} className="space-y-3">
+                  <div className="relative">
+                    <input
+                      id="resend-email-input"
+                      type="email"
+                      required
+                      placeholder="name@example.com"
+                      value={resendEmail}
+                      onChange={(e) => setResendEmail(e.target.value)}
+                      disabled={isResending || cooldownSeconds > 0}
+                      className="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-700/80 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 disabled:opacity-60"
+                    />
+                    <Mail className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                  </div>
+
+                  <button
+                    id="btn-resend-verification"
+                    type="submit"
+                    disabled={isResending || !resendEmail.trim() || cooldownSeconds > 0}
+                    className="w-full py-2.5 px-4 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isResending ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Sending...</span>
+                      </>
+                    ) : cooldownSeconds > 0 ? (
+                      <>
+                        <Clock className="w-3.5 h-3.5 text-slate-950/70" />
+                        <span>Resend available in {cooldownSeconds}s</span>
+                      </>
+                    ) : resendStatus === 'sent' ? (
+                      <>
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Verification Email Sent</span>
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-3.5 h-3.5" />
+                        <span>Resend verification email</span>
+                      </>
+                    )}
+                  </button>
+
+                  {resendFeedback && (
+                    <div 
+                      id="resend-feedback-msg"
+                      className={`text-[11px] p-2 rounded-lg border ${
+                        resendStatus === 'sent' 
+                          ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' 
+                          : 'bg-rose-500/10 border-rose-500/20 text-rose-400'
+                      }`}
+                    >
+                      {resendFeedback}
+                    </div>
+                  )}
+                </form>
+              </div>
+
               <div className="space-y-3 pt-2">
                 <button
+                  id="btn-error-signin"
                   onClick={handleOpenSignIn}
-                  className="w-full py-3 px-6 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm transition-all duration-200 shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
+                  className="w-full py-3 px-6 rounded-xl bg-slate-800 hover:bg-slate-700/80 text-slate-200 hover:text-white font-semibold text-sm transition-colors flex items-center justify-center gap-2"
                 >
                   <LogIn className="w-4 h-4" />
                   <span>Go to Sign In</span>
                 </button>
 
                 <button
+                  id="btn-error-explore"
                   onClick={handleExplore}
-                  className="w-full py-3 px-6 rounded-xl bg-slate-800 hover:bg-slate-700/80 text-slate-300 hover:text-white font-semibold text-sm transition-colors flex items-center justify-center gap-2"
+                  className="w-full py-3 px-6 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-300 font-medium text-sm transition-colors flex items-center justify-center gap-2"
                 >
                   <Compass className="w-4 h-4" />
                   <span>Explore Marketplace</span>

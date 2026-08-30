@@ -60,11 +60,19 @@ export const authenticate = (req: AuthenticatedRequest, res: Response, next: Nex
     // Check session validity if sessionId is present
     if (payload.sessionId) {
       const session = db.sessions.get(payload.sessionId);
-      if (session && session.isRevoked) {
-        return res.status(401).json({
-          success: false,
-          error: 'Session has been revoked. Please sign in again.'
-        });
+      if (session) {
+        if (session.isRevoked) {
+          return res.status(401).json({
+            success: false,
+            error: 'Session has been revoked. Please sign in again.'
+          });
+        }
+        if (new Date(session.expiresAt).getTime() < Date.now()) {
+          return res.status(401).json({
+            success: false,
+            error: 'Session has expired. Please sign in again.'
+          });
+        }
       }
     }
 
@@ -93,8 +101,15 @@ export const optionalAuthenticate = (req: AuthenticatedRequest, res: Response, n
       if (payload && payload.userId) {
         const user = db.users.get(payload.userId);
         if (user && user.status !== 'SUSPENDED' && user.status !== 'DELETED') {
-          req.user = user;
-          req.sessionId = payload.sessionId;
+          if (payload.sessionId) {
+            const session = db.sessions.get(payload.sessionId);
+            if (!session || (!session.isRevoked && new Date(session.expiresAt).getTime() > Date.now())) {
+              req.user = user;
+              req.sessionId = payload.sessionId;
+            }
+          } else {
+            req.user = user;
+          }
         }
       }
     }
@@ -104,7 +119,7 @@ export const optionalAuthenticate = (req: AuthenticatedRequest, res: Response, n
   next();
 };
 
-// Require exact role (e.g. SUPER_ADMIN)
+// Require exact role (e.g. SUPER_ADMIN, CLIENT)
 export const requireRole = (role: UserRole) => {
   return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     if (!req.user) {
@@ -135,7 +150,8 @@ export const requireRole = (role: UserRole) => {
   };
 };
 
-// Shortcut for Super Admin guard
+// Role shortcuts
+export const requireClient = requireRole('CLIENT');
 export const requireSuperAdmin = requireRole('SUPER_ADMIN');
 
 // Require Active status
