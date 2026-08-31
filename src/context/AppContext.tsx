@@ -29,6 +29,7 @@ export type AppView =
   | 'pricing_plans' 
   | 'admin_panel' 
   | 'register' 
+  | 'login'
   | 'verify_email';
 
 interface AppContextType {
@@ -36,6 +37,7 @@ interface AppContextType {
   currentUser: UserProfile;
   isAuthenticated: boolean;
   isAuthLoading: boolean;
+  isLoggingOut: boolean;
   authError: string | null;
   allUsers: UserProfile[];
   currentLocation: LocationCoordinates;
@@ -136,6 +138,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [currentUser, setCurrentUser] = useState<UserProfile>(defaultUser);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(true);
   const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
+  const [isLoggingOut, setIsLoggingOut] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [allUsers, setAllUsers] = useState<UserProfile[]>([defaultUser]);
   const [currentLocation, setCurrentLocation] = useState<LocationCoordinates>(defaultLocation);
@@ -143,6 +146,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [activeView, setActiveViewState] = useState<AppView>(() => {
     if (typeof window !== 'undefined') {
+      if (window.location.pathname === '/login') {
+        return 'login';
+      }
       if (window.location.pathname === '/register') {
         return 'register';
       }
@@ -193,6 +199,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Logout handler
   const logout = useCallback(async () => {
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
     try {
       await authApi.logout();
     } catch (err) {
@@ -201,11 +209,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setIsAuthenticated(false);
       setCurrentUser(guestUser);
       setAuthError(null);
+      setIsLoggingOut(false);
+
+      // Invalidate private collections & reset views
+      setActiveViewState(prev => {
+        if (['merchant_dashboard', 'invoices', 'campaigns', 'create_ad', 'ai_marketing', 'admin_panel'].includes(prev)) {
+          if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+            window.history.pushState({}, '', '/login');
+          }
+          return 'login';
+        }
+        return prev;
+      });
     }
-  }, []);
+  }, [isLoggingOut]);
 
   // Logout all sessions
   const logoutAll = useCallback(async () => {
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
     try {
       await authApi.logoutAll();
     } catch (err) {
@@ -214,10 +236,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setIsAuthenticated(false);
       setCurrentUser(guestUser);
       setAuthError(null);
-    }
-  }, []);
+      setIsLoggingOut(false);
 
-  // Listen to auth token expiration events from api client
+      setActiveViewState(prev => {
+        if (['merchant_dashboard', 'invoices', 'campaigns', 'create_ad', 'ai_marketing', 'admin_panel'].includes(prev)) {
+          if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+            window.history.pushState({}, '', '/login');
+          }
+          return 'login';
+        }
+        return prev;
+      });
+    }
+  }, [isLoggingOut]);
+
+  // Listen to auth token expiration events from api client and other tabs
   useEffect(() => {
     const unsub = onAuthStateChange((auth, user) => {
       setIsAuthenticated(auth);
@@ -225,6 +258,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setCurrentUser(user);
       } else if (!auth) {
         setCurrentUser(guestUser);
+        setActiveViewState(prev => {
+          if (['merchant_dashboard', 'invoices', 'campaigns', 'create_ad', 'ai_marketing', 'admin_panel'].includes(prev)) {
+            if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+              window.history.pushState({}, '', '/login');
+            }
+            return 'login';
+          }
+          return prev;
+        });
       }
     });
     return unsub;
@@ -236,37 +278,51 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [checkAuth]);
 
   const setActiveView = useCallback((view: AppView) => {
-    setActiveViewState(view);
+    const isProtected = ['merchant_dashboard', 'invoices', 'campaigns', 'create_ad', 'ai_marketing', 'admin_panel'].includes(view);
+    const targetView = (!isAuthenticated && isProtected) ? 'login' : view;
+
+    setActiveViewState(targetView);
     if (typeof window !== 'undefined') {
-      if (view === 'register') {
+      if (targetView === 'login') {
+        if (window.location.pathname !== '/login') {
+          window.history.pushState({}, '', '/login');
+        }
+      } else if (targetView === 'register') {
         if (window.location.pathname !== '/register') {
           window.history.pushState({}, '', '/register');
         }
-      } else if (view === 'verify_email') {
+      } else if (targetView === 'verify_email') {
         if (window.location.pathname !== '/verify-email') {
           window.history.pushState({}, '', '/verify-email');
         }
       } else {
-        if (window.location.pathname === '/register' || window.location.pathname === '/verify-email') {
+        if (window.location.pathname === '/login' || window.location.pathname === '/register' || window.location.pathname === '/verify-email') {
           window.history.pushState({}, '', '/');
         }
       }
     }
-  }, []);
+  }, [isAuthenticated]);
 
   useEffect(() => {
     const handlePopState = () => {
-      if (window.location.pathname === '/register') {
+      if (window.location.pathname === '/login') {
+        setActiveViewState('login');
+      } else if (window.location.pathname === '/register') {
         setActiveViewState('register');
       } else if (window.location.pathname === '/verify-email' || window.location.search.includes('verifyToken=') || (window.location.pathname === '/' && window.location.search.includes('token='))) {
         setActiveViewState('verify_email');
       } else {
-        setActiveViewState('discover');
+        setActiveViewState(prev => {
+          if (!isAuthenticated && ['merchant_dashboard', 'invoices', 'campaigns', 'create_ad', 'ai_marketing', 'admin_panel'].includes(prev)) {
+            return 'login';
+          }
+          return 'discover';
+        });
       }
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
+  }, [isAuthenticated]);
   const [selectedBusinessId, setSelectedBusinessId] = useState<string | null>(null);
   const [selectedAdId, setSelectedAdId] = useState<string | null>(null);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
@@ -475,6 +531,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         currentUser,
         isAuthenticated,
         isAuthLoading,
+        isLoggingOut,
         authError,
         allUsers,
         currentLocation,

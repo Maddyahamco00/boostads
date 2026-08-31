@@ -166,7 +166,12 @@ export const VerifyEmailView: React.FC = () => {
   };
 
   const handleOpenSignIn = () => {
-    setIsAuthModalOpen(true);
+    if (userEmail) {
+      if (typeof window !== 'undefined') {
+        window.history.replaceState({}, '', `/login?verified=true&email=${encodeURIComponent(userEmail)}`);
+      }
+    }
+    setActiveView('login');
   };
 
   const handleExplore = () => {

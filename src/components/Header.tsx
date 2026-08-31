@@ -45,6 +45,7 @@ export const Header: React.FC = () => {
   const { 
     currentUser, 
     isAuthenticated,
+    isLoggingOut,
     logout,
     logoutAll,
     switchUserRole, 
@@ -339,11 +340,25 @@ export const Header: React.FC = () => {
 
         {/* Action Buttons & Profile Switcher */}
         <div className="flex items-center gap-2">
+          {/* Sign In Direct Button */}
+          <button
+            id="header-direct-signin-btn"
+            onClick={() => setActiveView('login')}
+            className={`hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+              activeView === 'login'
+                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                : 'bg-slate-800/80 hover:bg-slate-800 text-slate-200 border-slate-700 hover:border-emerald-500/40'
+            }`}
+          >
+            <LogIn className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Sign In</span>
+          </button>
+
           {/* Post Ad Button */}
           <button
             id="post-ad-header-btn"
             onClick={() => setIsCreateAdModalOpen(true)}
-            className="hidden sm:flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-bold text-xs shadow-lg shadow-emerald-500/20 transition-all hover:scale-102"
+            className="hidden sm:flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-bold text-xs shadow-lg shadow-emerald-500/20 transition-all hover:scale-102 cursor-pointer"
           >
             <PlusCircle className="w-3.5 h-3.5" />
             <span>Post Ad / Boost</span>
@@ -459,12 +474,23 @@ export const Header: React.FC = () => {
 
                 <div className="pt-2 border-t border-slate-800 flex flex-col gap-1">
                   <button
+                    id="header-login-nav-btn"
+                    onClick={() => {
+                      setActiveView('login');
+                      setIsUserDropdownOpen(false);
+                    }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-emerald-400 hover:bg-slate-800 rounded font-medium flex items-center gap-2 cursor-pointer"
+                  >
+                    <LogIn className="w-3.5 h-3.5" /> Client Sign In (/login)
+                  </button>
+
+                  <button
                     id="header-register-nav-btn"
                     onClick={() => {
                       setActiveView('register');
                       setIsUserDropdownOpen(false);
                     }}
-                    className="w-full text-left px-3 py-1.5 text-xs text-emerald-400 hover:bg-slate-800 rounded font-medium flex items-center gap-2"
+                    className="w-full text-left px-3 py-1.5 text-xs text-emerald-400 hover:bg-slate-800 rounded font-medium flex items-center gap-2 cursor-pointer"
                   >
                     <UserPlus className="w-3.5 h-3.5" /> Client Registration (/register)
                   </button>
@@ -476,9 +502,9 @@ export const Header: React.FC = () => {
                       setIsAuthModalOpen(true);
                       setIsUserDropdownOpen(false);
                     }}
-                    className="w-full text-left px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800 rounded font-medium flex items-center gap-2"
+                    className="w-full text-left px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800 rounded font-medium flex items-center gap-2 cursor-pointer"
                   >
-                    <LogIn className="w-3.5 h-3.5" /> Sign In / Account Switcher
+                    <Key className="w-3.5 h-3.5 text-slate-400" /> Switcher / CEO Access Modal
                   </button>
 
                   <button
@@ -522,13 +548,32 @@ export const Header: React.FC = () => {
                   </button>
 
                   <button
+                    id="header-sign-out-btn"
+                    disabled={isLoggingOut}
                     onClick={async () => {
                       await logout();
                       setIsUserDropdownOpen(false);
                     }}
-                    className="w-full text-left px-3 py-1.5 text-xs text-rose-400 hover:bg-rose-500/10 rounded font-medium flex items-center gap-2 border-t border-slate-800/80 mt-1"
+                    className={`w-full text-left px-3 py-1.5 text-xs rounded font-medium flex items-center gap-2 border-t border-slate-800/80 mt-1 transition-colors ${
+                      isLoggingOut 
+                        ? 'text-slate-500 bg-slate-800/50 cursor-not-allowed' 
+                        : 'text-rose-400 hover:bg-rose-500/10 cursor-pointer'
+                    }`}
                   >
-                    <LogOut className="w-3.5 h-3.5" /> Terminate Session / Sign Out
+                    <LogOut className={`w-3.5 h-3.5 ${isLoggingOut ? 'animate-spin' : ''}`} />
+                    {isLoggingOut ? 'Terminating Session...' : 'Sign Out / Terminate Session'}
+                  </button>
+
+                  <button
+                    id="header-sign-out-all-btn"
+                    disabled={isLoggingOut}
+                    onClick={async () => {
+                      await logoutAll();
+                      setIsUserDropdownOpen(false);
+                    }}
+                    className="w-full text-left px-3 py-1 text-[11px] text-slate-400 hover:text-rose-300 hover:bg-rose-500/5 rounded font-normal flex items-center gap-2 cursor-pointer transition-colors"
+                  >
+                    <ShieldAlert className="w-3 h-3 text-slate-500" /> Revoke All Active Devices & Sessions
                   </button>
                 </div>
               </div>

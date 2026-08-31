@@ -296,7 +296,7 @@ async function startServer() {
 
   // 4. Logout & Logout All
   app.post('/api/auth/logout', (req: AuthenticatedRequest, res) => {
-    let sessionId = req.sessionId || req.body?.sessionId;
+    let sessionId = req.sessionId;
 
     if (!sessionId) {
       const token = req.cookies?.boost_access_token || (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.split(' ')[1] : undefined);

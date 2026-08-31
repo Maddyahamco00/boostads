@@ -233,7 +233,7 @@ export const RegisterView: React.FC<RegisterViewProps> = ({ onNavigateToLogin })
     if (onNavigateToLogin) {
       onNavigateToLogin();
     } else {
-      setActiveView('discover');
+      setActiveView('login');
     }
   };
 

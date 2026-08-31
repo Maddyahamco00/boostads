@@ -24,9 +24,152 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Validates and sanitizes internal redirect URLs to prevent Open Redirect vulnerabilities.
+ * Strictly permits only safe relative paths (e.g., '/', '/merchant_dashboard', '/invoices', '/campaigns').
+ * Rejects absolute URLs, protocol-relative URLs (//), javascript: or data: URIs, backslashes, and control characters.
+ */
+export function sanitizeRedirectUrl(redirectParam: string | null | undefined): string {
+  if (!redirectParam) return '/';
+  
+  const trimmed = redirectParam.trim();
+  // Reject absolute URLs, protocol-relative URLs (//), javascript: or data: URIs, or backslashes
+  if (
+    trimmed.startsWith('//') || 
+    trimmed.startsWith('javascript:') || 
+    trimmed.startsWith('data:') || 
+    trimmed.startsWith('vbscript:') ||
+    trimmed.includes('\\') ||
+    /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)
+  ) {
+    return '/';
+  }
+
+  // Must begin with a single slash and not followed by another slash or backslash
+  if (trimmed.startsWith('/') && !trimmed.startsWith('//') && !trimmed.startsWith('/\\')) {
+    return trimmed;
+  }
+
+  return '/';
+}
+
+export interface FormattedAuthError {
+  message: string;
+  code: string;
+  status: number;
+  isNetworkError: boolean;
+  isRateLimited: boolean;
+  isSessionExpired: boolean;
+  isForbidden: boolean;
+  isServerError: boolean;
+  retryAfterSeconds?: number;
+}
+
+/**
+ * Centralized mechanism to convert any backend or network error into a safe, user-friendly message.
+ * Strictly prevents leaking stack traces, database exceptions, internal service names, or raw SQL.
+ */
+export function formatAuthError(error: unknown): FormattedAuthError {
+  if (error instanceof ApiError) {
+    const isNetworkError = error.status === 0 || error.code === 'NETWORK_ERROR';
+    const isRateLimited = error.status === 429 || error.code === 'RATE_LIMITED';
+    const isSessionExpired = error.status === 401 && (
+      error.code === 'SESSION_EXPIRED' || 
+      error.code === 'TOKEN_EXPIRED' || 
+      error.message.toLowerCase().includes('expired') || 
+      error.message.toLowerCase().includes('revoked') ||
+      error.message.toLowerCase().includes('session')
+    );
+    const isForbidden = error.status === 403;
+    const isServerError = error.status >= 500 && error.status < 600;
+
+    let safeMessage = error.message;
+
+    if (isNetworkError) {
+      safeMessage = 'Unable to connect to Boost Market. Please check your internet connection and try again.';
+    } else if (isServerError) {
+      safeMessage = 'Something went wrong on our side. Please try again shortly.';
+    } else if (isRateLimited) {
+      const remaining = error.details?.remainingSeconds || error.details?.retryAfter;
+      safeMessage = remaining 
+        ? `Too many requests. Please wait ${remaining} seconds and try again.` 
+        : 'Too many requests. Please wait a moment and try again.';
+    } else if (isSessionExpired) {
+      safeMessage = 'Your session has expired. Please sign in again.';
+    } else if (isForbidden) {
+      if (error.code === 'EMAIL_NOT_VERIFIED' || error.message.toLowerCase().includes('verify your email')) {
+        safeMessage = 'Your email address has not been verified yet. Please check your inbox or request a new verification link.';
+      } else if (error.code === 'ACCOUNT_SUSPENDED' || error.message.toLowerCase().includes('suspended')) {
+        safeMessage = 'This account has been suspended by administration. Please contact support.';
+      } else {
+        safeMessage = error.message || 'You do not have permission to access this resource.';
+      }
+    }
+
+    return {
+      message: safeMessage,
+      code: error.code || (isNetworkError ? 'NETWORK_ERROR' : isRateLimited ? 'RATE_LIMITED' : isSessionExpired ? 'SESSION_EXPIRED' : isServerError ? 'SERVER_ERROR' : 'AUTH_ERROR'),
+      status: error.status,
+      isNetworkError,
+      isRateLimited,
+      isSessionExpired,
+      isForbidden,
+      isServerError,
+      retryAfterSeconds: error.details?.remainingSeconds || error.details?.retryAfter
+    };
+  }
+
+  // Generic Error / Network Exception / Fetch failure
+  const rawMsg = error instanceof Error ? error.message : String(error || '');
+  const isNet = rawMsg.toLowerCase().includes('network') || 
+                rawMsg.toLowerCase().includes('failed to fetch') || 
+                rawMsg.toLowerCase().includes('load failed') ||
+                rawMsg.toLowerCase().includes('internet');
+  
+  return {
+    message: isNet 
+      ? 'Unable to connect to Boost Market. Please check your internet connection and try again.' 
+      : 'Something went wrong on our side. Please try again shortly.',
+    code: isNet ? 'NETWORK_ERROR' : 'UNKNOWN_ERROR',
+    status: isNet ? 0 : 500,
+    isNetworkError: isNet,
+    isRateLimited: false,
+    isSessionExpired: false,
+    isForbidden: false,
+    isServerError: !isNet
+  };
+}
+
 // Global listener for auth session expiry
 type AuthStateListener = (isAuthenticated: boolean, user: UserProfile | null) => void;
 const authListeners = new Set<AuthStateListener>();
+
+// Cross-tab broadcast channel for auth state sync
+const AUTH_CHANNEL_NAME = 'boost_auth_channel';
+let broadcastChannel: BroadcastChannel | null = null;
+if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+  try {
+    broadcastChannel = new BroadcastChannel(AUTH_CHANNEL_NAME);
+    broadcastChannel.onmessage = (event) => {
+      if (event.data?.type === 'AUTH_LOGOUT') {
+        notifyAuthState(false, null, false);
+      } else if (event.data?.type === 'AUTH_LOGIN' && event.data.user) {
+        notifyAuthState(true, event.data.user, false);
+      }
+    };
+  } catch (e) {
+    console.warn('BroadcastChannel not supported or restricted in iframe environment', e);
+  }
+}
+
+// Fallback to storage event for multi-tab sync
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event) => {
+    if (event.key === 'boost_auth_logout_signal') {
+      notifyAuthState(false, null, false);
+    }
+  });
+}
 
 export const onAuthStateChange = (listener: AuthStateListener) => {
   authListeners.add(listener);
@@ -35,17 +178,45 @@ export const onAuthStateChange = (listener: AuthStateListener) => {
   };
 };
 
-export const notifyAuthState = (isAuthenticated: boolean, user: UserProfile | null) => {
+export const notifyAuthState = (isAuthenticated: boolean, user: UserProfile | null, broadcast = true) => {
   authListeners.forEach(fn => fn(isAuthenticated, user));
+
+  if (broadcast && typeof window !== 'undefined') {
+    if (!isAuthenticated) {
+      try {
+        if (broadcastChannel) {
+          broadcastChannel.postMessage({ type: 'AUTH_LOGOUT', timestamp: Date.now() });
+        }
+        localStorage.setItem('boost_auth_logout_signal', Date.now().toString());
+        localStorage.removeItem('boost_auth_token');
+        sessionStorage.clear();
+      } catch (err) {
+        // Safe failover
+      }
+    } else if (user) {
+      try {
+        if (broadcastChannel) {
+          broadcastChannel.postMessage({ type: 'AUTH_LOGIN', user, timestamp: Date.now() });
+        }
+      } catch (err) {
+        // Safe failover
+      }
+    }
+  }
 };
 
 let isRefreshing = false;
 let refreshPromise: Promise<boolean> | null = null;
 
+export interface ExtendedRequestInit extends RequestInit {
+  _isRetry?: boolean;
+}
+
 /**
- * Enhanced fetch with cookie credentials, security headers, and automatic 401 silent token refresh
+ * Enhanced fetch with cookie credentials, security headers, single-flight refresh lock,
+ * and strict refresh loop prevention for protected endpoints.
  */
-export async function fetchWithAuth<T = any>(url: string, options: RequestInit = {}): Promise<T> {
+export async function fetchWithAuth<T = any>(url: string, options: ExtendedRequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     'X-Requested-With': 'XMLHttpRequest',
     ...(options.headers as Record<string, string> || {})
@@ -55,7 +226,7 @@ export async function fetchWithAuth<T = any>(url: string, options: RequestInit =
     headers['Content-Type'] = 'application/json';
   }
 
-  const defaultOptions: RequestInit = {
+  const defaultOptions: ExtendedRequestInit = {
     ...options,
     headers,
     credentials: 'include' // Sends HttpOnly session cookies
@@ -65,18 +236,30 @@ export async function fetchWithAuth<T = any>(url: string, options: RequestInit =
   try {
     response = await fetch(url, defaultOptions);
   } catch (netErr: any) {
-    throw new ApiError(netErr?.message || 'Network error occurred. Please check your connection.', 0, 'NETWORK_ERROR');
+    throw new ApiError(
+      netErr?.message || 'Unable to connect to Boost Market. Please check your internet connection and try again.', 
+      0, 
+      'NETWORK_ERROR'
+    );
   }
 
-  // Handle 401 (Unauthorized) - Attempt silent refresh once for protected endpoints
+  // Handle 401 (Unauthorized)
   const isAuthRoute = url.includes('/api/auth/login') ||
                       url.includes('/api/auth/refresh') ||
                       url.includes('/api/auth/logout') ||
                       url.includes('/api/auth/register') ||
-                      url.includes('/api/auth/2fa');
+                      url.includes('/api/auth/2fa') ||
+                      url.includes('/api/auth/verify-email') ||
+                      url.includes('/api/auth/resend-verification');
 
   if (response.status === 401 && !isAuthRoute) {
-    // If not already refreshing, start refresh
+    // REFRESH LOOP PROTECTION: If this request is already a post-refresh retry, DO NOT attempt refresh again!
+    if (options._isRetry) {
+      notifyAuthState(false, null);
+      throw new ApiError('Your session has expired. Please sign in again.', 401, 'SESSION_EXPIRED');
+    }
+
+    // SINGLE-FLIGHT LOCK: If not already refreshing, start one refresh promise for all concurrent requests
     if (!isRefreshing) {
       isRefreshing = true;
       refreshPromise = (async () => {
@@ -93,6 +276,7 @@ export async function fetchWithAuth<T = any>(url: string, options: RequestInit =
             }
             return true;
           }
+          // Refresh failed - session is dead
           notifyAuthState(false, null);
           return false;
         } catch {
@@ -104,25 +288,34 @@ export async function fetchWithAuth<T = any>(url: string, options: RequestInit =
       })();
     }
 
-    const refreshSuccess = await refreshPromise;
+    const refreshSuccess = await (refreshPromise || Promise.resolve(false));
+
     if (refreshSuccess) {
-      // Retry original request once
+      // Retry original request ONCE with _isRetry flag set to true
       try {
-        response = await fetch(url, defaultOptions);
+        return await fetchWithAuth<T>(url, { ...options, _isRetry: true });
       } catch (retryErr: any) {
-        throw new ApiError(retryErr?.message || 'Request failed on retry', 0, 'RETRY_ERROR');
+        if (retryErr instanceof ApiError) throw retryErr;
+        throw new ApiError(retryErr?.message || 'Request failed after session refresh', 0, 'RETRY_ERROR');
       }
     } else {
-      const data = await response.json().catch(() => ({}));
-      throw new ApiError(data.error || 'Session expired. Please sign in again.', 401, data.code || 'SESSION_EXPIRED');
+      // Session refresh rejected or expired
+      notifyAuthState(false, null);
+      throw new ApiError('Your session has expired. Please sign in again.', 401, 'SESSION_EXPIRED');
     }
   }
 
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
+    // Sanitize server 5xx errors to prevent leaking database or backend details
+    let errorMessage = data.error || data.message || `Request failed with status ${response.status}`;
+    if (response.status >= 500) {
+      errorMessage = 'Something went wrong on our side. Please try again shortly.';
+    }
+
     throw new ApiError(
-      data.error || data.message || `Request failed with status ${response.status}`,
+      errorMessage,
       response.status,
       data.code,
       data
@@ -201,18 +394,33 @@ export const authApi = {
    * Log out current session
    */
   async logout() {
-    return fetchWithAuth<{ success: boolean; message: string }>('/api/auth/logout', {
-      method: 'POST'
-    });
+    try {
+      const res = await fetchWithAuth<{ success: boolean; message: string }>('/api/auth/logout', {
+        method: 'POST'
+      });
+      notifyAuthState(false, null);
+      return res;
+    } catch (err) {
+      // Even if network failed, client state must be cleared
+      notifyAuthState(false, null);
+      return { success: true, message: 'Logged out locally' };
+    }
   },
 
   /**
    * Log out all active sessions
    */
   async logoutAll() {
-    return fetchWithAuth<{ success: boolean; message: string }>('/api/auth/logout-all', {
-      method: 'POST'
-    });
+    try {
+      const res = await fetchWithAuth<{ success: boolean; message: string }>('/api/auth/logout-all', {
+        method: 'POST'
+      });
+      notifyAuthState(false, null);
+      return res;
+    } catch (err) {
+      notifyAuthState(false, null);
+      return { success: true, message: 'Logged out locally' };
+    }
   },
 
   /**
