@@ -2,23 +2,15 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
   Check, 
-  Sparkles, 
-  Flame, 
   Crown, 
-  ShieldCheck, 
-  Zap, 
-  ArrowRight,
-  RefreshCw,
-  Building2
+  RefreshCw 
 } from 'lucide-react';
-import { SubscriptionPlan, SubscriptionTier } from '../types';
+import { SubscriptionPlan } from '../types';
 
 export const PricingPlansView: React.FC = () => {
   const { 
     subscriptionPlans, 
     currentUser, 
-    switchUserRole, 
-    setActiveView,
     refreshData 
   } = useApp();
 
@@ -39,7 +31,6 @@ export const PricingPlansView: React.FC = () => {
       });
       const data = await res.json();
       if (data.success) {
-        alert(`Congratulations! You have upgraded to the ${plan.name} tier.`);
         refreshData();
       }
     } catch (err) {
@@ -50,47 +41,43 @@ export const PricingPlansView: React.FC = () => {
   };
 
   return (
-    <div id="pricing-plans-view" className="min-h-screen bg-slate-950 pb-24">
-      {/* Hero Header */}
-      <div className="border-b border-slate-800 bg-gradient-to-b from-slate-900 via-slate-900/90 to-slate-950 px-4 py-12 text-center">
-        <div className="max-w-4xl mx-auto">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold mb-3">
-            <Crown className="w-3.5 h-3.5" />
-            <span>SaaS Subscription & Growth Plans</span>
-          </div>
-          <h1 className="text-3xl sm:text-5xl font-black text-white tracking-tight">
-            Scale Your Business with <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-200">Real Boosters</span>
+    <div id="pricing-plans-view" className="min-h-screen bg-gray-50 text-gray-900 pb-20">
+      {/* Header */}
+      <div className="border-b border-gray-200 bg-white px-4 py-8 text-center">
+        <div className="max-w-3xl mx-auto">
+          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">
+            Subscription Plans
           </h1>
-          <p className="mt-3 text-xs sm:text-sm text-slate-400 max-w-xl mx-auto">
-            Free forever for starting businesses. Upgrade for higher ad limits, AI copywriting automation, priority local search ranking, and instant multi-currency invoice checkout.
+          <p className="mt-1 text-xs text-gray-500">
+            Choose the plan that fits your business needs
           </p>
 
           {/* Billing Cycle Toggle */}
-          <div className="mt-6 inline-flex items-center gap-2 p-1 rounded-xl bg-slate-900 border border-slate-800 text-xs font-bold">
+          <div className="mt-4 inline-flex items-center gap-1 p-1 rounded-lg bg-gray-100 text-xs font-medium">
             <button
               onClick={() => setBillingCycle('monthly')}
-              className={`px-4 py-2 rounded-lg transition-all ${
-                billingCycle === 'monthly' ? 'bg-emerald-500 text-slate-950 shadow' : 'text-slate-400 hover:text-white'
+              className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
+                billingCycle === 'monthly' ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              Monthly Billing
+              Monthly
             </button>
             <button
               onClick={() => setBillingCycle('yearly')}
-              className={`px-4 py-2 rounded-lg transition-all flex items-center gap-1.5 ${
-                billingCycle === 'yearly' ? 'bg-emerald-500 text-slate-950 shadow' : 'text-slate-400 hover:text-white'
+              className={`px-3 py-1.5 rounded-md transition-colors flex items-center gap-1 cursor-pointer ${
+                billingCycle === 'yearly' ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              <span>Yearly Billing</span>
-              <span className="text-[10px] bg-amber-400 text-slate-950 px-1.5 py-0.5 rounded font-black">SAVE 20%</span>
+              <span>Yearly</span>
+              <span className="text-[10px] bg-green-100 text-green-700 px-1 py-0.2 rounded font-semibold">Save 20%</span>
             </button>
           </div>
         </div>
       </div>
 
       {/* Plans Grid */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-12">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 mt-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {subscriptionPlans.map((plan) => {
             const isCurrent = currentUser.tier === plan.tier;
             const isPopular = plan.isPopular;
@@ -99,85 +86,76 @@ export const PricingPlansView: React.FC = () => {
             return (
               <div
                 key={plan.id}
-                className={`relative rounded-3xl p-6 sm:p-8 flex flex-col justify-between transition-all ${
+                className={`relative rounded-xl p-5 flex flex-col justify-between transition-colors ${
                   isPopular
-                    ? 'bg-slate-900 border-2 border-emerald-500 shadow-2xl shadow-emerald-500/10'
-                    : 'bg-slate-900/70 border border-slate-800'
+                    ? 'bg-white border-2 border-blue-600 shadow-sm'
+                    : 'bg-white border border-gray-200 shadow-xs'
                 }`}
               >
                 {isPopular && (
-                  <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-emerald-500 text-slate-950 font-black text-[10px] tracking-wider uppercase shadow">
-                    🔥 Most Popular Choice
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-2.5 py-0.5 rounded-full bg-blue-600 text-white font-semibold text-[10px] uppercase">
+                    Popular
                   </div>
                 )}
 
                 <div>
                   <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-black text-white">{plan.name}</h3>
-                    {plan.tier === 'enterprise' && <Crown className="w-5 h-5 text-amber-400" />}
-                    {plan.tier === 'pro' && <Sparkles className="w-5 h-5 text-emerald-400" />}
+                    <h2 className="text-base font-bold text-gray-900">{plan.name}</h2>
+                    {plan.tier === 'enterprise' && <Crown className="w-4 h-4 text-amber-500" />}
                   </div>
 
-                  <p className="text-xs text-slate-400 mt-2 min-h-[32px]">{plan.description}</p>
+                  <p className="text-xs text-gray-500 mt-1 min-h-[32px]">{plan.description}</p>
 
-                  <div className="mt-6 pb-6 border-b border-slate-800">
+                  <div className="mt-4 pb-4 border-b border-gray-100">
                     <div className="flex items-baseline gap-1">
-                      <span className="text-3xl sm:text-4xl font-black text-white">
+                      <span className="text-2xl font-bold text-gray-900">
                         ₦{price.toLocaleString()}
                       </span>
-                      <span className="text-xs text-slate-400">
+                      <span className="text-xs text-gray-500">
                         /{billingCycle === 'yearly' ? 'year' : 'month'}
                       </span>
                     </div>
-                    {price > 0 && (
-                      <div className="text-[11px] text-emerald-400 font-semibold mt-1">
-                        ≈ ${(price / (billingCycle === 'yearly' ? 18000 : 1520)).toFixed(0)} USD
-                      </div>
-                    )}
                   </div>
 
                   {/* Features List */}
-                  <div className="mt-6 space-y-3">
-                    <span className="text-xs font-bold text-slate-300 uppercase tracking-wider block">
-                      Plan Inclusions:
+                  <div className="mt-4 space-y-2">
+                    <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider block">
+                      Features
                     </span>
                     {plan.features.map((feat, idx) => (
-                      <div key={idx} className="flex items-start gap-2 text-xs text-slate-300">
-                        <Check className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+                      <div key={idx} className="flex items-start gap-2 text-xs text-gray-700">
+                        <Check className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" />
                         <span>{feat}</span>
                       </div>
                     ))}
                   </div>
                 </div>
 
-                <div className="mt-8 pt-4">
+                <div className="mt-6 pt-3 border-t border-gray-100">
                   {isCurrent ? (
                     <button
                       disabled
-                      className="w-full py-3 rounded-xl bg-slate-800 text-emerald-400 font-bold text-xs border border-slate-700 cursor-default"
+                      className="w-full py-2 rounded-lg bg-gray-100 text-gray-500 font-medium text-xs cursor-default"
                     >
-                      ✓ Your Active Plan
+                      Active Plan
                     </button>
                   ) : (
                     <button
                       onClick={() => handleUpgrade(plan)}
                       disabled={isUpgrading === plan.id}
-                      className={`w-full py-3 rounded-xl font-black text-xs transition-all shadow-lg flex items-center justify-center gap-1.5 ${
+                      className={`w-full py-2 rounded-lg font-medium text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer ${
                         isPopular
-                          ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 hover:from-emerald-400 hover:to-teal-400'
-                          : 'bg-slate-800 hover:bg-slate-700 text-white border border-slate-700'
+                          ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                          : 'bg-gray-100 hover:bg-gray-200 text-gray-800'
                       }`}
                     >
                       {isUpgrading === plan.id ? (
                         <>
-                          <RefreshCw className="w-4 h-4 animate-spin" />
-                          <span>Activating Subscription...</span>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>Updating...</span>
                         </>
                       ) : (
-                        <>
-                          <span>Select {plan.name}</span>
-                          <ArrowRight className="w-3.5 h-3.5" />
-                        </>
+                        <span>Select Plan</span>
                       )}
                     </button>
                   )}
@@ -185,63 +163,6 @@ export const PricingPlansView: React.FC = () => {
               </div>
             );
           })}
-        </div>
-
-        {/* Boost Add-ons Section */}
-        <div className="mt-16 bg-slate-900 border border-slate-800 rounded-3xl p-8">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="p-2.5 rounded-2xl bg-amber-500/20 text-amber-400">
-              <Flame className="w-6 h-6" />
-            </div>
-            <div>
-              <h2 className="text-xl font-black text-white">À La Carte Ad Boost Packages</h2>
-              <p className="text-xs text-slate-400">Instantly spotlight any listing to the top of category feeds without upgrading full plan.</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
-            <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col justify-between">
-              <div>
-                <span className="font-bold text-white text-sm block">3-Day Quick Pulse</span>
-                <span className="text-slate-400 text-[11px]">Boost on local city search</span>
-                <div className="text-base font-black text-amber-400 mt-2">₦3,500</div>
-              </div>
-              <button 
-                onClick={() => alert('Boost credit applied! Choose an ad from your dashboard to activate.')}
-                className="mt-4 w-full py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold"
-              >
-                Buy 3-Day Boost
-              </button>
-            </div>
-
-            <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col justify-between">
-              <div>
-                <span className="font-bold text-white text-sm block">7-Day City Spotlight</span>
-                <span className="text-slate-400 text-[11px]">Top 3 slot on city homepage</span>
-                <div className="text-base font-black text-amber-400 mt-2">₦7,500</div>
-              </div>
-              <button 
-                onClick={() => alert('Boost credit applied! Choose an ad from your dashboard to activate.')}
-                className="mt-4 w-full py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold"
-              >
-                Buy 7-Day Spotlight
-              </button>
-            </div>
-
-            <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col justify-between">
-              <div>
-                <span className="font-bold text-white text-sm block">30-Day Mega Surge</span>
-                <span className="text-slate-400 text-[11px]">Nationwide featured carousel</span>
-                <div className="text-base font-black text-amber-400 mt-2">₦25,000</div>
-              </div>
-              <button 
-                onClick={() => alert('Boost credit applied! Choose an ad from your dashboard to activate.')}
-                className="mt-4 w-full py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold"
-              >
-                Buy 30-Day Surge
-              </button>
-            </div>
-          </div>
         </div>
       </div>
     </div>

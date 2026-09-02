@@ -1,18 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { 
   X, 
-  ShieldCheck, 
-  Key, 
-  Smartphone, 
-  Globe, 
   Trash2, 
   RefreshCw, 
   Check, 
   Copy, 
   AlertCircle, 
   CheckCircle2, 
-  LogOut,
-  Lock
+  LogOut
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { SessionEntity } from '../types';
@@ -50,7 +45,7 @@ export const SecuritySettingsModal: React.FC<SecuritySettingsModalProps> = ({
   const [twoFactorLoading, setTwoFactorLoading] = useState(false);
   const [copiedCodes, setCopiedCodes] = useState(false);
 
-  // Common feedback
+  // Feedback
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
@@ -83,10 +78,10 @@ export const SecuritySettingsModal: React.FC<SecuritySettingsModalProps> = ({
       const data = await res.json();
       if (data.success) {
         setSessions(sessions.filter(s => s.id !== sessionId));
-        setSuccessMessage('Session revoked successfully');
+        setSuccessMessage('Session revoked successfully.');
       }
-    } catch (err) {
-      setError('Failed to revoke session');
+    } catch {
+      setError('Failed to revoke session.');
     }
   };
 
@@ -96,10 +91,10 @@ export const SecuritySettingsModal: React.FC<SecuritySettingsModalProps> = ({
       const data = await res.json();
       if (data.success) {
         fetchSessions();
-        setSuccessMessage('All other active sessions have been terminated');
+        setSuccessMessage('Other sessions revoked.');
       }
-    } catch (err) {
-      setError('Failed to revoke sessions');
+    } catch {
+      setError('Failed to revoke sessions.');
     }
   };
 
@@ -115,7 +110,7 @@ export const SecuritySettingsModal: React.FC<SecuritySettingsModalProps> = ({
         throw new Error(data.error || 'Failed to initialize 2FA');
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : '2FA Setup failed');
+      setError(err instanceof Error ? err.message : '2FA setup failed');
     } finally {
       setTwoFactorLoading(false);
     }
@@ -143,19 +138,19 @@ export const SecuritySettingsModal: React.FC<SecuritySettingsModalProps> = ({
         throw new Error(data.error || 'Failed to enable 2FA');
       }
 
-      setSuccessMessage('Two-Factor Authentication is now ENABLED on your account!');
+      setSuccessMessage('Two-Factor Authentication is enabled.');
       setTwoFactorData(null);
       setVerificationCode('');
       await refreshData();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Invalid 2FA confirmation code');
+      setError(err instanceof Error ? err.message : 'Invalid code.');
     } finally {
       setTwoFactorLoading(false);
     }
   };
 
   const handleDisable2FA = async () => {
-    const code = prompt('Enter a 6-digit 2FA code or recovery code to confirm disabling:');
+    const code = prompt('Enter a 6-digit code or recovery code to disable 2FA:');
     if (!code) return;
 
     setTwoFactorLoading(true);
@@ -168,7 +163,7 @@ export const SecuritySettingsModal: React.FC<SecuritySettingsModalProps> = ({
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.error || 'Failed to disable 2FA');
-      setSuccessMessage('2FA has been disabled.');
+      setSuccessMessage('2FA disabled.');
       await refreshData();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to disable 2FA');
@@ -202,7 +197,7 @@ export const SecuritySettingsModal: React.FC<SecuritySettingsModalProps> = ({
         throw new Error(data.error || 'Failed to change password');
       }
 
-      setSuccessMessage('Password changed successfully! Previous credentials invalidated.');
+      setSuccessMessage('Password changed successfully.');
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
@@ -216,122 +211,100 @@ export const SecuritySettingsModal: React.FC<SecuritySettingsModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative w-full max-w-xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden text-slate-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+      <div className="relative w-full max-w-lg bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden text-gray-900">
         
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/60">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400">
-              <ShieldCheck className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="font-extrabold text-sm text-white">Security & Access Management</div>
-              <p className="text-[11px] text-slate-400">
-                User: <span className="text-emerald-300 font-semibold">{currentUser.email}</span> ({currentUser.role})
-              </p>
-            </div>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">Security Settings</h2>
+            <p className="text-xs text-gray-500">{currentUser.email}</p>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Tab Navigation */}
-        <div className="flex border-b border-slate-800 bg-slate-950/40 p-1">
+        {/* Tabs */}
+        <div className="flex border-b border-gray-100 bg-gray-50/50 p-1">
           <button
             onClick={() => { setActiveTab('sessions'); setError(null); setSuccessMessage(null); }}
-            className={`flex-1 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all ${
-              activeTab === 'sessions' ? 'bg-slate-800 text-emerald-400' : 'text-slate-400 hover:text-slate-200'
+            className={`flex-1 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
+              activeTab === 'sessions' ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-500 hover:text-gray-900'
             }`}
           >
-            <Globe className="w-3.5 h-3.5" />
-            Active Sessions ({sessions.length})
+            Sessions ({sessions.length})
           </button>
           <button
             onClick={() => { setActiveTab('2fa'); setError(null); setSuccessMessage(null); }}
-            className={`flex-1 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all ${
-              activeTab === '2fa' ? 'bg-slate-800 text-emerald-400' : 'text-slate-400 hover:text-slate-200'
+            className={`flex-1 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
+              activeTab === '2fa' ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-500 hover:text-gray-900'
             }`}
           >
-            <Smartphone className="w-3.5 h-3.5" />
             2FA Security
           </button>
           <button
             onClick={() => { setActiveTab('password'); setError(null); setSuccessMessage(null); }}
-            className={`flex-1 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all ${
-              activeTab === 'password' ? 'bg-slate-800 text-emerald-400' : 'text-slate-400 hover:text-slate-200'
+            className={`flex-1 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
+              activeTab === 'password' ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-500 hover:text-gray-900'
             }`}
           >
-            <Lock className="w-3.5 h-3.5" />
             Password
           </button>
         </div>
 
-        <div className="p-6 max-h-[75vh] overflow-y-auto">
+        {/* Content */}
+        <div className="p-6 max-h-[70vh] overflow-y-auto">
           {error && (
-            <div className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex items-start gap-2.5">
+            <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs flex items-start gap-2">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
               <span>{error}</span>
             </div>
           )}
 
           {successMessage && (
-            <div className="mb-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs flex items-start gap-2.5">
+            <div className="mb-4 p-3 rounded-lg bg-green-50 border border-green-200 text-green-700 text-xs flex items-start gap-2">
               <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
               <span>{successMessage}</span>
             </div>
           )}
 
-          {/* TAB 1: ACTIVE SESSIONS */}
+          {/* TAB 1: SESSIONS */}
           {activeTab === 'sessions' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="text-xs text-slate-400">
-                  Track devices and browsers currently authenticated to your account.
-                </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-gray-500">Currently active sessions</span>
                 {sessions.length > 1 && (
                   <button
                     onClick={handleRevokeAllOther}
-                    className="text-[11px] font-bold text-rose-400 hover:underline flex items-center gap-1"
+                    className="text-red-600 hover:underline flex items-center gap-1 cursor-pointer font-medium"
                   >
-                    <LogOut className="w-3 h-3" /> Terminate All Other Sessions
+                    <LogOut className="w-3 h-3" /> Revoke other sessions
                   </button>
                 )}
               </div>
 
               {loadingSessions ? (
-                <div className="py-8 text-center text-slate-500 text-xs">Loading active sessions...</div>
+                <div className="py-6 text-center text-gray-400 text-xs">Loading sessions...</div>
               ) : sessions.length === 0 ? (
-                <div className="py-8 text-center text-slate-500 text-xs">No active sessions found.</div>
+                <div className="py-6 text-center text-gray-400 text-xs">No active sessions.</div>
               ) : (
-                <div className="space-y-2.5">
+                <div className="space-y-2">
                   {sessions.map((sess) => (
                     <div
                       key={sess.id}
-                      className="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800 flex items-center justify-between"
+                      className="p-3 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-between text-xs"
                     >
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-xs text-white">IP: {sess.ipAddress}</span>
-                          <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-300">
-                            {sess.userAgent.includes('Mobile') ? '📱 Mobile' : '💻 Desktop Browser'}
-                          </span>
-                        </div>
-                        <div className="text-[11px] text-slate-400 truncate max-w-xs">
-                          {sess.userAgent}
-                        </div>
-                        <div className="text-[10px] text-slate-500">
-                          Last active: {new Date(sess.lastActiveAt).toLocaleString()}
-                        </div>
+                      <div>
+                        <div className="font-medium text-gray-900">IP: {sess.ipAddress}</div>
+                        <div className="text-gray-500 truncate max-w-xs text-[11px]">{sess.userAgent}</div>
                       </div>
-
                       <button
                         onClick={() => handleRevokeSession(sess.id)}
-                        className="p-2 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition-colors"
+                        className="p-1.5 text-gray-400 hover:text-red-600 rounded transition-colors cursor-pointer"
                         title="Revoke session"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -347,32 +320,25 @@ export const SecuritySettingsModal: React.FC<SecuritySettingsModalProps> = ({
           {activeTab === '2fa' && (
             <div className="space-y-4">
               {!twoFactorData ? (
-                <div className="p-4 bg-slate-950/60 border border-slate-800 rounded-xl space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Smartphone className="w-5 h-5 text-emerald-400" />
-                      <div className="font-bold text-xs text-white">Authenticator App (TOTP)</div>
-                    </div>
-                    <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
-                      RFC 6238 Standard
-                    </span>
+                <div className="p-4 bg-gray-50 border border-gray-100 rounded-lg space-y-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-900">Authenticator App (TOTP)</h3>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Protect your account with Google Authenticator, Authy, or 1Password.
+                    </p>
                   </div>
-
-                  <p className="text-xs text-slate-400 leading-relaxed">
-                    Protect your Boost Market account with Google Authenticator, Authy, or 1Password. Every login will require a 6-digit TOTP security code or backup recovery code.
-                  </p>
 
                   <div className="pt-2 flex items-center gap-2">
                     <button
                       onClick={handleStart2FASetup}
                       disabled={twoFactorLoading}
-                      className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition-colors"
+                      className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs transition-colors cursor-pointer"
                     >
-                      {twoFactorLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : 'Configure 2FA Setup'}
+                      {twoFactorLoading ? 'Loading...' : 'Set Up 2FA'}
                     </button>
                     <button
                       onClick={handleDisable2FA}
-                      className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold"
+                      className="px-3 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs font-medium transition-colors cursor-pointer"
                     >
                       Disable 2FA
                     </button>
@@ -380,24 +346,24 @@ export const SecuritySettingsModal: React.FC<SecuritySettingsModalProps> = ({
                 </div>
               ) : (
                 <form onSubmit={handleEnable2FA} className="space-y-4">
-                  <div className="text-center p-3 bg-slate-950 rounded-xl border border-slate-800">
+                  <div className="text-center p-4 bg-gray-50 rounded-lg border border-gray-100">
                     <img
                       src={twoFactorData.qrCodeDataUrl}
                       alt="2FA QR Code"
-                      className="w-40 h-40 mx-auto rounded-lg bg-white p-2"
+                      className="w-36 h-36 mx-auto rounded bg-white p-1 border border-gray-200"
                     />
-                    <div className="mt-2 text-[11px] text-slate-400">
-                      Scan QR code or manually enter TOTP Secret Key:
+                    <div className="mt-2 text-xs text-gray-500">
+                      Secret Key:
                     </div>
-                    <code className="block mt-1 p-1 bg-slate-900 text-emerald-300 text-xs font-mono rounded">
+                    <code className="block mt-1 p-1 bg-white border border-gray-200 text-gray-900 text-xs font-mono rounded select-all">
                       {twoFactorData.secret}
                     </code>
                   </div>
 
-                  {/* 8 Recovery Codes */}
-                  <div className="p-3 bg-slate-950/80 border border-slate-800 rounded-xl space-y-1.5">
-                    <div className="flex items-center justify-between text-[11px] font-bold text-slate-300">
-                      <span>Emergency Backup Recovery Codes (Keep Safe):</span>
+                  {/* Recovery Codes */}
+                  <div className="p-3 bg-gray-50 border border-gray-100 rounded-lg space-y-1.5">
+                    <div className="flex items-center justify-between text-xs font-medium text-gray-700">
+                      <span>Backup Recovery Codes:</span>
                       <button
                         type="button"
                         onClick={() => {
@@ -405,15 +371,15 @@ export const SecuritySettingsModal: React.FC<SecuritySettingsModalProps> = ({
                           setCopiedCodes(true);
                           setTimeout(() => setCopiedCodes(false), 2000);
                         }}
-                        className="text-emerald-400 hover:underline flex items-center gap-1"
+                        className="text-blue-600 hover:underline flex items-center gap-1 cursor-pointer"
                       >
                         {copiedCodes ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                        {copiedCodes ? 'Copied' : 'Copy All'}
+                        <span>{copiedCodes ? 'Copied' : 'Copy'}</span>
                       </button>
                     </div>
-                    <div className="grid grid-cols-2 gap-1.5 pt-1">
+                    <div className="grid grid-cols-2 gap-1 pt-1">
                       {twoFactorData.recoveryCodes.map((code, idx) => (
-                        <div key={idx} className="p-1 rounded bg-slate-900 text-center font-mono text-[11px] text-slate-300">
+                        <div key={idx} className="p-1 bg-white border border-gray-200 text-center font-mono text-[11px] text-gray-700 rounded">
                           {code}
                         </div>
                       ))}
@@ -421,8 +387,8 @@ export const SecuritySettingsModal: React.FC<SecuritySettingsModalProps> = ({
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      Verify 6-Digit Code from Authenticator:
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Verification Code
                     </label>
                     <input
                       type="text"
@@ -431,7 +397,7 @@ export const SecuritySettingsModal: React.FC<SecuritySettingsModalProps> = ({
                       value={verificationCode}
                       onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ''))}
                       placeholder="123456"
-                      className="w-full text-center tracking-[0.4em] font-mono text-lg py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-emerald-500"
+                      className="w-full text-center tracking-widest font-mono text-lg py-2 bg-white border border-gray-200 rounded-lg text-gray-900 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
                     />
                   </div>
 
@@ -439,14 +405,14 @@ export const SecuritySettingsModal: React.FC<SecuritySettingsModalProps> = ({
                     <button
                       type="submit"
                       disabled={twoFactorLoading}
-                      className="flex-1 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-lg flex items-center justify-center gap-1.5"
+                      className="flex-1 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs transition-colors cursor-pointer"
                     >
-                      {twoFactorLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : 'Confirm & Enable 2FA'}
+                      {twoFactorLoading ? 'Enabling...' : 'Confirm 2FA'}
                     </button>
                     <button
                       type="button"
                       onClick={() => setTwoFactorData(null)}
-                      className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-300 hover:text-white text-xs font-semibold"
+                      className="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium transition-colors cursor-pointer"
                     >
                       Cancel
                     </button>
@@ -456,51 +422,56 @@ export const SecuritySettingsModal: React.FC<SecuritySettingsModalProps> = ({
             </div>
           )}
 
-          {/* TAB 3: PASSWORD CHANGE */}
+          {/* TAB 3: PASSWORD */}
           {activeTab === 'password' && (
-            <form onSubmit={handleChangePassword} className="space-y-3.5">
+            <form onSubmit={handleChangePassword} className="space-y-3">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Current Password</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Current Password</label>
                 <input
                   type="password"
                   required
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
-                  placeholder="Enter current password"
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs text-gray-900 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">New Password</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">New Password</label>
                 <input
                   type="password"
                   required
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="Min. 8 characters with numbers & letters"
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
+                  placeholder="Min. 8 characters"
+                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs text-gray-900 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Confirm New Password</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Confirm New Password</label>
                 <input
                   type="password"
                   required
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Repeat new password"
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs text-gray-900 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={passwordLoading}
-                className="w-full py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-lg flex items-center justify-center gap-1.5"
+                className="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs transition-colors cursor-pointer"
               >
-                {passwordLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : 'Update Password'}
+                {passwordLoading ? (
+                  <span className="flex items-center justify-center gap-1.5">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    Updating...
+                  </span>
+                ) : (
+                  'Update Password'
+                )}
               </button>
             </form>
           )}

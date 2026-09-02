@@ -4,20 +4,11 @@ import {
   Mail, 
   Lock, 
   User, 
-  ShieldCheck, 
-  Key, 
-  ArrowRight, 
-  CheckCircle2, 
   AlertCircle, 
+  CheckCircle2, 
   RefreshCw, 
-  Crown, 
-  Smartphone,
   Eye,
-  EyeOff,
-  Building2,
-  Briefcase,
-  Layers,
-  Sparkles
+  EyeOff
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { ClientType } from '../types';
@@ -73,23 +64,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setRecoveryCode('');
   };
 
-  // Password strength calculation
-  const getPasswordStrength = (pass: string) => {
-    if (!pass) return { score: 0, label: 'Empty', color: 'bg-slate-700' };
-    let score = 0;
-    if (pass.length >= 8) score++;
-    if (pass.length >= 12) score++;
-    if (/[A-Z]/.test(pass)) score++;
-    if (/[0-9]/.test(pass)) score++;
-    if (/[^A-Za-z0-9]/.test(pass)) score++;
-
-    if (score <= 2) return { score, label: 'Weak', color: 'bg-rose-500' };
-    if (score <= 4) return { score, label: 'Moderate', color: 'bg-amber-500' };
-    return { score, label: 'Strong (Production Grade)', color: 'bg-emerald-500' };
-  };
-
-  const passStrength = getPasswordStrength(password);
-
   // 1. Handle Registration
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -122,7 +96,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         throw new Error(data.error || 'Registration failed');
       }
 
-      setSuccessMessage(data.message || 'Account created! Verification link sent to your email.');
+      setSuccessMessage(data.message || 'Account created! Verification link sent.');
       if (data.emailLog?.token) {
         setVerifyToken(data.emailLog.token);
       }
@@ -162,7 +136,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         }
         if (data.setupRequired) {
           setTab('admin_setup');
-          setError('Super Admin master password has not been created yet. Please use the Admin Setup flow.');
+          setError('Admin setup required. Please use the Admin Setup flow.');
           return;
         }
         throw new Error(data.error || 'Login failed');
@@ -233,7 +207,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         throw new Error(data.error || 'Verification failed');
       }
 
-      setSuccessMessage('Email verified successfully! Your account is now ACTIVE. You can sign in.');
+      setSuccessMessage('Email verified successfully!');
       if (data.user) {
         setCurrentUser(data.user);
         await refreshData();
@@ -260,15 +234,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       });
 
       const data = await res.json();
-      setSuccessMessage(data.message || 'If that account exists, a secure password reset link has been dispatched.');
+      setSuccessMessage(data.message || 'Password reset link sent if account exists.');
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to request password reset');
+      setError(err instanceof Error ? err.message : 'Failed to send reset link');
     } finally {
       setLoading(false);
     }
   };
 
-  // 6. Handle Super Admin Initial Password Setup
+  // 6. Handle Admin Setup
   const handleAdminSetup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -296,11 +270,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         throw new Error(data.error || 'Admin setup failed');
       }
 
-      setSuccessMessage('Super Admin master password configured! You may now log in.');
+      setSuccessMessage('Admin password configured. You can now log in.');
       setTimeout(() => {
         setTab('login');
-        setEmail('maddyahamco00@gmail.com');
-      }, 1500);
+      }, 1200);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Admin setup failed');
     } finally {
@@ -308,7 +281,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
-  // Request Super Admin Setup Email Dispatch
   const handleRequestAdminSetupEmail = async () => {
     setLoading(true);
     setError(null);
@@ -328,95 +300,74 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden text-slate-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+      <div className="relative w-full max-w-md bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden text-gray-900">
         
-        {/* Header with Brand & Close */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/60">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-slate-950 font-black text-sm shadow-md shadow-emerald-500/20">
-              B⚡
-            </div>
-            <div>
-              <div className="font-extrabold text-sm tracking-tight text-white flex items-center gap-1.5">
-                BOOST MARKET
-                <span className="text-[10px] uppercase font-bold tracking-widest text-emerald-400 px-1.5 py-0.2 rounded bg-emerald-500/10 border border-emerald-500/20">
-                  Auth Engine
-                </span>
-              </div>
-              <p className="text-[11px] text-slate-400">Strict Dual-Role Security Architecture</p>
-            </div>
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">
+              {tab === 'login' && 'Sign In'}
+              {tab === 'register' && 'Create Account'}
+              {tab === 'forgot' && 'Reset Password'}
+              {tab === 'admin_setup' && 'Admin Setup'}
+              {tab === 'verify' && 'Verify Email'}
+              {tab === '2fa' && 'Two-Factor Authentication'}
+            </h2>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Tab Navigation (Sign In / Register / Admin / Verify) */}
-        <div className="flex border-b border-slate-800 bg-slate-950/40 p-1">
-          <button
-            type="button"
-            onClick={() => { setTab('login'); resetForm(); }}
-            className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all ${
-              tab === 'login' 
-                ? 'bg-slate-800 text-emerald-400 shadow-sm' 
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            Sign In
-          </button>
-          <button
-            type="button"
-            onClick={() => { setTab('register'); resetForm(); }}
-            className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all ${
-              tab === 'register' 
-                ? 'bg-slate-800 text-emerald-400 shadow-sm' 
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            Register Client
-          </button>
-          <button
-            type="button"
-            onClick={() => { setTab('admin_setup'); resetForm(); }}
-            className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1 ${
-              tab === 'admin_setup' 
-                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' 
-                : 'text-amber-400/80 hover:text-amber-300'
-            }`}
-          >
-            <Crown className="w-3.5 h-3.5" />
-            CEO Setup
-          </button>
-        </div>
+        {/* Tabs */}
+        {['login', 'register', 'admin_setup'].includes(tab) && (
+          <div className="flex border-b border-gray-100 bg-gray-50/50 p-1">
+            <button
+              type="button"
+              onClick={() => { setTab('login'); resetForm(); }}
+              className={`flex-1 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
+                tab === 'login' ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-500 hover:text-gray-900'
+              }`}
+            >
+              Sign In
+            </button>
+            <button
+              type="button"
+              onClick={() => { setTab('register'); resetForm(); }}
+              className={`flex-1 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
+                tab === 'register' ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-500 hover:text-gray-900'
+              }`}
+            >
+              Register
+            </button>
+            <button
+              type="button"
+              onClick={() => { setTab('admin_setup'); resetForm(); }}
+              className={`flex-1 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
+                tab === 'admin_setup' ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-500 hover:text-gray-900'
+              }`}
+            >
+              Admin Setup
+            </button>
+          </div>
+        )}
 
         <div className="p-6 max-h-[80vh] overflow-y-auto">
-          {/* Feedback messages */}
           {error && (
-            <div className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex items-start gap-2.5 animate-in fade-in">
+            <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs flex items-start gap-2">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
               <span>{error}</span>
             </div>
           )}
 
           {successMessage && (
-            <div className="mb-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs flex items-start gap-2.5 animate-in fade-in">
+            <div className="mb-4 p-3 rounded-lg bg-green-50 border border-green-200 text-green-700 text-xs flex items-start gap-2">
               <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <div>{successMessage}</div>
-                {verifyToken && tab === 'register' && (
-                  <button
-                    type="button"
-                    onClick={() => { setTab('verify'); }}
-                    className="mt-2 text-xs font-bold text-emerald-300 underline flex items-center gap-1"
-                  >
-                    Quick-Verify Token Now <ArrowRight className="w-3 h-3" />
-                  </button>
-                )}
-              </div>
+              <span>{successMessage}</span>
             </div>
           )}
 
@@ -424,428 +375,270 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           {tab === 'login' && (
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">Email Address</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Email</label>
                 <div className="relative">
-                  <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                   <input
                     type="email"
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="e.g. maddyahamco00@gmail.com or client@business.ng"
-                    className="w-full pl-10 pr-4 py-2.5 bg-slate-950/60 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
+                    placeholder="you@example.com"
+                    className="w-full pl-9 pr-3 py-2 bg-white border border-gray-200 rounded-lg text-xs text-gray-900 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
                   />
                 </div>
               </div>
 
               <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-semibold text-slate-300">Password</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-medium text-gray-700">Password</label>
                   <button
                     type="button"
                     onClick={() => { setTab('forgot'); resetForm(); }}
-                    className="text-xs text-emerald-400 hover:underline"
+                    className="text-xs text-blue-600 hover:underline cursor-pointer"
                   >
-                    Forgot Password?
+                    Forgot?
                   </button>
                 </div>
                 <div className="relative">
-                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                   <input
                     type={showPassword ? 'text' : 'password'}
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter account password"
-                    className="w-full pl-10 pr-10 py-2.5 bg-slate-950/60 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
+                    className="w-full pl-9 pr-9 py-2 bg-white border border-gray-200 rounded-lg text-xs text-gray-900 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
               </div>
 
-              {/* Quick Demo Credentials Help */}
-              <div className="p-3 bg-slate-950/40 border border-slate-800 rounded-xl text-[11px] text-slate-400 space-y-1.5">
-                <div className="font-semibold text-slate-300 flex items-center justify-between">
-                  <span>Quick Test Personas:</span>
-                  <span className="text-[10px] text-emerald-400">Click to fill</span>
-                </div>
-                <div className="grid grid-cols-2 gap-1.5 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => { setEmail('maddyahamco00@gmail.com'); setPassword('Admin2026!'); }}
-                    className="text-left p-1.5 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700/60 transition-colors"
-                  >
-                    <div className="font-bold text-amber-300 text-[10px]">👑 Super Admin (CEO)</div>
-                    <div className="truncate text-slate-400 text-[9px]">maddyahamco00@...</div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setEmail('farouk@kadunacode.com'); setPassword('Client123!'); }}
-                    className="text-left p-1.5 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700/60 transition-colors"
-                  >
-                    <div className="font-bold text-emerald-300 text-[10px]">💼 Client (Business)</div>
-                    <div className="truncate text-slate-400 text-[9px]">farouk@kadunacode...</div>
-                  </button>
-                </div>
-              </div>
-
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-bold text-sm shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                className="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs transition-colors disabled:opacity-50 cursor-pointer"
               >
-                {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : 'Secure Sign In'}
+                {loading ? 'Signing in...' : 'Sign In'}
               </button>
             </form>
           )}
 
-          {/* TAB 2: CLIENT REGISTRATION */}
+          {/* TAB 2: REGISTER */}
           {tab === 'register' && (
-            <form onSubmit={handleRegister} className="space-y-3.5">
+            <form onSubmit={handleRegister} className="space-y-3">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Full Name</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Full Name</label>
                 <div className="relative">
-                  <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                   <input
                     type="text"
                     required
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g. John Doe"
-                    className="w-full pl-10 pr-4 py-2.5 bg-slate-950/60 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                    placeholder="Jane Doe"
+                    className="w-full pl-9 pr-3 py-2 bg-white border border-gray-200 rounded-lg text-xs text-gray-900 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Email Address</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Email</label>
                 <div className="relative">
-                  <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                   <input
                     type="email"
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="john@example.com"
-                    className="w-full pl-10 pr-4 py-2.5 bg-slate-950/60 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                    placeholder="jane@example.com"
+                    className="w-full pl-9 pr-3 py-2 bg-white border border-gray-200 rounded-lg text-xs text-gray-900 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Password</label>
-                  <div className="relative">
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Min. 8 characters"
-                      className="w-full pl-3 pr-10 py-2.5 bg-slate-950/60 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 p-1"
-                    >
-                      {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Password</label>
+                  <input
+                    type="password"
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Min 8 chars"
+                    className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs text-gray-900 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
+                  />
                 </div>
-
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Confirm Password</label>
-                  <div className="relative">
-                    <input
-                      type={showConfirmPassword ? 'text' : 'password'}
-                      required
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      placeholder="Repeat password"
-                      className="w-full pl-3 pr-10 py-2.5 bg-slate-950/60 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 p-1"
-                    >
-                      {showConfirmPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Confirm</label>
+                  <input
+                    type="password"
+                    required
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs text-gray-900 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
+                  />
                 </div>
               </div>
 
-              {/* Password strength meter */}
-              {password && (
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between text-[10px] text-slate-400">
-                    <span>Password Strength:</span>
-                    <span className="font-bold text-slate-200">{passStrength.label}</span>
-                  </div>
-                  <div className="w-full bg-slate-800 h-1 rounded-full overflow-hidden flex">
-                    <div className={`h-full transition-all duration-300 ${passStrength.color}`} style={{ width: `${(passStrength.score / 5) * 100}%` }} />
-                  </div>
-                </div>
-              )}
-
-              <div className="flex items-start gap-2 pt-1">
+              <div className="flex items-center gap-2 pt-1">
                 <input
                   type="checkbox"
-                  id="terms"
+                  id="modal-terms"
                   checked={termsAccepted}
                   onChange={(e) => setTermsAccepted(e.target.checked)}
-                  className="mt-0.5 rounded bg-slate-950 border-slate-800 text-emerald-500 focus:ring-emerald-500 cursor-pointer"
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                 />
-                <label htmlFor="terms" className="text-[11px] text-slate-400 leading-snug cursor-pointer">
-                  I agree to the <span className="text-emerald-400">Terms of Service</span> and <span className="text-emerald-400">Privacy Policy</span>.
+                <label htmlFor="modal-terms" className="text-xs text-gray-600 cursor-pointer">
+                  I agree to the Terms and Privacy Policy.
                 </label>
               </div>
 
               <button
                 type="submit"
                 disabled={loading || !termsAccepted}
-                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-bold text-xs shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 transition-all disabled:opacity-50 cursor-pointer"
+                className="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs transition-colors disabled:opacity-50 cursor-pointer"
               >
-                {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : 'Create Account'}
+                {loading ? 'Creating...' : 'Create Account'}
               </button>
             </form>
           )}
 
-          {/* TAB 3: 2FA STEP */}
+          {/* TAB 3: 2FA */}
           {tab === '2fa' && (
             <form onSubmit={handleVerify2FA} className="space-y-4">
-              <div className="text-center py-2">
-                <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 mx-auto flex items-center justify-center mb-2">
-                  <Smartphone className="w-6 h-6" />
-                </div>
-                <h3 className="text-sm font-bold text-white">Two-Factor Authentication</h3>
-                <p className="text-xs text-slate-400 mt-1">
-                  Enter the 6-digit TOTP code from your authenticator app or backup recovery code.
-                </p>
+              <div className="text-center text-xs text-gray-600">
+                Enter your 6-digit authentication code
               </div>
 
-              {!useRecoveryCode ? (
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5 text-center">
-                    6-Digit Security Code
-                  </label>
-                  <input
-                    type="text"
-                    maxLength={6}
-                    required
-                    value={twoFactorCode}
-                    onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, ''))}
-                    placeholder="123456"
-                    className="w-full text-center tracking-[0.5em] font-mono text-xl py-3 bg-slate-950/80 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-              ) : (
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5 text-center">
-                    Backup Recovery Code
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={recoveryCode}
-                    onChange={(e) => setRecoveryCode(e.target.value.toUpperCase())}
-                    placeholder="e.g. REC-A1B2-C3D4"
-                    className="w-full text-center font-mono text-sm py-3 bg-slate-950/80 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-              )}
-
-              <div className="flex items-center justify-between text-xs">
-                <button
-                  type="button"
-                  onClick={() => setUseRecoveryCode(!useRecoveryCode)}
-                  className="text-emerald-400 hover:underline"
-                >
-                  {useRecoveryCode ? 'Use 6-digit TOTP app code' : 'Lost phone? Use recovery code'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setTab('login'); resetForm(); }}
-                  className="text-slate-400 hover:text-white"
-                >
-                  Back to Sign In
-                </button>
+              <div>
+                <input
+                  type="text"
+                  maxLength={6}
+                  required
+                  value={twoFactorCode}
+                  onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, ''))}
+                  placeholder="123456"
+                  className="w-full text-center tracking-widest font-mono text-lg py-2 bg-white border border-gray-200 rounded-lg text-gray-900 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
+                />
               </div>
 
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm shadow-lg flex items-center justify-center gap-2"
+                className="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs transition-colors cursor-pointer"
               >
-                {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : 'Confirm & Authenticate'}
+                {loading ? 'Verifying...' : 'Verify'}
               </button>
             </form>
           )}
 
-          {/* TAB 4: SUPER ADMIN SETUP */}
+          {/* TAB 4: ADMIN SETUP */}
           {tab === 'admin_setup' && (
-            <div className="space-y-4">
-              <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-300 flex items-start gap-2.5">
-                <Crown className="w-5 h-5 shrink-0 text-amber-400" />
-                <div>
-                  <div className="font-bold">Super Admin Invariant Authority</div>
-                  <div className="text-amber-200/80 text-[11px] mt-0.5">
-                    Designated Owner / CEO: <code className="text-white font-mono">maddyahamco00@gmail.com</code>.
-                    Admin setup tokens are single-use and sent via secure email channel.
-                  </div>
-                </div>
-              </div>
-
-              <form onSubmit={handleAdminSetup} className="space-y-3.5">
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-xs font-semibold text-slate-300">Admin Setup Token</label>
-                    <button
-                      type="button"
-                      onClick={handleRequestAdminSetupEmail}
-                      className="text-[10px] text-amber-400 font-bold hover:underline flex items-center gap-1"
-                    >
-                      <RefreshCw className="w-3 h-3" /> Dispatch Token to Email
-                    </button>
-                  </div>
-                  <input
-                    type="text"
-                    required
-                    value={adminToken}
-                    onChange={(e) => setAdminToken(e.target.value)}
-                    placeholder="Paste single-use token from email"
-                    className="w-full px-3.5 py-2 bg-slate-950/60 border border-slate-800 rounded-xl text-xs text-white font-mono focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">New Super Admin Password</label>
-                  <input
-                    type="password"
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Min. 8 characters with numbers & letters"
-                    className="w-full px-3.5 py-2 bg-slate-950/60 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Confirm Super Admin Password</label>
-                  <input
-                    type="password"
-                    required
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="Repeat master password"
-                    className="w-full px-3.5 py-2 bg-slate-950/60 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-
+            <form onSubmit={handleAdminSetup} className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-gray-700">Setup Token</label>
                 <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 disabled:opacity-50"
+                  type="button"
+                  onClick={handleRequestAdminSetupEmail}
+                  className="text-[11px] text-blue-600 hover:underline cursor-pointer"
                 >
-                  {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : 'Set Master Super Admin Password'}
+                  Send Token to Email
                 </button>
-              </form>
-            </div>
-          )}
+              </div>
+              <input
+                type="text"
+                required
+                value={adminToken}
+                onChange={(e) => setAdminToken(e.target.value)}
+                placeholder="Paste token from email"
+                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs font-mono text-gray-900 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
+              />
 
-          {/* TAB 5: EMAIL VERIFICATION */}
-          {tab === 'verify' && (
-            <form onSubmit={handleVerifyEmail} className="space-y-4">
-              <div className="text-center py-2">
-                <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 mx-auto flex items-center justify-center mb-2">
-                  <ShieldCheck className="w-6 h-6" />
-                </div>
-                <h3 className="text-sm font-bold text-white">Activate Client Account</h3>
-                <p className="text-xs text-slate-400 mt-1">
-                  Enter the single-use verification token sent to your email address.
-                </p>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">New Password</label>
+                <input
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Min. 8 characters"
+                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs text-gray-900 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
+                />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">Verification Token</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Confirm Password</label>
+                <input
+                  type="password"
+                  required
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs text-gray-900 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs transition-colors cursor-pointer"
+              >
+                {loading ? 'Saving...' : 'Set Admin Password'}
+              </button>
+            </form>
+          )}
+
+          {/* TAB 5: VERIFY EMAIL */}
+          {tab === 'verify' && (
+            <form onSubmit={handleVerifyEmail} className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Verification Token</label>
                 <input
                   type="text"
                   required
                   value={verifyToken}
                   onChange={(e) => setVerifyToken(e.target.value)}
-                  placeholder="Paste verification token"
-                  className="w-full px-3.5 py-2.5 bg-slate-950/60 border border-slate-800 rounded-xl text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+                  placeholder="Paste token"
+                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs font-mono text-gray-900 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
                 />
-              </div>
-
-              <div className="flex items-center justify-between text-xs">
-                <button
-                  type="button"
-                  onClick={() => { setTab('login'); resetForm(); }}
-                  className="text-slate-400 hover:text-white"
-                >
-                  Back to Sign In
-                </button>
               </div>
 
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-lg flex items-center justify-center gap-2"
+                className="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs transition-colors cursor-pointer"
               >
-                {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : 'Verify & Activate Account'}
+                {loading ? 'Verifying...' : 'Verify Token'}
               </button>
             </form>
           )}
 
           {/* TAB 6: FORGOT PASSWORD */}
           {tab === 'forgot' && (
-            <form onSubmit={handleForgotPassword} className="space-y-4">
-              <div className="text-center py-2">
-                <div className="w-12 h-12 rounded-2xl bg-blue-500/20 border border-blue-500/30 text-blue-400 mx-auto flex items-center justify-center mb-2">
-                  <Key className="w-6 h-6" />
-                </div>
-                <h3 className="text-sm font-bold text-white">Reset Account Password</h3>
-                <p className="text-xs text-slate-400 mt-1">
-                  We will send a cryptographically secure, single-use reset link to your email.
-                </p>
-              </div>
-
+            <form onSubmit={handleForgotPassword} className="space-y-3">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">Registered Email</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Email</label>
                 <input
                   type="email"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@domain.ng"
-                  className="w-full px-3.5 py-2.5 bg-slate-950/60 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
+                  placeholder="you@example.com"
+                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs text-gray-900 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
                 />
-              </div>
-
-              <div className="flex items-center justify-between text-xs">
-                <button
-                  type="button"
-                  onClick={() => { setTab('login'); resetForm(); }}
-                  className="text-emerald-400 hover:underline"
-                >
-                  Return to Sign In
-                </button>
               </div>
 
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-400 hover:to-indigo-400 text-white font-bold text-xs shadow-lg flex items-center justify-center gap-2"
+                className="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs transition-colors cursor-pointer"
               >
-                {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : 'Send Password Reset Link'}
+                {loading ? 'Sending...' : 'Send Reset Link'}
               </button>
             </form>
           )}

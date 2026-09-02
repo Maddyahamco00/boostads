@@ -1,30 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
-  Crown, 
-  ShieldCheck, 
-  DollarSign, 
-  AlertTriangle, 
-  Users, 
+  Building2, 
   Flame, 
-  CheckCircle2, 
-  XCircle, 
-  Tag, 
-  TrendingUp, 
-  Sliders,
-  Check,
-  Building2,
-  Trash2,
-  Lock,
-  FileText,
-  Play,
-  RefreshCw,
-  UserX,
-  UserCheck,
-  ShieldAlert,
-  Search
+  DollarSign, 
+  ShieldCheck, 
+  RefreshCw, 
+  Search,
+  CheckCircle2,
+  XCircle,
+  FileText
 } from 'lucide-react';
-import { Business, Advertisement, ReportItem, AuditLogEntity } from '../types';
+import { AuditLogEntity } from '../types';
 import { AuthTestSuiteModal } from './AuthTestSuiteModal';
 
 export const AdminPanelView: React.FC = () => {
@@ -131,145 +118,135 @@ export const AdminPanelView: React.FC = () => {
   );
 
   return (
-    <div id="admin-panel-view" className="min-h-screen bg-slate-950 pb-24">
-      {/* Executive Header */}
-      <div className="border-b border-slate-800 bg-gradient-to-r from-amber-950/30 via-slate-900 to-slate-950 px-4 py-8 sm:px-6 lg:px-8">
+    <div id="admin-panel-view" className="min-h-screen bg-gray-50 pb-20 text-gray-900">
+      {/* Header */}
+      <div className="border-b border-gray-200 bg-white px-4 py-6 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center">
-              <Crown className="w-7 h-7" />
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-bold text-gray-900">Admin Dashboard</h1>
+              <span className="px-2 py-0.5 rounded text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                Super Admin
+              </span>
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-2xl font-black text-white">CEO Governance & Platform Control</h1>
-                <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-black uppercase border border-amber-500/30">
-                  Owner Maddy
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Real Boosters Ecosystem Executive Administration • Full Platform Oversight
-              </p>
-            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              Manage platform businesses, advertisements, user roles, and security logs
+            </p>
           </div>
 
-          <div className="flex items-center gap-2 text-xs">
+          <div className="flex items-center gap-2">
             <button
               onClick={() => setIsTestSuiteOpen(true)}
-              className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black flex items-center gap-1.5 shadow-md shadow-amber-500/20 transition-all hover:scale-102"
+              className="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
             >
-              <ShieldAlert className="w-4 h-4" />
-              <span>Run Auth Security Suite (10 Tests)</span>
+              <ShieldCheck className="w-4 h-4" />
+              <span>Run Security Tests</span>
             </button>
-            <span className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-emerald-400 font-bold flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span>Core Server Active (Port 3000)</span>
-            </span>
           </div>
         </div>
       </div>
 
       {/* KPI Cards */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg">
-            <div className="flex items-center justify-between text-slate-400 mb-2">
-              <span className="text-xs font-semibold">Total Businesses</span>
-              <Building2 className="w-4 h-4 text-emerald-400" />
+          <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-xs">
+            <div className="flex items-center justify-between text-gray-500 mb-1">
+              <span className="text-xs font-medium">Businesses</span>
+              <Building2 className="w-4 h-4 text-blue-600" />
             </div>
-            <div className="text-2xl font-black text-white">{businesses.length}</div>
-            <div className="text-[11px] text-emerald-400 font-medium mt-1">
-              {businesses.filter(b => b.isVerified).length} Verified Entities
-            </div>
-          </div>
-
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg">
-            <div className="flex items-center justify-between text-slate-400 mb-2">
-              <span className="text-xs font-semibold">Active Ads / Boosts</span>
-              <Flame className="w-4 h-4 text-amber-400" />
-            </div>
-            <div className="text-2xl font-black text-white">{advertisements.length}</div>
-            <div className="text-[11px] text-amber-400 font-medium mt-1">
-              {advertisements.filter(a => a.isBoosted).length} Priority Boosted
+            <div className="text-2xl font-bold text-gray-900">{businesses.length}</div>
+            <div className="text-xs text-gray-500 mt-0.5">
+              {businesses.filter(b => b.isVerified).length} verified
             </div>
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg">
-            <div className="flex items-center justify-between text-slate-400 mb-2">
-              <span className="text-xs font-semibold">Platform GMV Settled</span>
-              <DollarSign className="w-4 h-4 text-emerald-400" />
+          <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-xs">
+            <div className="flex items-center justify-between text-gray-500 mb-1">
+              <span className="text-xs font-medium">Active Ads</span>
+              <Flame className="w-4 h-4 text-amber-500" />
             </div>
-            <div className="text-2xl font-black text-white">₦{totalGMV.toLocaleString()}</div>
-            <div className="text-[11px] text-emerald-400 font-medium mt-1">
-              Automated NGN Payouts
+            <div className="text-2xl font-bold text-gray-900">{advertisements.length}</div>
+            <div className="text-xs text-gray-500 mt-0.5">
+              {advertisements.filter(a => a.isBoosted).length} boosted
             </div>
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg">
-            <div className="flex items-center justify-between text-slate-400 mb-2">
-              <span className="text-xs font-semibold">Security Audit Events</span>
-              <FileText className="w-4 h-4 text-amber-400" />
+          <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-xs">
+            <div className="flex items-center justify-between text-gray-500 mb-1">
+              <span className="text-xs font-medium">Total Settled</span>
+              <DollarSign className="w-4 h-4 text-green-600" />
             </div>
-            <div className="text-2xl font-black text-white">
-              {auditLogs.length > 0 ? auditLogs.length : 'Live Logging'}
+            <div className="text-2xl font-bold text-gray-900">₦{totalGMV.toLocaleString()}</div>
+            <div className="text-xs text-gray-500 mt-0.5">
+              {invoices.filter(i => i.status === 'paid').length} paid invoices
             </div>
-            <div className="text-[11px] text-slate-400 font-medium mt-1">
-              Immutable Server Audit Trail
+          </div>
+
+          <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-xs">
+            <div className="flex items-center justify-between text-gray-500 mb-1">
+              <span className="text-xs font-medium">Audit Events</span>
+              <FileText className="w-4 h-4 text-gray-600" />
+            </div>
+            <div className="text-2xl font-bold text-gray-900">
+              {auditLogs.length > 0 ? auditLogs.length : 'Active'}
+            </div>
+            <div className="text-xs text-gray-500 mt-0.5">
+              Recorded actions
             </div>
           </div>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8">
-        <div className="border-b border-slate-800 flex items-center gap-4 text-xs sm:text-sm font-semibold pb-1 overflow-x-auto">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
+        <div className="border-b border-gray-200 flex items-center gap-2 text-xs font-medium overflow-x-auto pb-1">
           <button
             onClick={() => setActiveTab('businesses')}
-            className={`pb-3 px-2 border-b-2 whitespace-nowrap transition-all ${
-              activeTab === 'businesses' ? 'border-amber-400 text-amber-400 font-bold' : 'border-transparent text-slate-400 hover:text-white'
+            className={`pb-2.5 px-3 border-b-2 whitespace-nowrap transition-colors cursor-pointer ${
+              activeTab === 'businesses' ? 'border-blue-600 text-blue-600 font-semibold' : 'border-transparent text-gray-500 hover:text-gray-900'
             }`}
           >
-            Manage Businesses ({businesses.length})
+            Businesses ({businesses.length})
           </button>
           <button
             onClick={() => setActiveTab('ads')}
-            className={`pb-3 px-2 border-b-2 whitespace-nowrap transition-all ${
-              activeTab === 'ads' ? 'border-amber-400 text-amber-400 font-bold' : 'border-transparent text-slate-400 hover:text-white'
+            className={`pb-2.5 px-3 border-b-2 whitespace-nowrap transition-colors cursor-pointer ${
+              activeTab === 'ads' ? 'border-blue-600 text-blue-600 font-semibold' : 'border-transparent text-gray-500 hover:text-gray-900'
             }`}
           >
-            Moderate Advertisements ({advertisements.length})
+            Advertisements ({advertisements.length})
           </button>
           <button
             onClick={() => setActiveTab('users')}
-            className={`pb-3 px-2 border-b-2 whitespace-nowrap transition-all ${
-              activeTab === 'users' ? 'border-amber-400 text-amber-400 font-bold' : 'border-transparent text-slate-400 hover:text-white'
+            className={`pb-2.5 px-3 border-b-2 whitespace-nowrap transition-colors cursor-pointer ${
+              activeTab === 'users' ? 'border-blue-600 text-blue-600 font-semibold' : 'border-transparent text-gray-500 hover:text-gray-900'
             }`}
           >
-            User Accounts & Roles ({allUsers.length})
+            User Accounts ({allUsers.length})
           </button>
           <button
             onClick={() => setActiveTab('audit_logs')}
-            className={`pb-3 px-2 border-b-2 whitespace-nowrap transition-all flex items-center gap-1.5 ${
-              activeTab === 'audit_logs' ? 'border-amber-400 text-amber-400 font-bold' : 'border-transparent text-slate-400 hover:text-white'
+            className={`pb-2.5 px-3 border-b-2 whitespace-nowrap transition-colors cursor-pointer ${
+              activeTab === 'audit_logs' ? 'border-blue-600 text-blue-600 font-semibold' : 'border-transparent text-gray-500 hover:text-gray-900'
             }`}
           >
-            <ShieldCheck className="w-3.5 h-3.5" />
-            Security Audit Logs
+            Audit Logs
           </button>
           <button
             onClick={() => setActiveTab('reports')}
-            className={`pb-3 px-2 border-b-2 whitespace-nowrap transition-all ${
-              activeTab === 'reports' ? 'border-amber-400 text-amber-400 font-bold' : 'border-transparent text-slate-400 hover:text-white'
+            className={`pb-2.5 px-3 border-b-2 whitespace-nowrap transition-colors cursor-pointer ${
+              activeTab === 'reports' ? 'border-blue-600 text-blue-600 font-semibold' : 'border-transparent text-gray-500 hover:text-gray-900'
             }`}
           >
-            Trust & Safety Reports ({reports.length})
+            Reports ({reports.length})
           </button>
           <button
             onClick={() => setActiveTab('financials')}
-            className={`pb-3 px-2 border-b-2 whitespace-nowrap transition-all ${
-              activeTab === 'financials' ? 'border-amber-400 text-amber-400 font-bold' : 'border-transparent text-slate-400 hover:text-white'
+            className={`pb-2.5 px-3 border-b-2 whitespace-nowrap transition-colors cursor-pointer ${
+              activeTab === 'financials' ? 'border-blue-600 text-blue-600 font-semibold' : 'border-transparent text-gray-500 hover:text-gray-900'
             }`}
           >
-            FX & Gateway Margins
+            FX Settings
           </button>
         </div>
       </div>
@@ -279,60 +256,55 @@ export const AdminPanelView: React.FC = () => {
         
         {/* 1. BUSINESSES TAB */}
         {activeTab === 'businesses' && (
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
-            <div className="p-4 border-b border-slate-800 flex items-center justify-between">
-              <h3 className="text-sm font-bold text-white">Registered Business Directory & KYC Status</h3>
-            </div>
+          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-xs">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead>
-                  <tr className="text-slate-400 border-b border-slate-800 bg-slate-950/60">
-                    <th className="p-4">Business Name & Category</th>
-                    <th className="p-4">Location</th>
-                    <th className="p-4">Tier</th>
-                    <th className="p-4">Verification</th>
-                    <th className="p-4 text-right">Admin Actions</th>
+                  <tr className="text-gray-500 border-b border-gray-100 bg-gray-50/50">
+                    <th className="p-3 font-medium">Business</th>
+                    <th className="p-3 font-medium">Location</th>
+                    <th className="p-3 font-medium">Tier</th>
+                    <th className="p-3 font-medium">Verification</th>
+                    <th className="p-3 font-medium text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800/60">
+                <tbody className="divide-y divide-gray-100">
                   {businesses.map((b) => (
-                    <tr key={b.id} className="hover:bg-slate-850 transition-colors text-slate-200">
-                      <td className="p-4">
-                        <div className="flex items-center gap-3">
-                          <img src={b.logoUrl} alt={b.name} className="w-8 h-8 rounded-lg object-cover" />
+                    <tr key={b.id} className="hover:bg-gray-50/60 transition-colors">
+                      <td className="p-3">
+                        <div className="flex items-center gap-2.5">
+                          <img src={b.logoUrl} alt={b.name} className="w-8 h-8 rounded-lg object-cover border border-gray-100" />
                           <div>
-                            <div className="font-bold text-white">{b.name}</div>
-                            <div className="text-[11px] text-emerald-400">{b.categoryLabel}</div>
+                            <div className="font-semibold text-gray-900">{b.name}</div>
+                            <div className="text-[11px] text-gray-500">{b.categoryLabel}</div>
                           </div>
                         </div>
                       </td>
-                      <td className="p-4 text-slate-300">{b.location.city}, {b.location.state}</td>
-                      <td className="p-4">
-                        <span className="uppercase font-bold text-[10px] px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300">
+                      <td className="p-3 text-gray-600">{b.location.city}, {b.location.state}</td>
+                      <td className="p-3">
+                        <span className="uppercase text-[10px] font-semibold px-2 py-0.5 rounded bg-gray-100 text-gray-700">
                           {b.tier}
                         </span>
                       </td>
-                      <td className="p-4">
+                      <td className="p-3">
                         {b.isVerified ? (
-                          <span className="inline-flex items-center gap-1 text-emerald-400 font-bold">
-                            <ShieldCheck className="w-4 h-4" /> Verified
+                          <span className="inline-flex items-center gap-1 text-green-600 font-medium">
+                            <ShieldCheck className="w-3.5 h-3.5" /> Verified
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 text-slate-400">
-                            Unverified
-                          </span>
+                          <span className="text-gray-400">Unverified</span>
                         )}
                       </td>
-                      <td className="p-4 text-right">
+                      <td className="p-3 text-right">
                         <button
                           onClick={() => handleVerifyBusiness(b.id, !b.isVerified)}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                          className={`px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
                             b.isVerified
-                              ? 'bg-rose-500/20 text-rose-300 hover:bg-rose-500/30'
-                              : 'bg-emerald-500 text-slate-950 hover:bg-emerald-400'
+                              ? 'bg-red-50 text-red-600 hover:bg-red-100'
+                              : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
                           }`}
                         >
-                          {b.isVerified ? 'Revoke Verified Seal' : 'Grant Verified Seal'}
+                          {b.isVerified ? 'Revoke Verification' : 'Verify Business'}
                         </button>
                       </td>
                     </tr>
@@ -345,56 +317,53 @@ export const AdminPanelView: React.FC = () => {
 
         {/* 2. ADVERTISEMENTS MODERATION */}
         {activeTab === 'ads' && (
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
-            <div className="p-4 border-b border-slate-800">
-              <h3 className="text-sm font-bold text-white">Live Marketplace Advertisements</h3>
-            </div>
+          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-xs">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead>
-                  <tr className="text-slate-400 border-b border-slate-800 bg-slate-950/60">
-                    <th className="p-4">Ad Title & Business</th>
-                    <th className="p-4">Category</th>
-                    <th className="p-4">Price</th>
-                    <th className="p-4">Boost Status</th>
-                    <th className="p-4 text-right">Actions</th>
+                  <tr className="text-gray-500 border-b border-gray-100 bg-gray-50/50">
+                    <th className="p-3 font-medium">Ad Title</th>
+                    <th className="p-3 font-medium">Category</th>
+                    <th className="p-3 font-medium">Price</th>
+                    <th className="p-3 font-medium">Boost Status</th>
+                    <th className="p-3 font-medium text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800/60">
+                <tbody className="divide-y divide-gray-100">
                   {advertisements.map((ad) => (
-                    <tr key={ad.id} className="hover:bg-slate-850 transition-colors text-slate-200">
-                      <td className="p-4">
-                        <div className="flex items-center gap-3">
-                          <img src={ad.mediaUrls[0]} alt={ad.title} className="w-10 h-10 rounded-lg object-cover" />
+                    <tr key={ad.id} className="hover:bg-gray-50/60 transition-colors">
+                      <td className="p-3">
+                        <div className="flex items-center gap-2.5">
+                          <img src={ad.mediaUrls[0]} alt={ad.title} className="w-8 h-8 rounded object-cover border border-gray-100" />
                           <div>
-                            <div className="font-bold text-white">{ad.title}</div>
-                            <div className="text-[11px] text-slate-400">{ad.businessName}</div>
+                            <div className="font-semibold text-gray-900">{ad.title}</div>
+                            <div className="text-[11px] text-gray-500">{ad.businessName}</div>
                           </div>
                         </div>
                       </td>
-                      <td className="p-4 text-slate-300">{ad.category}</td>
-                      <td className="p-4 font-bold text-white">
-                        {ad.price ? `₦${ad.price.toLocaleString()}` : 'Free / Custom'}
+                      <td className="p-3 text-gray-600">{ad.category}</td>
+                      <td className="p-3 font-medium text-gray-900">
+                        {ad.price ? `₦${ad.price.toLocaleString()}` : 'Custom'}
                       </td>
-                      <td className="p-4">
+                      <td className="p-3">
                         {ad.isBoosted ? (
-                          <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold flex items-center gap-1 w-fit">
-                            <Flame className="w-3 h-3 text-amber-400" /> Boosted
+                          <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-700 font-medium text-[11px] inline-flex items-center gap-1 border border-amber-200">
+                            <Flame className="w-3 h-3 text-amber-500" /> Boosted
                           </span>
                         ) : (
-                          <span className="text-slate-500">Standard</span>
+                          <span className="text-gray-400">Standard</span>
                         )}
                       </td>
-                      <td className="p-4 text-right">
+                      <td className="p-3 text-right">
                         <button
                           onClick={() => handleToggleAdBoost(ad.id, !ad.isBoosted)}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                          className={`px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
                             ad.isBoosted
-                              ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                              : 'bg-amber-500 text-slate-950 hover:bg-amber-400'
+                              ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                              : 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200'
                           }`}
                         >
-                          {ad.isBoosted ? 'Demote from Spotlight' : 'Promote to Spotlight'}
+                          {ad.isBoosted ? 'Remove Boost' : 'Boost Ad'}
                         </button>
                       </td>
                     </tr>
@@ -407,30 +376,32 @@ export const AdminPanelView: React.FC = () => {
 
         {/* 3. REPORTS TAB */}
         {activeTab === 'reports' && (
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl">
-            <h3 className="text-sm font-bold text-white mb-4">Flagged Customer Complaints & Reports</h3>
+          <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-xs">
+            <h3 className="text-sm font-semibold text-gray-900 mb-4">User Reports</h3>
             {reports.length === 0 ? (
-              <p className="text-xs text-slate-400">Zero active reports on the platform.</p>
+              <p className="text-xs text-gray-500">No active reports.</p>
             ) : (
               <div className="space-y-3">
                 {reports.map((rep) => (
-                  <div key={rep.id} className="p-4 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-between">
+                  <div key={rep.id} className="p-3 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-between text-xs">
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-rose-400 uppercase">[{rep.targetType}]</span>
-                        <span className="text-sm font-bold text-white">{rep.targetName}</span>
-                        <span className="text-xs text-slate-500">Reason: {rep.reason}</span>
+                        <span className="font-semibold text-gray-900">{rep.targetName}</span>
+                        <span className="text-gray-500">({rep.targetType})</span>
+                        <span className="text-red-600 font-medium">Reason: {rep.reason}</span>
                       </div>
-                      <p className="text-xs text-slate-400 mt-1">{rep.details}</p>
+                      <p className="text-gray-600 mt-1">{rep.details}</p>
                     </div>
 
                     <div>
                       {rep.status === 'resolved' ? (
-                        <span className="text-emerald-400 text-xs font-bold">✓ Resolved</span>
+                        <span className="text-green-600 font-medium flex items-center gap-1">
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Resolved
+                        </span>
                       ) : (
                         <button
                           onClick={() => handleResolveReport(rep.id)}
-                          className="px-3 py-1.5 rounded-xl bg-emerald-500 text-slate-950 font-bold text-xs"
+                          className="px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs transition-colors cursor-pointer"
                         >
                           Mark Resolved
                         </button>
@@ -445,20 +416,20 @@ export const AdminPanelView: React.FC = () => {
 
         {/* 4. FINANCIALS TAB */}
         {activeTab === 'financials' && (
-          <div className="max-w-2xl bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-xl">
-            <h3 className="text-base font-bold text-white mb-2 flex items-center gap-2">
-              <DollarSign className="w-5 h-5 text-emerald-400" />
-              <span>Multi-Currency FX Spread & Commission Governance</span>
+          <div className="max-w-xl bg-white border border-gray-200 rounded-xl p-6 shadow-xs">
+            <h3 className="text-sm font-semibold text-gray-900 mb-2">
+              Foreign Exchange (FX) Spread Settings
             </h3>
-            <p className="text-xs text-slate-400 mb-6">
-              Configure the foreign exchange rate margin applied to international customer checkouts (USD, EUR, GBP, AED, CAD).
+            <p className="text-xs text-gray-500 mb-6">
+              Configure the margin applied to international customer transactions.
             </p>
 
             <div className="space-y-4 text-xs">
               <div>
-                <label className="block text-slate-300 font-semibold mb-1">
-                  FX Spread Margin: <span className="text-emerald-400 font-bold">{fxSpread}%</span>
-                </label>
+                <div className="flex justify-between font-medium text-gray-700 mb-1">
+                  <span>FX Spread Margin:</span>
+                  <span className="text-blue-600">{fxSpread}%</span>
+                </div>
                 <input
                   type="range"
                   min={0.5}
@@ -466,28 +437,28 @@ export const AdminPanelView: React.FC = () => {
                   step={0.1}
                   value={fxSpread}
                   onChange={(e) => setFxSpread(Number(e.target.value))}
-                  className="w-full accent-emerald-500"
+                  className="w-full accent-blue-600"
                 />
               </div>
 
-              <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Base Official USD/NGN:</span>
-                  <span className="text-white font-mono">₦1,520.00</span>
+              <div className="p-3 rounded-lg bg-gray-50 border border-gray-100 text-xs space-y-1.5">
+                <div className="flex justify-between text-gray-600">
+                  <span>Base Rate (USD/NGN):</span>
+                  <span className="font-mono text-gray-900">₦1,520.00</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Effective Consumer Rate (+{fxSpread}%):</span>
-                  <span className="text-emerald-400 font-mono font-bold">
+                <div className="flex justify-between text-gray-600">
+                  <span>Effective Rate:</span>
+                  <span className="font-mono font-medium text-gray-900">
                     ₦{(1520 * (1 - fxSpread / 100)).toFixed(2)}
                   </span>
                 </div>
               </div>
 
               <button
-                onClick={() => alert(`FX Margin configuration updated to ${fxSpread}% successfully.`)}
-                className="w-full py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-lg"
+                onClick={() => alert(`FX Margin updated to ${fxSpread}%.`)}
+                className="w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs transition-colors cursor-pointer"
               >
-                Apply Global FX Setting
+                Save FX Settings
               </button>
             </div>
           </div>
@@ -498,59 +469,55 @@ export const AdminPanelView: React.FC = () => {
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-base font-bold text-white">Registered Users & Role Governance</h3>
-                <p className="text-xs text-slate-400">
-                  Strict invariant: Exactly 1 Super Admin (maddyahamco00@gmail.com). All other accounts are CLIENT.
+                <h3 className="text-sm font-semibold text-gray-900">User Accounts</h3>
+                <p className="text-xs text-gray-500">
+                  Manage user roles and account statuses
                 </p>
               </div>
               <button
                 onClick={refreshData}
-                className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white text-xs font-semibold flex items-center gap-1.5"
+                className="px-2.5 py-1.5 rounded-lg bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
               >
-                <RefreshCw className="w-3.5 h-3.5" /> Refresh List
+                <RefreshCw className="w-3.5 h-3.5" /> Refresh
               </button>
             </div>
 
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-lg">
-              <div className="divide-y divide-slate-800">
+            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-xs">
+              <div className="divide-y divide-gray-100">
                 {allUsers.map((user) => {
                   const isSuperAdmin = user.role === 'SUPER_ADMIN';
                   return (
-                    <div key={user.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div key={user.id} className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
                       <div className="flex items-center gap-3">
                         <img
                           src={user.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80'}
                           alt={user.name}
-                          className="w-10 h-10 rounded-xl object-cover ring-1 ring-slate-700"
+                          className="w-9 h-9 rounded-lg object-cover border border-gray-100"
                         />
                         <div>
                           <div className="flex items-center gap-2">
-                            <span className="font-bold text-sm text-white">{user.name}</span>
+                            <span className="font-semibold text-gray-900">{user.name}</span>
                             {isSuperAdmin ? (
-                              <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1">
-                                <Crown className="w-3 h-3" /> SUPER_ADMIN (CEO)
+                              <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold uppercase bg-amber-50 text-amber-700 border border-amber-200">
+                                Super Admin
                               </span>
                             ) : (
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
-                                CLIENT ({user.clientType || 'client'})
+                              <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold uppercase bg-gray-100 text-gray-700">
+                                {user.clientType || 'client'}
                               </span>
                             )}
                           </div>
-                          <div className="text-xs text-slate-400">{user.email} • {user.phone || 'No phone'}</div>
-                          <div className="text-[10px] text-slate-500">
-                            Tier: {user.tier?.toUpperCase()} • Created: {new Date(user.createdAt).toLocaleDateString()}
-                          </div>
+                          <div className="text-gray-500 text-[11px]">{user.email}</div>
                         </div>
                       </div>
 
                       <div className="flex items-center gap-2">
-                        {/* Status Badge & Actions */}
-                        <span className={`px-2.5 py-1 rounded-lg text-xs font-bold ${
+                        <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${
                           user.status === 'ACTIVE'
-                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                            ? 'bg-green-50 text-green-700 border border-green-200'
                             : user.status === 'SUSPENDED'
-                            ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                            : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                            ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                            : 'bg-red-50 text-red-700 border border-red-200'
                         }`}>
                           {user.status || 'ACTIVE'}
                         </span>
@@ -560,8 +527,7 @@ export const AdminPanelView: React.FC = () => {
                             {user.status !== 'ACTIVE' && (
                               <button
                                 onClick={() => handleUpdateUserStatus(user.id, 'ACTIVE')}
-                                className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-xs font-semibold"
-                                title="Activate User"
+                                className="px-2 py-1 rounded bg-green-50 hover:bg-green-100 text-green-700 text-xs font-medium cursor-pointer"
                               >
                                 Activate
                               </button>
@@ -569,8 +535,7 @@ export const AdminPanelView: React.FC = () => {
                             {user.status !== 'SUSPENDED' && (
                               <button
                                 onClick={() => handleUpdateUserStatus(user.id, 'SUSPENDED')}
-                                className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-semibold"
-                                title="Suspend Account"
+                                className="px-2 py-1 rounded bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs font-medium cursor-pointer"
                               >
                                 Suspend
                               </button>
@@ -578,8 +543,7 @@ export const AdminPanelView: React.FC = () => {
                             {user.status !== 'DISABLED' && (
                               <button
                                 onClick={() => handleUpdateUserStatus(user.id, 'DISABLED')}
-                                className="px-2.5 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-xs font-semibold"
-                                title="Disable Account"
+                                className="px-2 py-1 rounded bg-red-50 hover:bg-red-100 text-red-700 text-xs font-medium cursor-pointer"
                               >
                                 Disable
                               </button>
@@ -600,71 +564,57 @@ export const AdminPanelView: React.FC = () => {
           <div className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
-                <h3 className="text-base font-bold text-white flex items-center gap-2">
-                  <ShieldCheck className="w-5 h-5 text-emerald-400" />
-                  <span>Immutable Security Audit Trail</span>
-                </h3>
-                <p className="text-xs text-slate-400">
-                  Real-time tamper-evident logs of all auth actions, privilege checks, and security alerts.
+                <h3 className="text-sm font-semibold text-gray-900">Security Audit Logs</h3>
+                <p className="text-xs text-gray-500">
+                  Authentication and platform event history
                 </p>
               </div>
 
               <div className="flex items-center gap-2">
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
                   <input
                     type="text"
                     value={auditFilter}
                     onChange={(e) => setAuditFilter(e.target.value)}
                     placeholder="Search logs..."
-                    className="pl-8 pr-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                    className="pl-8 pr-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs text-gray-900 placeholder-gray-400 focus:outline-none focus:border-blue-600"
                   />
                 </div>
                 <button
                   onClick={fetchAuditLogs}
-                  className="p-1.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white"
+                  className="p-1.5 rounded-lg bg-white border border-gray-200 text-gray-600 hover:text-gray-900 transition-colors cursor-pointer"
                   title="Refresh Logs"
                 >
-                  <RefreshCw className={`w-4 h-4 ${auditLoading ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`w-3.5 h-3.5 ${auditLoading ? 'animate-spin' : ''}`} />
                 </button>
               </div>
             </div>
 
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-xs">
               {auditLoading ? (
-                <div className="p-12 text-center text-slate-500 text-xs">Loading audit records...</div>
+                <div className="p-8 text-center text-gray-400 text-xs">Loading audit records...</div>
               ) : filteredLogs.length === 0 ? (
-                <div className="p-12 text-center text-slate-500 text-xs">No audit logs matching query.</div>
+                <div className="p-8 text-center text-gray-400 text-xs">No audit logs found.</div>
               ) : (
-                <div className="divide-y divide-slate-800/80 max-h-[600px] overflow-y-auto">
-                  {filteredLogs.map((log) => {
-                    let badgeColor = 'bg-slate-800 text-slate-300';
-                    if (log.severity === 'CRITICAL' || log.severity === 'WARN') {
-                      badgeColor = 'bg-rose-500/20 text-rose-300 border border-rose-500/30';
-                    } else if (log.action.includes('SUCCESS') || log.action.includes('LOGIN')) {
-                      badgeColor = 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
-                    } else if (log.action.includes('ADMIN')) {
-                      badgeColor = 'bg-amber-500/20 text-amber-300 border border-amber-500/30';
-                    }
-
-                    return (
-                      <div key={log.id} className="p-3.5 hover:bg-slate-800/40 transition-colors text-xs space-y-1">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono uppercase ${badgeColor}`}>
-                              {log.action}
-                            </span>
-                            <span className="font-semibold text-slate-200">{log.actorEmail}</span>
-                            <span className="text-slate-500 text-[11px] font-mono">({log.ipAddress})</span>
-                          </div>
-                          <span className="text-[10px] text-slate-500">
-                            {new Date(log.timestamp).toLocaleString()}
+                <div className="divide-y divide-gray-100 max-h-[500px] overflow-y-auto">
+                  {filteredLogs.map((log) => (
+                    <div key={log.id} className="p-3 hover:bg-gray-50/60 transition-colors text-xs space-y-0.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-medium uppercase bg-gray-100 text-gray-700">
+                            {log.action}
                           </span>
+                          <span className="font-medium text-gray-900">{log.actorEmail}</span>
+                          <span className="text-gray-400 font-mono text-[10px]">({log.ipAddress})</span>
                         </div>
-                        <p className="text-slate-400 font-mono text-[11px] break-all">{log.details}</p>
+                        <span className="text-[10px] text-gray-400">
+                          {new Date(log.timestamp).toLocaleString()}
+                        </span>
                       </div>
-                    );
-                  })}
+                      <p className="text-gray-600 font-mono text-[11px] break-all">{log.details}</p>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>

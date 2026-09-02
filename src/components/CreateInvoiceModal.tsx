@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Link2, Copy, CheckCircle2, ArrowRight, DollarSign, Building2 } from 'lucide-react';
+import { X, Link2, Copy, CheckCircle2, ArrowRight } from 'lucide-react';
 import { SupportedCurrency } from '../types';
 
 interface CreateInvoiceModalProps {
@@ -11,8 +11,8 @@ export const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ onClose,
   const [amountNGN, setAmountNGN] = useState<number>(150000);
   const [customerEmail, setCustomerEmail] = useState<string>('');
   const [customerName, setCustomerName] = useState<string>('');
-  const [description, setDescription] = useState<string>('Software Engineering Retainer & Consulting');
-  const [targetCurrency, setTargetCurrency] = useState<SupportedCurrency>('USD');
+  const [description, setDescription] = useState<string>('Software Consulting & Services');
+  const [targetCurrency] = useState<SupportedCurrency>('USD');
   const [loading, setLoading] = useState<boolean>(false);
   const [createdResult, setCreatedResult] = useState<{ link: string; reference: string } | null>(null);
   const [copied, setCopied] = useState<boolean>(false);
@@ -62,72 +62,70 @@ export const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ onClose,
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl relative">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+      <div className="bg-white border border-gray-200 rounded-xl max-w-md w-full p-5 sm:p-6 shadow-xl relative">
         <button
           onClick={onClose}
-          className="absolute top-5 right-5 w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition"
+          className="absolute top-4 right-4 w-7 h-7 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-400 hover:text-gray-700 flex items-center justify-center transition-colors cursor-pointer"
         >
           <X className="w-4 h-4" />
         </button>
 
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 flex items-center justify-center">
-            <Link2 className="w-5 h-5" />
+        <div className="flex items-center gap-2.5 mb-4">
+          <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+            <Link2 className="w-4 h-4" />
           </div>
           <div>
-            <h3 className="text-base font-bold text-white">Create Multi-Currency Payment Link</h3>
-            <p className="text-xs text-slate-400">Generate a customer checkout link with locked NGN settlement</p>
+            <h2 className="text-sm font-bold text-gray-900">Create Payment Link</h2>
+            <p className="text-xs text-gray-500">Generate a customer checkout link</p>
           </div>
         </div>
 
         {createdResult ? (
-          <div className="space-y-5">
-            <div className="p-4 rounded-2xl bg-emerald-950/40 border border-emerald-800/50 text-center space-y-2">
-              <div className="w-10 h-10 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto">
-                <CheckCircle2 className="w-6 h-6" />
-              </div>
-              <h4 className="text-sm font-bold text-white">Payment Link Ready</h4>
-              <p className="text-xs text-slate-400">
-                Settling to merchant as <strong>₦{amountNGN.toLocaleString('en-NG')} NGN</strong>
+          <div className="space-y-4 text-xs">
+            <div className="p-3.5 rounded-lg bg-green-50 border border-green-200 text-center space-y-1">
+              <CheckCircle2 className="w-6 h-6 text-green-600 mx-auto" />
+              <h4 className="text-xs font-bold text-green-900">Payment Link Created</h4>
+              <p className="text-xs text-green-700">
+                Settling as <strong>₦{amountNGN.toLocaleString('en-NG')}</strong>
               </p>
             </div>
 
-            <div className="space-y-2">
-              <label className="block text-xs font-medium text-slate-300">Sharable Checkout URL</label>
-              <div className="flex items-center gap-2">
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Checkout URL</label>
+              <div className="flex items-center gap-1.5">
                 <input
                   type="text"
                   readOnly
                   value={createdResult.link}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-slate-300 font-mono focus:outline-none"
+                  className="w-full bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs text-gray-700 font-mono focus:outline-none"
                 />
                 <button
                   type="button"
                   onClick={copyLink}
-                  className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-xl transition flex items-center gap-1.5 shrink-0"
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-colors flex items-center gap-1 cursor-pointer shrink-0"
                 >
                   <Copy className="w-3.5 h-3.5" />
-                  <span>{copied ? 'Copied!' : 'Copy'}</span>
+                  <span>{copied ? 'Copied' : 'Copy'}</span>
                 </button>
               </div>
             </div>
 
             <button
               onClick={onClose}
-              className="w-full py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold transition"
+              className="w-full py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium transition-colors cursor-pointer"
             >
               Done
             </button>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-3 text-xs">
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">
-                Invoice Amount (Nigerian Naira Settlement)
+              <label className="block text-gray-700 font-medium mb-1">
+                Amount (NGN)
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-emerald-400 font-bold">
+                <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-gray-500 font-bold">
                   ₦
                 </div>
                 <input
@@ -137,42 +135,42 @@ export const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ onClose,
                   step="1000"
                   value={amountNGN}
                   onChange={(e) => setAmountNGN(Number(e.target.value))}
-                  className="w-full bg-slate-950 border border-slate-700 focus:border-indigo-500 rounded-xl pl-8 pr-3.5 py-2.5 text-sm font-bold text-white focus:outline-none"
+                  className="w-full bg-white border border-gray-200 rounded-lg pl-7 pr-3 py-2 text-xs font-semibold text-gray-900 focus:outline-none focus:border-blue-600"
                   placeholder="150,000"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">Customer / Client Email</label>
+              <label className="block text-gray-700 font-medium mb-1">Customer Email</label>
               <input
                 type="email"
                 value={customerEmail}
                 onChange={(e) => setCustomerEmail(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 focus:border-indigo-500 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none"
-                placeholder="client@internationalcorp.com"
+                className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-xs text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-blue-600"
+                placeholder="client@example.com"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">Customer Name / Company</label>
+              <label className="block text-gray-700 font-medium mb-1">Customer Name</label>
               <input
                 type="text"
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 focus:border-indigo-500 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none"
-                placeholder="Acme Global Solutions LLC"
+                className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-xs text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-blue-600"
+                placeholder="Acme Inc."
               />
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">Invoice Description / Memo</label>
+              <label className="block text-gray-700 font-medium mb-1">Description</label>
               <input
                 type="text"
                 required
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 focus:border-indigo-500 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none"
+                className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-xs text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-blue-600"
                 placeholder="Services rendered"
               />
             </div>
@@ -181,10 +179,10 @@ export const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ onClose,
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-lg shadow-indigo-600/30 transition flex items-center justify-center gap-2"
+                className="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
               >
-                <span>Generate Payment Link</span>
-                <ArrowRight className="w-4 h-4" />
+                <span>Generate Link</span>
+                <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </div>
           </form>

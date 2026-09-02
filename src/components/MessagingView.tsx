@@ -2,22 +2,14 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
   Send, 
-  Paperclip, 
   DollarSign, 
-  FileText, 
   Search, 
   Check, 
   CheckCheck, 
-  MapPin, 
-  Phone, 
   ShieldCheck, 
-  CreditCard, 
-  Tag, 
-  ArrowLeft,
-  Sparkles,
-  ExternalLink
+  CreditCard 
 } from 'lucide-react';
-import { Conversation, ChatMessage, Invoice } from '../types';
+import { ChatMessage } from '../types';
 
 export const MessagingView: React.FC = () => {
   const { 
@@ -37,7 +29,7 @@ export const MessagingView: React.FC = () => {
 
   // Quick invoice creation inside chat
   const [invAmount, setInvAmount] = useState<string>('50000');
-  const [invDescription, setInvDescription] = useState<string>('Professional service fee & project milestone');
+  const [invDescription, setInvDescription] = useState<string>('Professional service fee');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -111,7 +103,6 @@ export const MessagingView: React.FC = () => {
     const amount = Number(invAmount) || 10000;
     
     try {
-      // 1. Create Invoice on Backend
       const invRes = await fetch('/api/invoices/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -128,7 +119,6 @@ export const MessagingView: React.FC = () => {
       const invData = await invRes.json();
 
       if (invData.success && invData.invoice) {
-        // 2. Send in chat as structured message
         const msgRes = await fetch('/api/conversations/send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -137,7 +127,7 @@ export const MessagingView: React.FC = () => {
             senderId: currentUser.id,
             senderName: currentUser.name,
             senderAvatar: currentUser.avatarUrl,
-            text: `I have issued an official invoice (${invData.invoice.invoiceNumber}) for ₦${amount.toLocaleString()}. You can review and pay securely below.`,
+            text: `I have issued an official invoice (${invData.invoice.invoiceNumber}) for ₦${amount.toLocaleString()}.`,
             invoiceRef: invData.invoice
           })
         });
@@ -156,34 +146,33 @@ export const MessagingView: React.FC = () => {
 
   const filteredConversations = conversations.filter(c => {
     if (!searchTerm) return true;
-    const match = c.participantDetails.some(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()));
-    return match;
+    return c.participantDetails.some(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()));
   });
 
   return (
     <div id="messaging-view" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 h-[calc(100vh-8rem)]">
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl h-full overflow-hidden shadow-2xl flex flex-col md:flex-row">
+      <div className="bg-white border border-gray-200 rounded-xl h-full overflow-hidden shadow-xs flex flex-col md:flex-row">
         
         {/* Left Sidebar: Conversations List */}
-        <div className="w-full md:w-80 border-r border-slate-800 flex flex-col bg-slate-950/60 flex-shrink-0">
-          <div className="p-4 border-b border-slate-800">
-            <h2 className="text-base font-bold text-white mb-2">Direct Messages & Inquiries</h2>
+        <div className="w-full md:w-80 border-r border-gray-200 flex flex-col bg-gray-50/50 flex-shrink-0">
+          <div className="p-3.5 border-b border-gray-200 bg-white">
+            <h2 className="text-sm font-semibold text-gray-900 mb-2">Messages</h2>
             <div className="relative">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="Search conversations..."
+                placeholder="Search..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-emerald-500"
+                className="w-full bg-gray-50 border border-gray-200 rounded-lg pl-8 pr-2.5 py-1.5 text-xs text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-blue-600"
               />
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto divide-y divide-slate-800/60">
+          <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
             {filteredConversations.length === 0 ? (
-              <div className="p-8 text-center text-xs text-slate-400">
-                No active conversations yet.
+              <div className="p-6 text-center text-xs text-gray-400">
+                No active conversations.
               </div>
             ) : (
               filteredConversations.map(conv => {
@@ -193,33 +182,33 @@ export const MessagingView: React.FC = () => {
                   <div
                     key={conv.id}
                     onClick={() => setSelectedConvId(conv.id)}
-                    className={`p-3.5 flex items-start gap-3 cursor-pointer transition-colors ${
-                      isSelected ? 'bg-emerald-500/10 border-l-4 border-emerald-500' : 'hover:bg-slate-850'
+                    className={`p-3 flex items-start gap-2.5 cursor-pointer transition-colors ${
+                      isSelected ? 'bg-blue-50/80 border-l-2 border-blue-600' : 'hover:bg-gray-100/70'
                     }`}
                   >
                     <div className="relative">
                       <img
                         src={other?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80'}
                         alt={other?.name}
-                        className="w-10 h-10 rounded-xl object-cover"
+                        className="w-9 h-9 rounded-lg object-cover bg-gray-200"
                       />
                       {other?.online && (
-                        <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 ring-2 ring-slate-900" />
+                        <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-green-500 ring-2 ring-white" />
                       )}
                     </div>
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-white truncate">
+                        <span className="text-xs font-semibold text-gray-900 truncate">
                           {other?.businessName || other?.name}
                         </span>
-                        <span className="text-[10px] text-slate-500">
+                        <span className="text-[10px] text-gray-400">
                           {conv.updatedAt ? new Date(conv.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                         </span>
                       </div>
 
-                      <p className="text-[11px] text-slate-400 truncate mt-0.5">
-                        {conv.lastMessage?.text || 'No messages yet'}
+                      <p className="text-xs text-gray-500 truncate mt-0.5">
+                        {conv.lastMessage?.text || 'No messages'}
                       </p>
                     </div>
                   </div>
@@ -231,44 +220,42 @@ export const MessagingView: React.FC = () => {
 
         {/* Center Panel: Active Chat Room */}
         {selectedConvId && currentConv ? (
-          <div className="flex-1 flex flex-col bg-slate-900 justify-between min-w-0">
+          <div className="flex-1 flex flex-col bg-white justify-between min-w-0">
             
             {/* Chat Top Header */}
-            <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/90 backdrop-blur-md">
-              <div className="flex items-center gap-3">
+            <div className="p-3 border-b border-gray-200 flex items-center justify-between bg-white">
+              <div className="flex items-center gap-2.5">
                 <img
                   src={otherParticipant?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80'}
                   alt={otherParticipant?.name}
-                  className="w-9 h-9 rounded-xl object-cover"
+                  className="w-8 h-8 rounded-lg object-cover bg-gray-200"
                 />
                 <div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-sm font-bold text-white">
+                  <div className="flex items-center gap-1">
+                    <h2 className="text-xs font-semibold text-gray-900">
                       {otherParticipant?.businessName || otherParticipant?.name}
-                    </span>
-                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                    </h2>
+                    <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
                   </div>
-                  <span className="text-[11px] text-emerald-400 flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    <span>Active Now on Boost Market</span>
+                  <span className="text-[11px] text-green-600 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                    <span>Online</span>
                   </span>
                 </div>
               </div>
 
               {/* Quick Actions */}
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setIsCreateInvoiceModalOpen(true)}
-                  className="px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold flex items-center gap-1.5 shadow"
-                >
-                  <CreditCard className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Send Invoice / Payment</span>
-                </button>
-              </div>
+              <button
+                onClick={() => setIsCreateInvoiceModalOpen(true)}
+                className="px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer"
+              >
+                <CreditCard className="w-3.5 h-3.5" />
+                <span>Send Invoice</span>
+              </button>
             </div>
 
             {/* Chat Message Stream */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-950/40">
+            <div className="flex-1 overflow-y-auto p-4 space-y-2.5 bg-gray-50/40">
               {messages.map(msg => {
                 const isMe = msg.senderId === currentUser.id;
                 return (
@@ -277,49 +264,45 @@ export const MessagingView: React.FC = () => {
                     className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}
                   >
                     <div
-                      className={`max-w-md rounded-2xl p-3.5 text-xs shadow-md leading-relaxed ${
+                      className={`max-w-md rounded-xl p-3 text-xs leading-relaxed ${
                         isMe
-                          ? 'bg-emerald-600 text-white rounded-br-none'
-                          : 'bg-slate-800 text-slate-100 rounded-bl-none border border-slate-700'
+                          ? 'bg-blue-600 text-white rounded-br-xs'
+                          : 'bg-white text-gray-900 rounded-bl-xs border border-gray-200 shadow-xs'
                       }`}
                     >
                       {/* Attached Ad Reference */}
                       {msg.adRef && (
-                        <div className="mb-2 p-2 rounded-xl bg-slate-950/60 border border-slate-700 flex items-center gap-2">
-                          <img src={msg.adRef.mediaUrls[0]} alt={msg.adRef.title} className="w-10 h-10 rounded-lg object-cover" />
-                          <div className="min-w-0">
-                            <span className="text-[10px] text-emerald-400 font-bold block">Ad Inquiry</span>
-                            <span className="text-xs font-bold text-white truncate block">{msg.adRef.title}</span>
+                        <div className={`mb-2 p-2 rounded-lg border flex items-center gap-2 ${isMe ? 'bg-blue-700 border-blue-500' : 'bg-gray-50 border-gray-200'}`}>
+                          <img src={msg.adRef.mediaUrls[0]} alt={msg.adRef.title} className="w-9 h-9 rounded object-cover" />
+                          <div className="min-w-0 text-[11px]">
+                            <span className="font-semibold block truncate">{msg.adRef.title}</span>
                           </div>
                         </div>
                       )}
 
                       {/* Attached Invoice Reference */}
                       {msg.invoiceRef && (
-                        <div className="mb-2 p-3 rounded-xl bg-slate-950 border border-emerald-500/40 text-white">
-                          <div className="flex items-center justify-between border-b border-slate-800 pb-1.5 mb-1.5">
-                            <span className="text-[10px] uppercase font-bold text-emerald-400">Official Invoice</span>
-                            <span className="text-xs font-black">₦{msg.invoiceRef.total.toLocaleString()}</span>
+                        <div className={`mb-2 p-2.5 rounded-lg border ${isMe ? 'bg-blue-700 border-blue-500 text-white' : 'bg-gray-50 border-gray-200 text-gray-900'}`}>
+                          <div className="flex items-center justify-between border-b border-white/20 pb-1 mb-1 font-semibold text-xs">
+                            <span>Invoice {msg.invoiceRef.invoiceNumber}</span>
+                            <span>₦{msg.invoiceRef.total.toLocaleString()}</span>
                           </div>
-                          <p className="text-[11px] text-slate-300">{msg.invoiceRef.description}</p>
-                          <div className="mt-2 flex items-center justify-between">
-                            <span className="text-[10px] text-slate-400">Ref: {msg.invoiceRef.invoiceNumber}</span>
-                            <button
-                              onClick={() => openInvoiceDetail(msg.invoiceRef!.id)}
-                              className="px-3 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-[11px] flex items-center gap-1"
-                            >
-                              <span>{msg.invoiceRef.status === 'paid' ? 'View Paid Receipt' : 'Pay Invoice'}</span>
-                            </button>
-                          </div>
+                          <p className="text-[11px] opacity-90">{msg.invoiceRef.description}</p>
+                          <button
+                            onClick={() => openInvoiceDetail(msg.invoiceRef!.id)}
+                            className="mt-2 w-full py-1 rounded bg-white text-blue-700 hover:bg-gray-100 font-semibold text-[11px] cursor-pointer"
+                          >
+                            {msg.invoiceRef.status === 'paid' ? 'View Paid Receipt' : 'Pay Invoice'}
+                          </button>
                         </div>
                       )}
 
                       <p className="whitespace-pre-line">{msg.text}</p>
 
-                      <div className="mt-1 flex items-center justify-end gap-1 text-[9px] opacity-75">
+                      <div className="mt-1 flex items-center justify-end gap-1 text-[10px] opacity-75">
                         <span>{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                         {isMe && (
-                          msg.deliveryStatus === 'read' ? <CheckCheck className="w-3 h-3 text-cyan-300" /> : <Check className="w-3 h-3" />
+                          msg.deliveryStatus === 'read' ? <CheckCheck className="w-3 h-3 text-cyan-200" /> : <Check className="w-3 h-3" />
                         )}
                       </div>
                     </div>
@@ -330,11 +313,11 @@ export const MessagingView: React.FC = () => {
             </div>
 
             {/* Chat Input Bar */}
-            <form onSubmit={handleSendMessage} className="p-3 bg-slate-900 border-t border-slate-800 flex items-center gap-2">
+            <form onSubmit={handleSendMessage} className="p-3 bg-white border-t border-gray-200 flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => setIsCreateInvoiceModalOpen(true)}
-                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 transition-colors"
+                className="p-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors cursor-pointer"
                 title="Create Invoice"
               >
                 <DollarSign className="w-4 h-4" />
@@ -342,16 +325,16 @@ export const MessagingView: React.FC = () => {
 
               <input
                 type="text"
-                placeholder="Type your message, ask a question, or discuss terms..."
+                placeholder="Type your message..."
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
-                className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-emerald-500"
+                className="flex-1 bg-white border border-gray-200 rounded-lg px-3 py-2 text-xs text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-blue-600"
               />
 
               <button
                 type="submit"
                 disabled={isSending || !inputText.trim()}
-                className="p-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-bold transition-all shadow-md"
+                className="p-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium transition-colors cursor-pointer"
               >
                 <Send className="w-4 h-4" />
               </button>
@@ -359,8 +342,8 @@ export const MessagingView: React.FC = () => {
 
           </div>
         ) : (
-          <div className="flex-1 flex items-center justify-center p-8 text-center text-slate-400 text-xs">
-            Select a conversation from the left to start messaging.
+          <div className="flex-1 flex items-center justify-center p-8 text-center text-gray-400 text-xs">
+            Select a conversation to start messaging.
           </div>
         )}
 
@@ -368,46 +351,43 @@ export const MessagingView: React.FC = () => {
 
       {/* Quick Invoice Creation Modal */}
       {isCreateInvoiceModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl animate-in fade-in zoom-in-95">
-            <h3 className="text-base font-bold text-white mb-1 flex items-center gap-2">
-              <CreditCard className="w-4 h-4 text-emerald-400" />
-              <span>Send Invoice in Chat</span>
-            </h3>
-            <p className="text-xs text-slate-400 mb-4">
-              Send an instant payment request to {otherParticipant?.name}. Settled in NGN via Flutterwave / Paystack.
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-gray-200 rounded-xl max-w-sm w-full p-5 shadow-xl">
+            <h2 className="text-sm font-bold text-gray-900 mb-1 flex items-center gap-1.5">
+              <CreditCard className="w-4 h-4 text-blue-600" />
+              <span>Send Invoice</span>
+            </h2>
+            <p className="text-xs text-gray-500 mb-3">
+              Request payment from {otherParticipant?.name}.
             </p>
 
             <div className="space-y-3 text-xs">
               <div>
-                <label className="block text-slate-300 font-semibold mb-1">Invoice Description</label>
+                <label className="block text-gray-700 font-medium mb-1">Description</label>
                 <input
                   type="text"
                   value={invDescription}
                   onChange={(e) => setInvDescription(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-100 focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs text-gray-900 focus:outline-none focus:border-blue-600"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-300 font-semibold mb-1">Amount (NGN)</label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">₦</span>
-                  <input
-                    type="number"
-                    value={invAmount}
-                    onChange={(e) => setInvAmount(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3 py-2.5 text-slate-100 font-bold text-sm focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
+                <label className="block text-gray-700 font-medium mb-1">Amount (NGN)</label>
+                <input
+                  type="number"
+                  value={invAmount}
+                  onChange={(e) => setInvAmount(e.target.value)}
+                  className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs font-semibold text-gray-900 focus:outline-none focus:border-blue-600"
+                />
               </div>
             </div>
 
-            <div className="mt-6 flex items-center justify-end gap-2">
+            <div className="mt-4 flex items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setIsCreateInvoiceModalOpen(false)}
-                className="px-4 py-2 rounded-xl text-slate-400 hover:text-white text-xs font-semibold"
+                className="px-3 py-1.5 rounded-lg text-gray-600 hover:text-gray-900 text-xs font-medium cursor-pointer"
               >
                 Cancel
               </button>
@@ -415,9 +395,9 @@ export const MessagingView: React.FC = () => {
               <button
                 type="button"
                 onClick={handleSendInvoice}
-                className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow"
+                className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs cursor-pointer"
               >
-                Send Invoice to Customer
+                Send Invoice
               </button>
             </div>
           </div>

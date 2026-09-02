@@ -5,16 +5,9 @@ import {
   CheckCircle2, 
   Clock, 
   CreditCard, 
-  DollarSign, 
   ShieldCheck, 
-  Download, 
-  ExternalLink, 
-  ArrowRight, 
   Lock, 
-  RefreshCw,
-  Layers,
-  Sparkles,
-  Building2
+  RefreshCw 
 } from 'lucide-react';
 import { Invoice, SupportedCurrency } from '../types';
 
@@ -22,7 +15,6 @@ export const InvoicesView: React.FC = () => {
   const { 
     invoices, 
     activeInvoiceId, 
-    currentUser, 
     refreshData 
   } = useApp();
 
@@ -30,7 +22,6 @@ export const InvoicesView: React.FC = () => {
   const [selectedCurrency, setSelectedCurrency] = useState<SupportedCurrency>('NGN');
   const [exchangeRate, setExchangeRate] = useState<number>(1);
   const [isProcessingPayment, setIsProcessingPayment] = useState<boolean>(false);
-  const [paymentSuccessData, setPaymentSuccessData] = useState<{ txRef: string; date: string } | null>(null);
   const [filterStatus, setFilterStatus] = useState<'all' | 'unpaid' | 'paid'>('all');
 
   useEffect(() => {
@@ -42,7 +33,6 @@ export const InvoicesView: React.FC = () => {
     }
   }, [activeInvoiceId, invoices, selectedInvoice]);
 
-  // Fetch FX Rate when currency changes
   useEffect(() => {
     if (selectedCurrency === 'NGN') {
       setExchangeRate(1);
@@ -76,7 +66,7 @@ export const InvoicesView: React.FC = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          paymentMethod: `${selectedCurrency} Checkout (${selectedCurrency === 'NGN' ? 'Flutterwave Card/Bank' : 'Multi-Currency Gateway'})`,
+          paymentMethod: `${selectedCurrency} Checkout (${selectedCurrency === 'NGN' ? 'Card/Bank' : 'Gateway'})`,
           customerEmail: selectedInvoice.customerEmail,
           provider: 'flutterwave'
         })
@@ -84,10 +74,6 @@ export const InvoicesView: React.FC = () => {
       const data = await res.json();
       if (data.success && data.invoice) {
         setSelectedInvoice(data.invoice);
-        setPaymentSuccessData({
-          txRef: data.invoice.transactionRef || 'FLW_MOCK_SUCCESS',
-          date: new Date().toLocaleString()
-        });
         refreshData();
       }
     } catch (err) {
@@ -103,62 +89,61 @@ export const InvoicesView: React.FC = () => {
   };
 
   return (
-    <div id="invoices-view" className="min-h-screen bg-slate-950 pb-24">
-      
+    <div id="invoices-view" className="min-h-screen bg-gray-50 text-gray-900 pb-24">
       {/* Header */}
-      <div className="border-b border-slate-800 bg-slate-900 px-4 py-8 sm:px-6 lg:px-8">
+      <div className="border-b border-gray-200 bg-white px-4 py-6 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-black text-white tracking-tight flex items-center gap-2">
-              <FileText className="w-6 h-6 text-emerald-400" />
-              <span>Invoices & Secure Multi-Currency Settlement</span>
+            <h1 className="text-xl font-bold text-gray-900 tracking-tight flex items-center gap-2">
+              <FileText className="w-5 h-5 text-blue-600" />
+              <span>Invoices</span>
             </h1>
-            <p className="text-xs sm:text-sm text-slate-400 mt-1">
-              Pay verified Nigerian businesses in your local currency (USD, EUR, GBP, AED, CAD, NGN) with automated Flutterwave settlement.
+            <p className="text-xs text-gray-500 mt-0.5">
+              Review and settle merchant invoices in NGN or foreign currencies
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 bg-gray-100 p-1 rounded-lg">
             <button
               onClick={() => setFilterStatus('all')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                filterStatus === 'all' ? 'bg-emerald-500 text-slate-950 shadow' : 'bg-slate-800 text-slate-400'
+              className={`px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
+                filterStatus === 'all' ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-600 hover:text-gray-900'
               }`}
             >
               All ({invoices.length})
             </button>
             <button
               onClick={() => setFilterStatus('unpaid')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                filterStatus === 'unpaid' ? 'bg-emerald-500 text-slate-950 shadow' : 'bg-slate-800 text-slate-400'
+              className={`px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
+                filterStatus === 'unpaid' ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              Pending Payment
+              Pending
             </button>
             <button
               onClick={() => setFilterStatus('paid')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                filterStatus === 'paid' ? 'bg-emerald-500 text-slate-950 shadow' : 'bg-slate-800 text-slate-400'
+              className={`px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
+                filterStatus === 'paid' ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              Paid Receipts
+              Paid
             </button>
           </div>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           
           {/* Left Column: Invoices List */}
-          <div className="lg:col-span-4 space-y-3">
-            <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
-              Available Invoices ({filteredInvoices.length})
-            </h2>
+          <div className="lg:col-span-4 space-y-2">
+            <div className="text-xs font-semibold text-gray-500 uppercase px-1">
+              Invoices ({filteredInvoices.length})
+            </div>
 
             {filteredInvoices.length === 0 ? (
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-xs text-slate-400">
-                No invoices found in this view.
+              <div className="bg-white border border-gray-200 rounded-xl p-6 text-center text-xs text-gray-400">
+                No invoices found.
               </div>
             ) : (
               filteredInvoices.map(inv => {
@@ -167,35 +152,32 @@ export const InvoicesView: React.FC = () => {
                 return (
                   <div
                     key={inv.id}
-                    onClick={() => {
-                      setSelectedInvoice(inv);
-                      setPaymentSuccessData(null);
-                    }}
-                    className={`p-4 rounded-2xl border cursor-pointer transition-all shadow-md ${
+                    onClick={() => setSelectedInvoice(inv)}
+                    className={`p-3.5 rounded-xl border cursor-pointer transition-colors shadow-xs ${
                       isSelected
-                        ? 'bg-slate-900 border-emerald-500 shadow-emerald-500/10'
-                        : 'bg-slate-900/60 border-slate-800 hover:border-slate-700'
+                        ? 'bg-blue-50/60 border-blue-500'
+                        : 'bg-white border-gray-200 hover:border-gray-300'
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-400">{inv.invoiceNumber}</span>
+                      <span className="text-xs font-mono font-medium text-gray-500">{inv.invoiceNumber}</span>
                       {isPaid ? (
-                        <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold flex items-center gap-1 border border-emerald-500/30">
-                          <CheckCircle2 className="w-3 h-3 text-emerald-400" /> Paid
+                        <span className="px-2 py-0.2 rounded text-[10px] font-medium bg-green-50 text-green-700 border border-green-200">
+                          Paid
                         </span>
                       ) : (
-                        <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-bold flex items-center gap-1 border border-amber-500/30">
-                          <Clock className="w-3 h-3 text-amber-400" /> Pending
+                        <span className="px-2 py-0.2 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                          Pending
                         </span>
                       )}
                     </div>
 
-                    <h4 className="text-sm font-bold text-white mt-1.5">{inv.businessName}</h4>
-                    <p className="text-xs text-slate-400 truncate mt-0.5">{inv.description}</p>
+                    <h2 className="text-xs font-semibold text-gray-900 mt-1">{inv.businessName}</h2>
+                    <p className="text-[11px] text-gray-500 truncate">{inv.description}</p>
 
-                    <div className="mt-3 pt-2.5 border-t border-slate-800 flex items-center justify-between">
-                      <span className="text-xs text-slate-500">Due: {inv.dueDate}</span>
-                      <span className="text-sm font-black text-white">₦{inv.total.toLocaleString()}</span>
+                    <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between text-xs">
+                      <span className="text-[10px] text-gray-400">Due: {inv.dueDate}</span>
+                      <span className="font-bold text-gray-900">₦{inv.total.toLocaleString()}</span>
                     </div>
                   </div>
                 );
@@ -203,80 +185,80 @@ export const InvoicesView: React.FC = () => {
             )}
           </div>
 
-          {/* Right Column: Invoice Details & Interactive Checkout */}
+          {/* Right Column: Invoice Details */}
           <div className="lg:col-span-8">
             {selectedInvoice ? (
-              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl">
+              <div className="bg-white border border-gray-200 rounded-xl p-5 sm:p-6 shadow-xs">
                 
                 {/* Top Header of Invoice */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">
                   <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-lg font-black text-white">{selectedInvoice.businessName}</span>
-                      <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                    <div className="flex items-center gap-1.5">
+                      <h2 className="text-base font-bold text-gray-900">{selectedInvoice.businessName}</h2>
+                      <ShieldCheck className="w-4 h-4 text-blue-600" />
                     </div>
-                    <p className="text-xs text-slate-400 mt-0.5">Verified Merchant on Boost Market</p>
+                    <p className="text-xs text-gray-400">Verified Merchant</p>
                   </div>
 
-                  <div className="text-left sm:text-right">
-                    <div className="text-xs font-bold text-slate-400">INVOICE NUMBER</div>
-                    <div className="text-base font-black text-emerald-400">{selectedInvoice.invoiceNumber}</div>
-                    <div className="text-[11px] text-slate-500 mt-0.5">Created: {new Date(selectedInvoice.createdAt).toLocaleDateString()}</div>
+                  <div className="sm:text-right">
+                    <div className="text-xs text-gray-400">Invoice Number</div>
+                    <div className="text-sm font-mono font-bold text-gray-900">{selectedInvoice.invoiceNumber}</div>
+                    <div className="text-[11px] text-gray-400 mt-0.5">Date: {new Date(selectedInvoice.createdAt).toLocaleDateString()}</div>
                   </div>
                 </div>
 
                 {/* Bill To Info */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 py-6 border-b border-slate-800 text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 py-4 border-b border-gray-100 text-xs">
                   <div>
-                    <span className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Billed To Customer</span>
-                    <p className="font-bold text-white text-sm">{selectedInvoice.customerName}</p>
-                    <p className="text-slate-400">{selectedInvoice.customerEmail}</p>
+                    <span className="text-[10px] uppercase font-semibold text-gray-400 block mb-0.5">Billed To</span>
+                    <p className="font-semibold text-gray-900">{selectedInvoice.customerName}</p>
+                    <p className="text-gray-500">{selectedInvoice.customerEmail}</p>
                   </div>
                   <div>
-                    <span className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Payment Status</span>
+                    <span className="text-[10px] uppercase font-semibold text-gray-400 block mb-0.5">Status</span>
                     {selectedInvoice.status === 'paid' ? (
-                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                        <span>PAID IN FULL via {selectedInvoice.paymentMethod || 'Flutterwave'}</span>
+                      <div className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-xs font-semibold bg-green-50 text-green-700 border border-green-200">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>Paid</span>
                       </div>
                     ) : (
-                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold">
-                        <Clock className="w-4 h-4 text-amber-400" />
-                        <span>UNPAID • Due by {selectedInvoice.dueDate}</span>
+                      <div className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>Unpaid (Due: {selectedInvoice.dueDate})</span>
                       </div>
                     )}
                   </div>
                 </div>
 
                 {/* Items Table */}
-                <div className="py-6 border-b border-slate-800">
+                <div className="py-4 border-b border-gray-100">
                   <table className="w-full text-left text-xs">
                     <thead>
-                      <tr className="text-slate-400 border-b border-slate-800 pb-2">
-                        <th className="pb-2 font-semibold">Item & Service Description</th>
-                        <th className="pb-2 text-center font-semibold">Qty</th>
-                        <th className="pb-2 text-right font-semibold">Unit Price</th>
-                        <th className="pb-2 text-right font-semibold">Total Amount</th>
+                      <tr className="text-gray-400 border-b border-gray-100 pb-2">
+                        <th className="pb-2 font-medium">Description</th>
+                        <th className="pb-2 text-center font-medium">Qty</th>
+                        <th className="pb-2 text-right font-medium">Price</th>
+                        <th className="pb-2 text-right font-medium">Amount</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-800/60">
+                    <tbody className="divide-y divide-gray-50">
                       {selectedInvoice.items.map((item, idx) => (
-                        <tr key={idx} className="text-slate-200">
-                          <td className="py-3 pr-2 font-medium">{item.description}</td>
-                          <td className="py-3 text-center text-slate-400">{item.quantity}</td>
-                          <td className="py-3 text-right">₦{item.unitPrice.toLocaleString()}</td>
-                          <td className="py-3 text-right font-bold text-white">₦{item.amount.toLocaleString()}</td>
+                        <tr key={idx} className="text-gray-700">
+                          <td className="py-2.5 pr-2 font-medium text-gray-900">{item.description}</td>
+                          <td className="py-2.5 text-center text-gray-500">{item.quantity}</td>
+                          <td className="py-2.5 text-right">₦{item.unitPrice.toLocaleString()}</td>
+                          <td className="py-2.5 text-right font-semibold text-gray-900">₦{item.amount.toLocaleString()}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
 
                   {/* Totals */}
-                  <div className="mt-4 flex justify-end">
-                    <div className="w-64 space-y-1.5 text-xs text-slate-300">
+                  <div className="mt-3 flex justify-end">
+                    <div className="w-56 space-y-1 text-xs text-gray-600">
                       <div className="flex justify-between">
                         <span>Subtotal:</span>
-                        <span className="font-semibold text-white">₦{selectedInvoice.subtotal.toLocaleString()}</span>
+                        <span className="font-medium text-gray-900">₦{selectedInvoice.subtotal.toLocaleString()}</span>
                       </div>
                       {selectedInvoice.taxAmount > 0 && (
                         <div className="flex justify-between">
@@ -284,35 +266,32 @@ export const InvoicesView: React.FC = () => {
                           <span>₦{selectedInvoice.taxAmount.toLocaleString()}</span>
                         </div>
                       )}
-                      <div className="flex justify-between text-sm font-black text-emerald-400 pt-2 border-t border-slate-800">
-                        <span>Total Payable (NGN):</span>
+                      <div className="flex justify-between text-sm font-bold text-gray-900 pt-2 border-t border-gray-100">
+                        <span>Total:</span>
                         <span>₦{selectedInvoice.total.toLocaleString()}</span>
                       </div>
                     </div>
                   </div>
                 </div>
 
-                {/* Multi-Currency Checkout Section */}
+                {/* Payment Section */}
                 {selectedInvoice.status !== 'paid' ? (
-                  <div className="mt-6 p-6 rounded-2xl bg-slate-950 border border-slate-800">
-                    <h3 className="text-sm font-bold text-white mb-2 flex items-center gap-2">
-                      <CreditCard className="w-4 h-4 text-emerald-400" />
-                      <span>Select Preferred Payment Currency</span>
+                  <div className="mt-5 p-4 rounded-xl bg-gray-50 border border-gray-200">
+                    <h3 className="text-xs font-semibold text-gray-900 mb-2 flex items-center gap-1.5">
+                      <CreditCard className="w-4 h-4 text-blue-600" />
+                      <span>Select Payment Currency</span>
                     </h3>
-                    <p className="text-xs text-slate-400 mb-4">
-                      Pay in USD, EUR, GBP, AED, or NGN. Settlement is instantly converted and credited to the merchant in Nigerian Naira.
-                    </p>
 
                     {/* Currency Selector */}
-                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-4">
+                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5 mb-3">
                       {(['NGN', 'USD', 'EUR', 'GBP', 'AED', 'CAD'] as SupportedCurrency[]).map((curr) => (
                         <button
                           key={curr}
                           onClick={() => setSelectedCurrency(curr)}
-                          className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all ${
+                          className={`py-1.5 px-2 rounded text-xs font-medium border transition-colors cursor-pointer ${
                             selectedCurrency === curr
-                              ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow'
-                              : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800'
+                              ? 'bg-blue-600 text-white border-blue-600'
+                              : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'
                           }`}
                         >
                           {curr}
@@ -320,59 +299,53 @@ export const InvoicesView: React.FC = () => {
                       ))}
                     </div>
 
-                    {/* Live FX Calculation Card */}
-                    <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+                    <div className="p-3 rounded-lg bg-white border border-gray-200 mb-4 flex items-center justify-between text-xs">
                       <div>
-                        <span className="text-slate-400 block">Total Payable in {selectedCurrency}:</span>
-                        <span className="text-xl font-black text-white">
+                        <span className="text-gray-400 block text-[11px]">Total in {selectedCurrency}:</span>
+                        <span className="text-base font-bold text-gray-900">
                           {selectedCurrency === 'NGN' ? `₦${selectedInvoice.total.toLocaleString()}` : `${selectedCurrency} $${calculateForeignAmount(selectedInvoice.total)}`}
                         </span>
                       </div>
                       {selectedCurrency !== 'NGN' && (
-                        <div className="text-slate-400 text-[11px] sm:text-right">
-                          <span>Live Guaranteed Rate: </span>
-                          <strong className="text-emerald-400">1 {selectedCurrency} = ₦{exchangeRate.toFixed(2)}</strong>
+                        <div className="text-gray-500 text-[11px] text-right">
+                          <span>Rate: </span>
+                          <strong className="text-gray-900">1 {selectedCurrency} = ₦{exchangeRate.toFixed(2)}</strong>
                         </div>
                       )}
                     </div>
 
-                    {/* Pay Button */}
                     <button
                       onClick={handlePayInvoice}
                       disabled={isProcessingPayment}
-                      className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-500 to-indigo-600 hover:from-emerald-400 hover:to-indigo-500 text-slate-950 font-black text-sm shadow-xl shadow-emerald-500/20 transition-all flex items-center justify-center gap-2 hover:scale-101"
+                      className="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                     >
                       {isProcessingPayment ? (
                         <>
-                          <RefreshCw className="w-4 h-4 animate-spin" />
-                          <span>Processing via Flutterwave Gateway...</span>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>Processing...</span>
                         </>
                       ) : (
                         <>
-                          <Lock className="w-4 h-4" />
-                          <span>Pay {selectedCurrency === 'NGN' ? `₦${selectedInvoice.total.toLocaleString()}` : `${selectedCurrency} $${calculateForeignAmount(selectedInvoice.total)}`} Securely</span>
+                          <Lock className="w-3.5 h-3.5" />
+                          <span>Pay {selectedCurrency === 'NGN' ? `₦${selectedInvoice.total.toLocaleString()}` : `${selectedCurrency} $${calculateForeignAmount(selectedInvoice.total)}`}</span>
                         </>
                       )}
                     </button>
                   </div>
                 ) : (
-                  /* Paid Confirmation Receipt */
-                  <div className="mt-6 p-6 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-center">
-                    <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto mb-2" />
-                    <h3 className="text-base font-bold text-white">Payment Confirmed & Verified</h3>
-                    <p className="text-xs text-slate-300 mt-1">
-                      Transaction Ref: <span className="font-mono text-emerald-400 font-bold">{selectedInvoice.transactionRef || 'FLW_SETTLED_001'}</span>
-                    </p>
-                    <p className="text-[11px] text-slate-400 mt-0.5">
-                      Paid on {selectedInvoice.paidAt ? new Date(selectedInvoice.paidAt).toLocaleString() : new Date().toLocaleString()}
+                  <div className="mt-4 p-4 rounded-lg bg-green-50 border border-green-200 text-center">
+                    <CheckCircle2 className="w-8 h-8 text-green-600 mx-auto mb-1" />
+                    <h3 className="text-xs font-bold text-green-900">Payment Settled</h3>
+                    <p className="text-[11px] text-green-700 mt-0.5">
+                      Ref: <span className="font-mono">{selectedInvoice.transactionRef || 'FLW_SETTLED'}</span>
                     </p>
                   </div>
                 )}
 
               </div>
             ) : (
-              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-12 text-center text-slate-400">
-                Select an invoice to inspect details or complete checkout.
+              <div className="bg-white border border-gray-200 rounded-xl p-10 text-center text-xs text-gray-400">
+                Select an invoice to view details.
               </div>
             )}
           </div>

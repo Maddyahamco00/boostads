@@ -1,67 +1,52 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
   Megaphone, 
   TrendingUp, 
   Users, 
   DollarSign, 
-  Layers, 
   Plus, 
   Play, 
   Pause, 
-  CheckCircle2, 
-  AlertCircle, 
-  ChevronRight, 
-  Target, 
-  Globe, 
-  Smartphone, 
-  BarChart3, 
-  ShieldCheck, 
-  Sparkles, 
-  Share2, 
-  Filter, 
-  ArrowUpRight, 
-  MessageSquare, 
-  FileText, 
   Eye, 
   MousePointer, 
   Search, 
   X,
   PhoneCall,
-  Mail,
+  MessageSquare, 
+  FileText, 
   Calendar,
   Zap,
-  Sliders,
-  Check
+  Check,
+  BarChart3
 } from 'lucide-react';
 import { 
   MultiPlatformCampaign, 
   Lead, 
   AdvertisingObjective, 
-  SupportedAdPlatform, 
-  PlatformAllocation 
+  SupportedAdPlatform 
 } from '../types';
 
-const PLATFORM_CONFIGS: Record<SupportedAdPlatform, { name: string; color: string; bg: string; border: string; icon: string }> = {
-  facebook: { name: 'Facebook', color: 'text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/30', icon: '📘' },
-  instagram: { name: 'Instagram', color: 'text-pink-400', bg: 'bg-pink-500/10', border: 'border-pink-500/30', icon: '📸' },
-  google: { name: 'Google Ads', color: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/30', icon: '🌐' },
-  tiktok: { name: 'TikTok', color: 'text-cyan-400', bg: 'bg-cyan-500/10', border: 'border-cyan-500/30', icon: '🎵' },
-  youtube: { name: 'YouTube', color: 'text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/30', icon: '▶️' }
+const PLATFORM_CONFIGS: Record<SupportedAdPlatform, { name: string; icon: string }> = {
+  facebook: { name: 'Facebook', icon: '📘' },
+  instagram: { name: 'Instagram', icon: '📸' },
+  google: { name: 'Google Ads', icon: '🌐' },
+  tiktok: { name: 'TikTok', icon: '🎵' },
+  youtube: { name: 'YouTube', icon: '▶️' }
 };
 
 const OBJECTIVE_LABELS: Record<AdvertisingObjective, { label: string; desc: string; icon: string }> = {
-  more_leads: { label: 'Generate High-Quality Leads', desc: 'Direct phone, WhatsApp & form enquiries for your business', icon: '🎯' },
-  whatsapp_orders: { label: 'Drive WhatsApp Orders', desc: 'Direct chat conversations and instant customer order inquiries', icon: '💬' },
-  brand_discovery: { label: 'Brand & Store Discovery', desc: 'Maximize local reach and store visits across your city/state', icon: '🌟' },
-  store_traffic: { label: 'Physical Walk-in Traffic', desc: 'Drive real customers to your shop or showroom location', icon: '🏬' },
-  app_installs: { label: 'Direct Sales & Checkout', desc: 'Drive instant invoice payment conversions on Boost Market', icon: '💳' },
-  more_messages: { label: 'More Chat Messages', desc: 'Drive direct inbox conversations with prospective buyers', icon: '📨' },
-  more_website_visitors: { label: 'Website & Store Visitors', desc: 'Send high-intent traffic to your profile or website', icon: '🌐' },
-  more_calls: { label: 'Direct Phone Calls', desc: 'Receive calls from motivated buyers immediately', icon: '📞' },
-  more_product_sales: { label: 'Product Catalog Sales', desc: 'Showcase and sell inventory directly from your catalog', icon: '🛍️' },
-  more_local_customers: { label: 'Local City Customers', desc: 'Target customers within 5-50km of your shop', icon: '📍' },
-  brand_awareness: { label: 'Mass Market Awareness', desc: 'Broad reach across multiple digital video and social feeds', icon: '📢' }
+  more_leads: { label: 'Generate Leads', desc: 'Direct phone, WhatsApp & form inquiries', icon: '🎯' },
+  whatsapp_orders: { label: 'WhatsApp Orders', desc: 'Direct customer order conversations', icon: '💬' },
+  brand_discovery: { label: 'Store Discovery', desc: 'Maximize local reach and visits', icon: '🌟' },
+  store_traffic: { label: 'Walk-in Traffic', desc: 'Drive customers to your shop location', icon: '🏬' },
+  app_installs: { label: 'Direct Sales', desc: 'Drive invoice payment conversions', icon: '💳' },
+  more_messages: { label: 'Chat Messages', desc: 'Drive direct inbox inquiries', icon: '📨' },
+  more_website_visitors: { label: 'Website Visitors', desc: 'Send traffic to your profile or website', icon: '🌐' },
+  more_calls: { label: 'Phone Calls', desc: 'Receive calls from interested buyers', icon: '📞' },
+  more_product_sales: { label: 'Catalog Sales', desc: 'Showcase and sell inventory items', icon: '🛍️' },
+  more_local_customers: { label: 'Local Customers', desc: 'Target customers in your city', icon: '📍' },
+  brand_awareness: { label: 'Mass Reach', desc: 'Broad reach across video and social feeds', icon: '📢' }
 };
 
 export const CampaignManagementView: React.FC = () => {
@@ -71,7 +56,6 @@ export const CampaignManagementView: React.FC = () => {
     campaigns, 
     leads, 
     updateLeadStatus, 
-    startChatWithBusiness, 
     openInvoiceDetail, 
     refreshData 
   } = useApp();
@@ -123,7 +107,6 @@ export const CampaignManagementView: React.FC = () => {
     ? (userCampaigns.reduce((acc, c) => acc + (c.analytics?.roas || 3.8), 0) / userCampaigns.length).toFixed(1)
     : '4.2';
 
-  // Toggle platform selection in wizard
   const togglePlatform = (p: SupportedAdPlatform) => {
     if (selectedPlatforms.includes(p)) {
       if (selectedPlatforms.length > 1) {
@@ -134,7 +117,6 @@ export const CampaignManagementView: React.FC = () => {
     }
   };
 
-  // Toggle target city in wizard
   const toggleCity = (city: string) => {
     if (targetCities.includes(city)) {
       if (targetCities.length > 1) {
@@ -145,7 +127,6 @@ export const CampaignManagementView: React.FC = () => {
     }
   };
 
-  // Dynamic budget calculation based on smart weights
   const calculateAllocations = () => {
     const weights: Record<SupportedAdPlatform, number> = {
       facebook: 0,
@@ -193,7 +174,7 @@ export const CampaignManagementView: React.FC = () => {
 
   const handleLaunchCampaign = async () => {
     if (!campaignTitle || !headline || !bodyCopy || !userBiz) {
-      alert('Please fill out all required campaign fields.');
+      alert('Please fill out all required fields.');
       return;
     }
     try {
@@ -214,7 +195,7 @@ export const CampaignManagementView: React.FC = () => {
             locations: targetCities,
             ageRange: [21, 55],
             gender: 'all',
-            interests: [userBiz.categoryLabel, 'Online Shopping', 'Nigeria Commerce', 'Kaduna & Abuja Business']
+            interests: [userBiz.categoryLabel, 'Online Shopping', 'Nigeria Commerce']
           },
           creatives: {
             headline,
@@ -233,7 +214,6 @@ export const CampaignManagementView: React.FC = () => {
         setCampaignTitle('');
         setHeadline('');
         setBodyCopy('');
-        alert('🎉 Multi-platform advertising campaign successfully launched!');
         refreshData();
       } else {
         alert(data.error || 'Failed to create campaign');
@@ -273,7 +253,7 @@ export const CampaignManagementView: React.FC = () => {
           customerEmail: newLeadEmail,
           platformSource: newLeadPlatform,
           interestItem: newLeadItem || 'General Enquiry',
-          notes: newLeadNotes || 'Captured from direct customer phone call'
+          notes: newLeadNotes || 'Captured from direct enquiry'
         })
       });
       setIsAddLeadModalOpen(false);
@@ -282,14 +262,12 @@ export const CampaignManagementView: React.FC = () => {
       setNewLeadEmail('');
       setNewLeadItem('');
       setNewLeadNotes('');
-      alert('Lead added to your CRM pipeline!');
       refreshData();
     } catch (err) {
       console.error('Failed to add lead:', err);
     }
   };
 
-  // Filtered Leads
   const filteredLeads = userLeads.filter(lead => {
     const matchesStatus = leadStatusFilter === 'all' || lead.status === leadStatusFilter;
     const matchesSearch = !leadSearch || 
@@ -300,142 +278,137 @@ export const CampaignManagementView: React.FC = () => {
   });
 
   return (
-    <div id="campaign-management-view" className="min-h-screen bg-slate-950 text-slate-100 pb-20">
-      {/* Header / Hero Section */}
-      <div className="bg-slate-900 border-b border-slate-800 px-4 py-8 sm:px-6 lg:px-8">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-6">
+    <div id="campaign-management-view" className="min-h-screen bg-gray-50 text-gray-900 pb-20">
+      {/* Header Section */}
+      <div className="bg-white border-b border-gray-200 px-4 py-6 sm:px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2 mb-2">
-              <span className="px-2.5 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5">
-                <Zap className="w-3.5 h-3.5 text-emerald-400" /> Multi-Platform Ad Engine
+            <div className="flex items-center gap-2 mb-1">
+              <h1 className="text-xl font-bold text-gray-900">Campaigns & CRM</h1>
+              <span className="px-2 py-0.5 rounded text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                Multi-Platform
               </span>
-              <span className="text-xs text-slate-400 font-semibold">• Real Boosters Enterprise</span>
             </div>
-            <h1 className="text-3xl font-black text-white tracking-tight">
-              Unified Advertising & CRM Hub
-            </h1>
-            <p className="text-sm text-slate-400 mt-1 max-w-2xl">
-              Distribute advertising budgets across <strong>Facebook, Instagram, Google, TikTok & YouTube</strong> with automated smart allocation, strict budget spend caps, and integrated lead tracking.
+            <p className="text-xs text-gray-500">
+              Manage multi-channel campaigns (Facebook, Instagram, Google) and track client leads
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
             <button
               id="add-lead-btn"
               onClick={() => setIsAddLeadModalOpen(true)}
-              className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-bold transition-all flex items-center gap-2"
+              className="px-3 py-1.5 rounded-lg bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
             >
-              <Users className="w-4 h-4 text-emerald-400" />
-              <span>Add Direct Lead</span>
+              <Users className="w-3.5 h-3.5 text-blue-600" />
+              <span>Add Lead</span>
             </button>
 
             <button
               id="launch-campaign-hero-btn"
               onClick={() => {
-                setCampaignTitle(`${userBiz?.name || 'Boost'} Growth Campaign`);
-                setHeadline(`Discover Top-Quality ${userBiz?.categoryLabel || 'Services'} in ${userBiz?.location.city || 'Kaduna'}`);
-                setBodyCopy(`Connect with verified specialists at ${userBiz?.name || 'our verified store'}. Fast delivery, reliable execution, and instant invoice checkout on Boost Market.`);
+                setCampaignTitle(`${userBiz?.name || 'Boost'} Campaign`);
+                setHeadline(`Discover ${userBiz?.categoryLabel || 'Services'} in ${userBiz?.location.city || 'Kaduna'}`);
+                setBodyCopy(`Connect with ${userBiz?.name || 'our verified store'}. Fast delivery and reliable service.`);
                 setIsCreateModalOpen(true);
               }}
-              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/25 transition-all flex items-center gap-2"
+              className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
             >
-              <Plus className="w-4 h-4 text-slate-950" />
-              <span>Launch Multi-Platform Ad</span>
+              <Plus className="w-3.5 h-3.5" />
+              <span>New Campaign</span>
             </button>
           </div>
         </div>
       </div>
 
-      {/* Main Metric Cards */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-4">
+      {/* Metrics Cards */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-          <div className="bg-slate-900/95 border border-slate-800 rounded-2xl p-4 shadow-xl">
-            <div className="flex items-center justify-between text-slate-400 text-xs mb-1">
-              <span>Total Ad Budget</span>
-              <DollarSign className="w-4 h-4 text-emerald-400" />
+          <div className="bg-white border border-gray-200 rounded-xl p-3.5 shadow-xs">
+            <div className="flex items-center justify-between text-gray-500 text-xs mb-1">
+              <span className="font-medium">Total Budget</span>
+              <DollarSign className="w-4 h-4 text-green-600" />
             </div>
-            <div className="text-xl font-black text-white">₦{totalSpend.toLocaleString()}</div>
-            <div className="text-[11px] text-emerald-400 font-semibold mt-1 flex items-center gap-1">
-              <ShieldCheck className="w-3 h-3" /> Spend Cap Enforced
-            </div>
+            <div className="text-lg font-bold text-gray-900">₦{totalSpend.toLocaleString()}</div>
+            <div className="text-[11px] text-gray-400 mt-0.5">Budget allocated</div>
           </div>
 
-          <div className="bg-slate-900/95 border border-slate-800 rounded-2xl p-4 shadow-xl">
-            <div className="flex items-center justify-between text-slate-400 text-xs mb-1">
-              <span>Unified Reach</span>
-              <Eye className="w-4 h-4 text-indigo-400" />
+          <div className="bg-white border border-gray-200 rounded-xl p-3.5 shadow-xs">
+            <div className="flex items-center justify-between text-gray-500 text-xs mb-1">
+              <span className="font-medium">Impressions</span>
+              <Eye className="w-4 h-4 text-blue-600" />
             </div>
-            <div className="text-xl font-black text-white">{totalImpressions.toLocaleString()}</div>
-            <div className="text-[11px] text-slate-400 mt-1">Cross-platform impressions</div>
+            <div className="text-lg font-bold text-gray-900">{totalImpressions.toLocaleString()}</div>
+            <div className="text-[11px] text-gray-400 mt-0.5">Total views</div>
           </div>
 
-          <div className="bg-slate-900/95 border border-slate-800 rounded-2xl p-4 shadow-xl">
-            <div className="flex items-center justify-between text-slate-400 text-xs mb-1">
-              <span>Total Clicks</span>
-              <MousePointer className="w-4 h-4 text-cyan-400" />
+          <div className="bg-white border border-gray-200 rounded-xl p-3.5 shadow-xs">
+            <div className="flex items-center justify-between text-gray-500 text-xs mb-1">
+              <span className="font-medium">Clicks</span>
+              <MousePointer className="w-4 h-4 text-blue-600" />
             </div>
-            <div className="text-xl font-black text-white">{totalClicks.toLocaleString()}</div>
-            <div className="text-[11px] text-cyan-400 font-semibold mt-1">
+            <div className="text-lg font-bold text-gray-900">{totalClicks.toLocaleString()}</div>
+            <div className="text-[11px] text-gray-400 mt-0.5">
               {totalImpressions > 0 ? `${((totalClicks / totalImpressions) * 100).toFixed(1)}% CTR` : '3.4% CTR'}
             </div>
           </div>
 
-          <div className="bg-slate-900/95 border border-slate-800 rounded-2xl p-4 shadow-xl">
-            <div className="flex items-center justify-between text-slate-400 text-xs mb-1">
-              <span>CRM Leads</span>
-              <Users className="w-4 h-4 text-pink-400" />
+          <div className="bg-white border border-gray-200 rounded-xl p-3.5 shadow-xs">
+            <div className="flex items-center justify-between text-gray-500 text-xs mb-1">
+              <span className="font-medium">Total Leads</span>
+              <Users className="w-4 h-4 text-blue-600" />
             </div>
-            <div className="text-xl font-black text-white">{totalLeadsCount}</div>
-            <div className="text-[11px] text-pink-400 font-semibold mt-1">Avg ₦{avgCpl.toLocaleString()} / Lead</div>
+            <div className="text-lg font-bold text-gray-900">{totalLeadsCount}</div>
+            <div className="text-[11px] text-gray-400 mt-0.5">Avg ₦{avgCpl.toLocaleString()} / Lead</div>
           </div>
 
-          <div className="bg-slate-900/95 border border-slate-800 rounded-2xl p-4 shadow-xl col-span-2 lg:col-span-1">
-            <div className="flex items-center justify-between text-slate-400 text-xs mb-1">
-              <span>Target ROAS</span>
-              <TrendingUp className="w-4 h-4 text-amber-400" />
+          <div className="bg-white border border-gray-200 rounded-xl p-3.5 shadow-xs col-span-2 lg:col-span-1">
+            <div className="flex items-center justify-between text-gray-500 text-xs mb-1">
+              <span className="font-medium">Est. ROAS</span>
+              <TrendingUp className="w-4 h-4 text-amber-500" />
             </div>
-            <div className="text-xl font-black text-white">{avgRoas}x</div>
-            <div className="text-[11px] text-amber-400 font-semibold mt-1">Return on Ad Spend</div>
+            <div className="text-lg font-bold text-gray-900">{avgRoas}x</div>
+            <div className="text-[11px] text-gray-400 mt-0.5">Return on spend</div>
           </div>
         </div>
       </div>
 
       {/* Tabs Navigation */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8">
-        <div className="border-b border-slate-800 flex items-center gap-4">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
+        <div className="border-b border-gray-200 flex items-center gap-2 overflow-x-auto text-xs font-medium pb-1">
           <button
             onClick={() => setActiveTab('campaigns')}
-            className={`pb-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-all ${
+            className={`pb-2.5 px-3 flex items-center gap-1.5 border-b-2 transition-colors whitespace-nowrap cursor-pointer ${
               activeTab === 'campaigns'
-                ? 'border-emerald-500 text-emerald-400'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
+                ? 'border-blue-600 text-blue-600 font-semibold'
+                : 'border-transparent text-gray-500 hover:text-gray-900'
             }`}
           >
-            <Megaphone className="w-4 h-4" />
-            <span>Active Campaigns ({userCampaigns.length})</span>
+            <Megaphone className="w-3.5 h-3.5" />
+            <span>Campaigns ({userCampaigns.length})</span>
           </button>
 
           <button
             onClick={() => setActiveTab('leads')}
-            className={`pb-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-all ${
+            className={`pb-2.5 px-3 flex items-center gap-1.5 border-b-2 transition-colors whitespace-nowrap cursor-pointer ${
               activeTab === 'leads'
-                ? 'border-emerald-500 text-emerald-400'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
+                ? 'border-blue-600 text-blue-600 font-semibold'
+                : 'border-transparent text-gray-500 hover:text-gray-900'
             }`}
           >
-            <Users className="w-4 h-4" />
-            <span>Lead Pipeline CRM ({userLeads.length})</span>
+            <Users className="w-3.5 h-3.5" />
+            <span>Leads CRM ({userLeads.length})</span>
           </button>
 
           <button
             onClick={() => setActiveTab('analytics')}
-            className={`pb-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-all ${
+            className={`pb-2.5 px-3 flex items-center gap-1.5 border-b-2 transition-colors whitespace-nowrap cursor-pointer ${
               activeTab === 'analytics'
-                ? 'border-emerald-500 text-emerald-400'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
+                ? 'border-blue-600 text-blue-600 font-semibold'
+                : 'border-transparent text-gray-500 hover:text-gray-900'
             }`}
           >
-            <BarChart3 className="w-4 h-4" />
+            <BarChart3 className="w-3.5 h-3.5" />
             <span>Platform Matrix</span>
           </button>
         </div>
@@ -445,115 +418,85 @@ export const CampaignManagementView: React.FC = () => {
       {activeTab === 'campaigns' && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
           {userCampaigns.length === 0 ? (
-            <div className="text-center py-16 bg-slate-900/60 border border-slate-800 rounded-3xl p-8">
-              <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto mb-4">
-                <Megaphone className="w-8 h-8" />
-              </div>
-              <h3 className="text-lg font-bold text-white mb-2">No Active Multi-Platform Campaigns Yet</h3>
-              <p className="text-xs text-slate-400 max-w-md mx-auto mb-6">
-                Amplify your business across Meta (Facebook/Instagram), Google Search, TikTok, and YouTube with smart budget distribution.
+            <div className="text-center py-12 bg-white border border-gray-200 rounded-xl p-6">
+              <Megaphone className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+              <h2 className="text-sm font-semibold text-gray-900 mb-1">No Active Campaigns</h2>
+              <p className="text-xs text-gray-500 max-w-sm mx-auto mb-4">
+                Launch a campaign across Meta, Google, and TikTok to generate customer leads.
               </p>
               <button
                 onClick={() => setIsCreateModalOpen(true)}
-                className="px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-lg"
+                className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs transition-colors cursor-pointer"
               >
-                Create Your First Campaign
+                Create Campaign
               </button>
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {userCampaigns.map((camp) => (
                 <div 
                   key={camp.id} 
-                  className="bg-slate-900 border border-slate-800 rounded-2xl p-5 hover:border-slate-700 transition-all shadow-md"
+                  className="bg-white border border-gray-200 rounded-xl p-4 shadow-xs"
                 >
-                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-800/80">
-                    <div className="space-y-1">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-gray-100">
+                    <div>
                       <div className="flex items-center gap-2">
-                        <h3 className="text-base font-black text-white">{camp.title}</h3>
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                        <h2 className="text-sm font-semibold text-gray-900">{camp.title}</h2>
+                        <span className={`px-2 py-0.2 rounded text-[10px] font-medium uppercase ${
                           camp.status === 'active' 
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                            : camp.status === 'paused'
-                            ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                            : 'bg-slate-800 text-slate-400'
+                            ? 'bg-green-50 text-green-700 border border-green-200'
+                            : 'bg-amber-50 text-amber-700 border border-amber-200'
                         }`}>
                           {camp.status}
                         </span>
-                        <span className="text-xs text-slate-400 font-medium">
-                          {OBJECTIVE_LABELS[camp.objective]?.label || camp.objective}
-                        </span>
                       </div>
-                      <p className="text-xs text-slate-400 flex items-center gap-3">
-                        <span>Target: <strong>{camp.targetAudience.locations.join(', ')}</strong></span>
-                        <span>•</span>
-                        <span>Daily: <strong>₦{camp.dailyBudgetNGN?.toLocaleString()}/day</strong></span>
-                        <span>•</span>
-                        <span>Total: <strong>₦{camp.totalBudgetNGN.toLocaleString()}</strong></span>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {OBJECTIVE_LABELS[camp.objective]?.label || camp.objective} • Budget: ₦{camp.totalBudgetNGN.toLocaleString()}
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-2 self-start lg:self-center">
-                      <button
-                        onClick={() => handleToggleCampaignStatus(camp.id, camp.status)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
-                          camp.status === 'active'
-                            ? 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                            : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                        }`}
-                      >
-                        {camp.status === 'active' ? (
-                          <>
-                            <Pause className="w-3.5 h-3.5" /> Pause
-                          </>
-                        ) : (
-                          <>
-                            <Play className="w-3.5 h-3.5" /> Resume
-                          </>
-                        )}
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => handleToggleCampaignStatus(camp.id, camp.status)}
+                      className="px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium flex items-center gap-1 self-start sm:self-center transition-colors cursor-pointer"
+                    >
+                      {camp.status === 'active' ? (
+                        <>
+                          <Pause className="w-3 h-3" /> Pause
+                        </>
+                      ) : (
+                        <>
+                          <Play className="w-3 h-3" /> Resume
+                        </>
+                      )}
+                    </button>
                   </div>
 
-                  {/* Channel Allocations & Progress */}
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4 pt-1">
-                    <div className="md:col-span-2 space-y-2">
-                      <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                        Channel Distribution & Budget Split
-                      </span>
-                      <div className="flex items-center gap-2 flex-wrap">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3 text-xs">
+                    <div>
+                      <span className="text-gray-400 font-medium">Platforms:</span>
+                      <div className="flex items-center gap-1 mt-1 flex-wrap">
                         {camp.platformAllocations.map(alloc => (
-                          <div 
+                          <span 
                             key={alloc.platform} 
-                            className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 border ${PLATFORM_CONFIGS[alloc.platform]?.border} ${PLATFORM_CONFIGS[alloc.platform]?.bg} ${PLATFORM_CONFIGS[alloc.platform]?.color}`}
+                            className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 text-[11px] font-medium"
                           >
-                            <span>{PLATFORM_CONFIGS[alloc.platform]?.icon}</span>
-                            <span>{PLATFORM_CONFIGS[alloc.platform]?.name}</span>
-                            <span className="font-bold">({alloc.percentage}%)</span>
-                            <span className="text-[10px] text-slate-300">₦{alloc.allocatedBudgetNGN.toLocaleString()}</span>
-                          </div>
+                            {PLATFORM_CONFIGS[alloc.platform]?.name} ({alloc.percentage}%)
+                          </span>
                         ))}
                       </div>
                     </div>
 
-                    {/* Performance metrics */}
-                    <div className="space-y-1">
-                      <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                        Reach & Traffic
-                      </span>
-                      <div className="text-xs text-slate-200">
-                        <div><strong>{camp.analytics?.totalImpressions.toLocaleString() || '0'}</strong> Impressions</div>
-                        <div className="text-slate-400">{camp.analytics?.totalClicks.toLocaleString() || '0'} Clicks ({camp.analytics?.ctr || 3.5}% CTR)</div>
+                    <div>
+                      <span className="text-gray-400 font-medium">Performance:</span>
+                      <div className="text-gray-700 font-medium mt-1">
+                        {camp.analytics?.totalImpressions.toLocaleString() || 0} views • {camp.analytics?.totalClicks || 0} clicks
                       </div>
                     </div>
 
-                    <div className="space-y-1">
-                      <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                        Attributed Conversions
-                      </span>
-                      <div className="text-xs text-slate-200">
-                        <div className="text-emerald-400 font-bold">{camp.analytics?.leadsGenerated || 0} Direct Leads</div>
-                        <div className="text-slate-400">ROAS: <strong>{camp.analytics?.roas || 4.2}x</strong></div>
+                    <div>
+                      <span className="text-gray-400 font-medium">Conversions:</span>
+                      <div className="text-green-700 font-medium mt-1">
+                        {camp.analytics?.leadsGenerated || 0} leads • {camp.analytics?.roas || 4.2}x ROAS
                       </div>
                     </div>
                   </div>
@@ -568,151 +511,110 @@ export const CampaignManagementView: React.FC = () => {
       {activeTab === 'leads' && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
           {/* Controls Bar */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-center gap-3 flex-1">
-              <div className="relative flex-1 max-w-sm">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <div className="bg-white border border-gray-200 rounded-xl p-3 mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+            <div className="flex items-center gap-2 flex-1">
+              <div className="relative flex-1 max-w-xs">
+                <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
-                  placeholder="Search leads by name, phone, item..."
+                  placeholder="Search leads..."
                   value={leadSearch}
                   onChange={(e) => setLeadSearch(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-white border border-gray-200 rounded-lg pl-8 pr-2.5 py-1.5 text-xs text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-blue-600"
                 />
               </div>
 
               <select
                 value={leadStatusFilter}
                 onChange={(e) => setLeadStatusFilter(e.target.value)}
-                className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-emerald-500"
+                className="bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs text-gray-700 focus:outline-none focus:border-blue-600"
               >
                 <option value="all">All Stages</option>
-                <option value="new">New Inquiries</option>
+                <option value="new">New</option>
                 <option value="contacted">Contacted</option>
                 <option value="qualified">Qualified</option>
-                <option value="invoice_sent">Invoice Sent</option>
                 <option value="converted">Won / Converted</option>
                 <option value="lost">Lost</option>
               </select>
             </div>
 
-            <div className="text-xs text-slate-400">
-              Showing <strong>{filteredLeads.length}</strong> of {userLeads.length} total leads
+            <div className="text-xs text-gray-500">
+              {filteredLeads.length} leads
             </div>
           </div>
 
           {/* Leads Grid */}
           {filteredLeads.length === 0 ? (
-            <div className="text-center py-16 bg-slate-900/60 border border-slate-800 rounded-3xl p-8">
-              <Users className="w-12 h-12 text-slate-600 mx-auto mb-3" />
-              <h3 className="text-base font-bold text-white">No leads match your criteria</h3>
-              <p className="text-xs text-slate-400 mt-1">
-                New leads from your advertising campaigns and chat requests will appear here automatically.
-              </p>
+            <div className="text-center py-12 bg-white border border-gray-200 rounded-xl p-6 text-xs text-gray-400">
+              No leads match your filter.
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {filteredLeads.map((lead) => (
                 <div 
                   key={lead.id} 
-                  className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-2xl p-5 shadow-lg flex flex-col justify-between"
+                  className="bg-white border border-gray-200 rounded-xl p-3.5 shadow-xs flex flex-col justify-between"
                 >
-                  <div className="space-y-3">
+                  <div className="space-y-2">
                     <div className="flex items-start justify-between gap-2">
                       <div>
-                        <h4 className="font-bold text-white text-sm">{lead.customerName}</h4>
-                        <span className={`inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full mt-1 ${PLATFORM_CONFIGS[lead.platformSource]?.bg} ${PLATFORM_CONFIGS[lead.platformSource]?.color} border ${PLATFORM_CONFIGS[lead.platformSource]?.border}`}>
-                          {PLATFORM_CONFIGS[lead.platformSource]?.icon} {PLATFORM_CONFIGS[lead.platformSource]?.name}
+                        <h2 className="font-semibold text-gray-900 text-xs">{lead.customerName}</h2>
+                        <span className="text-[10px] text-gray-500">
+                          {PLATFORM_CONFIGS[lead.platformSource]?.name}
                         </span>
                       </div>
                       
                       <select
                         value={lead.status}
                         onChange={(e) => updateLeadStatus(lead.id, e.target.value as Lead['status'])}
-                        className={`text-[11px] font-black rounded-lg px-2 py-1 border focus:outline-none ${
-                          lead.status === 'converted' 
-                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' 
-                            : lead.status === 'invoice_sent' 
-                            ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
-                            : lead.status === 'qualified'
-                            ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
-                            : lead.status === 'contacted'
-                            ? 'bg-blue-500/20 text-blue-300 border-blue-500/40'
-                            : lead.status === 'lost'
-                            ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
-                            : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                        }`}
+                        className="text-[11px] font-medium rounded border border-gray-200 px-1.5 py-0.5 bg-gray-50 text-gray-700 focus:outline-none"
                       >
-                        <option value="new" className="bg-slate-900 text-white">New</option>
-                        <option value="contacted" className="bg-slate-900 text-white">Contacted</option>
-                        <option value="qualified" className="bg-slate-900 text-white">Qualified</option>
-                        <option value="negotiating" className="bg-slate-900 text-white">Negotiating</option>
-                        <option value="invoice_sent" className="bg-slate-900 text-white">Invoice Sent</option>
-                        <option value="converted" className="bg-slate-900 text-white">Won / Converted</option>
-                        <option value="lost" className="bg-slate-900 text-white">Lost</option>
+                        <option value="new">New</option>
+                        <option value="contacted">Contacted</option>
+                        <option value="qualified">Qualified</option>
+                        <option value="converted">Converted</option>
+                        <option value="lost">Lost</option>
                       </select>
                     </div>
 
-                    <div className="bg-slate-950/80 rounded-xl p-3 border border-slate-800/80 text-xs space-y-1.5">
-                      <div className="text-slate-300 flex items-center justify-between">
-                        <span className="text-slate-500">Interest:</span>
-                        <span className="font-semibold text-emerald-400">{lead.interestItem}</span>
+                    <div className="bg-gray-50 rounded-lg p-2 border border-gray-100 text-[11px] space-y-1">
+                      <div className="flex justify-between text-gray-600">
+                        <span>Interest:</span>
+                        <span className="font-medium text-gray-900">{lead.interestItem}</span>
                       </div>
                       {lead.customerPhone && (
-                        <div className="text-slate-300 flex items-center justify-between">
-                          <span className="text-slate-500">Phone:</span>
+                        <div className="flex justify-between text-gray-600">
+                          <span>Phone:</span>
                           <span className="font-mono">{lead.customerPhone}</span>
                         </div>
-                      )}
-                      {lead.customerEmail && (
-                        <div className="text-slate-300 flex items-center justify-between">
-                          <span className="text-slate-500">Email:</span>
-                          <span className="truncate max-w-[150px]">{lead.customerEmail}</span>
-                        </div>
-                      )}
-                      {lead.notes && (
-                        <p className="text-[11px] text-slate-400 italic pt-1 border-t border-slate-800">
-                          "{lead.notes}"
-                        </p>
                       )}
                     </div>
                   </div>
 
-                  {/* Actions */}
-                  <div className="flex items-center gap-2 mt-4 pt-3 border-t border-slate-800">
+                  <div className="flex items-center gap-1.5 mt-3 pt-2 border-t border-gray-100">
                     <a
                       href={`tel:${lead.customerPhone}`}
-                      className="flex-1 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center justify-center gap-1"
+                      className="flex-1 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium flex items-center justify-center gap-1 transition-colors"
                     >
-                      <PhoneCall className="w-3.5 h-3.5 text-emerald-400" />
+                      <PhoneCall className="w-3 h-3 text-blue-600" />
                       <span>Call</span>
                     </a>
 
                     <a
-                      href={`https://wa.me/${lead.customerPhone.replace(/[^0-9]/g, '')}?text=Hello%20${encodeURIComponent(lead.customerName)},%20thank%20you%20for%20your%20interest%20in%20our%20services%20on%20Boost%20Market!`}
+                      href={`https://wa.me/${lead.customerPhone.replace(/[^0-9]/g, '')}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex-1 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 text-xs font-semibold flex items-center justify-center gap-1"
+                      className="flex-1 py-1 rounded bg-green-50 hover:bg-green-100 text-green-700 text-xs font-medium flex items-center justify-center gap-1 transition-colors"
                     >
-                      <MessageSquare className="w-3.5 h-3.5" />
+                      <MessageSquare className="w-3 h-3" />
                       <span>WhatsApp</span>
                     </a>
 
-                    {lead.invoiceId ? (
+                    {lead.invoiceId && (
                       <button
                         onClick={() => openInvoiceDetail(lead.invoiceId!)}
-                        className="py-1.5 px-3 rounded-lg bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 text-xs font-semibold flex items-center gap-1"
-                        title="View Linked Invoice"
-                      >
-                        <FileText className="w-3.5 h-3.5" />
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => {
-                          alert(`To invoice ${lead.customerName}, open the Invoices tab and select this customer.`);
-                        }}
-                        className="py-1.5 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold flex items-center gap-1"
-                        title="Create Invoice"
+                        className="p-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-700 cursor-pointer"
+                        title="View Invoice"
                       >
                         <FileText className="w-3.5 h-3.5" />
                       </button>
@@ -728,41 +630,36 @@ export const CampaignManagementView: React.FC = () => {
       {/* TAB CONTENT: ANALYTICS MATRIX */}
       {activeTab === 'analytics' && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {Object.entries(PLATFORM_CONFIGS).map(([platformKey, conf]) => (
               <div 
                 key={platformKey} 
-                className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl"
+                className="bg-white border border-gray-200 rounded-xl p-4 shadow-xs"
               >
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <span className="text-2xl">{conf.icon}</span>
-                    <div>
-                      <h3 className="font-bold text-white text-base">{conf.name}</h3>
-                      <span className="text-[11px] text-emerald-400 font-semibold">Official Business API Connected</span>
-                    </div>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">{conf.icon}</span>
+                    <h2 className="font-semibold text-gray-900 text-sm">{conf.name}</h2>
                   </div>
-                  <span className={`px-2.5 py-1 rounded-full text-xs font-bold border ${conf.border} ${conf.bg} ${conf.color}`}>
+                  <span className="px-2 py-0.2 rounded text-[10px] font-medium bg-green-50 text-green-700 border border-green-200">
                     Active
                   </span>
                 </div>
 
-                <div className="space-y-3 text-xs">
-                  <div className="flex justify-between py-2 border-b border-slate-800 text-slate-300">
-                    <span className="text-slate-400">Total Reach / Impressions</span>
-                    <span className="font-bold text-white">{(totalImpressions * 0.28).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                <div className="space-y-2 text-xs">
+                  <div className="flex justify-between py-1 border-b border-gray-100 text-gray-600">
+                    <span>Est. Reach</span>
+                    <span className="font-semibold text-gray-900">
+                      {(totalImpressions * 0.28).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    </span>
                   </div>
-                  <div className="flex justify-between py-2 border-b border-slate-800 text-slate-300">
-                    <span className="text-slate-400">Click-Through Rate (CTR)</span>
-                    <span className="font-bold text-emerald-400">3.8%</span>
+                  <div className="flex justify-between py-1 border-b border-gray-100 text-gray-600">
+                    <span>CTR</span>
+                    <span className="font-semibold text-blue-600">3.8%</span>
                   </div>
-                  <div className="flex justify-between py-2 border-b border-slate-800 text-slate-300">
-                    <span className="text-slate-400">Average Cost Per Click</span>
-                    <span className="font-bold text-white">₦42.50</span>
-                  </div>
-                  <div className="flex justify-between py-2 text-slate-300">
-                    <span className="text-slate-400">Attributed Conversion Rate</span>
-                    <span className="font-bold text-cyan-400">8.4%</span>
+                  <div className="flex justify-between py-1 text-gray-600">
+                    <span>Avg. CPC</span>
+                    <span className="font-semibold text-gray-900">₦42.50</span>
                   </div>
                 </div>
               </div>
@@ -773,69 +670,61 @@ export const CampaignManagementView: React.FC = () => {
 
       {/* CREATE CAMPAIGN MODAL (MULTI-STEP WIZARD) */}
       {isCreateModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-3xl w-full p-6 sm:p-8 shadow-2xl my-8">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white border border-gray-200 rounded-xl max-w-xl w-full p-5 shadow-xl my-8">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
               <div>
-                <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Step {step} of 3</span>
-                <h2 className="text-xl font-black text-white">Create Multi-Platform Campaign</h2>
+                <span className="text-xs font-semibold text-blue-600 uppercase">Step {step} of 3</span>
+                <h2 className="text-base font-bold text-gray-900">Create Campaign</h2>
               </div>
               <button
                 onClick={() => setIsCreateModalOpen(false)}
-                className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center"
+                className="w-7 h-7 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-500 flex items-center justify-center cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Step 1: Goal & Budget */}
+            {/* Step 1 */}
             {step === 1 && (
-              <div className="py-6 space-y-6">
+              <div className="py-4 space-y-4 text-xs">
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
-                    Campaign Title
-                  </label>
+                  <label className="block text-gray-700 font-medium mb-1">Campaign Title</label>
                   <input
                     type="text"
                     value={campaignTitle}
                     onChange={(e) => setCampaignTitle(e.target.value)}
-                    placeholder="e.g. Ramadan Super Sale or Kaduna Tech Expansion"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
+                    placeholder="e.g. Ramadan Sale"
+                    className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs text-gray-900 focus:outline-none focus:border-blue-600"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
-                    Select Primary Objective
-                  </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {Object.entries(OBJECTIVE_LABELS).map(([objKey, item]) => (
+                  <label className="block text-gray-700 font-medium mb-1">Objective</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {Object.entries(OBJECTIVE_LABELS).slice(0, 4).map(([objKey, item]) => (
                       <div
                         key={objKey}
                         onClick={() => setObjective(objKey as AdvertisingObjective)}
-                        className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
+                        className={`p-2.5 rounded-lg border cursor-pointer transition-colors ${
                           objective === objKey
-                            ? 'bg-emerald-500/10 border-emerald-500/60 ring-1 ring-emerald-500/50'
-                            : 'bg-slate-950 border-slate-800 hover:border-slate-700'
+                            ? 'bg-blue-50 border-blue-600 text-blue-900'
+                            : 'bg-white border-gray-200 hover:border-gray-300'
                         }`}
                       >
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-lg">{item.icon}</span>
-                          <h4 className="font-bold text-white text-xs">{item.label}</h4>
+                        <div className="flex items-center gap-1.5 font-medium text-xs">
+                          <span>{item.icon}</span>
+                          <span>{item.label}</span>
                         </div>
-                        <p className="text-[11px] text-slate-400">{item.desc}</p>
                       </div>
                     ))}
                   </div>
                 </div>
 
                 <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                      Total Campaign Budget (NGN)
-                    </label>
-                    <span className="text-base font-black text-emerald-400">₦{totalBudget.toLocaleString()}</span>
+                  <div className="flex justify-between text-gray-700 font-medium mb-1">
+                    <span>Budget (NGN)</span>
+                    <span className="text-blue-600 font-bold">₦{totalBudget.toLocaleString()}</span>
                   </div>
                   <input
                     type="range"
@@ -844,118 +733,55 @@ export const CampaignManagementView: React.FC = () => {
                     step="5000"
                     value={totalBudget}
                     onChange={(e) => setTotalBudget(Number(e.target.value))}
-                    className="w-full accent-emerald-500 cursor-pointer"
+                    className="w-full accent-blue-600"
                   />
-                  <div className="flex justify-between text-[10px] text-slate-500 mt-1">
-                    <span>₦10,000 (Starter)</span>
-                    <span>₦100,000 (Growth)</span>
-                    <span>₦500,000+ (Scale)</span>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between bg-slate-950 p-3.5 rounded-xl border border-slate-800 text-xs">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="w-4 h-4 text-emerald-400" />
-                    <span>Duration: <strong>{durationDays} Days</strong> (₦{Math.round(totalBudget / durationDays).toLocaleString()}/day)</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    {[7, 14, 30].map(d => (
-                      <button
-                        key={d}
-                        type="button"
-                        onClick={() => setDurationDays(d)}
-                        className={`px-2.5 py-1 rounded text-[11px] font-bold ${
-                          durationDays === d ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-400'
-                        }`}
-                      >
-                        {d}d
-                      </button>
-                    ))}
-                  </div>
                 </div>
               </div>
             )}
 
-            {/* Step 2: Channels & Smart Allocation */}
+            {/* Step 2 */}
             {step === 2 && (
-              <div className="py-6 space-y-6">
+              <div className="py-4 space-y-4 text-xs">
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
-                    Select Target Advertising Channels
-                  </label>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  <label className="block text-gray-700 font-medium mb-1">Advertising Channels</label>
+                  <div className="grid grid-cols-3 gap-2">
                     {Object.entries(PLATFORM_CONFIGS).map(([pKey, pConf]) => {
                       const isSelected = selectedPlatforms.includes(pKey as SupportedAdPlatform);
                       return (
                         <div
                           key={pKey}
                           onClick={() => togglePlatform(pKey as SupportedAdPlatform)}
-                          className={`p-3 rounded-xl border cursor-pointer flex items-center justify-between transition-all ${
+                          className={`p-2 rounded-lg border cursor-pointer flex items-center justify-between transition-colors ${
                             isSelected
-                              ? `bg-slate-950 ${pConf.border} ring-1 ring-emerald-500/40`
-                              : 'bg-slate-950/50 border-slate-800 opacity-60'
+                              ? 'bg-blue-50 border-blue-600 text-blue-900 font-medium'
+                              : 'bg-white border-gray-200 text-gray-600'
                           }`}
                         >
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1.5">
                             <span>{pConf.icon}</span>
-                            <span className={`text-xs font-bold ${pConf.color}`}>{pConf.name}</span>
+                            <span>{pConf.name}</span>
                           </div>
-                          {isSelected && <Check className="w-4 h-4 text-emerald-400" />}
+                          {isSelected && <Check className="w-3.5 h-3.5 text-blue-600" />}
                         </div>
                       );
                     })}
                   </div>
                 </div>
 
-                {/* Live Smart Budget Allocation breakdown */}
-                <div className="bg-slate-950 rounded-2xl p-4 border border-slate-800 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5 text-amber-400" /> AI-Calculated Budget Split
-                    </span>
-                    <span className="text-[11px] text-emerald-400 font-semibold">100% Budget Utilized</span>
-                  </div>
-
-                  <div className="space-y-2">
-                    {calculateAllocations().map(alloc => (
-                      <div key={alloc.platform} className="space-y-1">
-                        <div className="flex justify-between text-xs">
-                          <span className="text-slate-300 flex items-center gap-1.5">
-                            <span>{PLATFORM_CONFIGS[alloc.platform]?.icon}</span>
-                            <strong>{PLATFORM_CONFIGS[alloc.platform]?.name}</strong>
-                          </span>
-                          <span className="text-slate-400">
-                            {alloc.percentage}% • <strong>₦{alloc.allocatedBudgetNGN.toLocaleString()}</strong>
-                          </span>
-                        </div>
-                        <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
-                          <div 
-                            className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full"
-                            style={{ width: `${alloc.percentage}%` }}
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Target Cities */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
-                    Target Cities & Geofences
-                  </label>
-                  <div className="flex flex-wrap gap-2">
-                    {['Kaduna', 'Abuja', 'Lagos', 'Kano', 'Port Harcourt', 'Ibadan', 'Enugu'].map(city => {
+                  <label className="block text-gray-700 font-medium mb-1">Target Cities</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {['Kaduna', 'Abuja', 'Lagos', 'Kano', 'Port Harcourt'].map(city => {
                       const isSelected = targetCities.includes(city);
                       return (
                         <button
                           key={city}
                           type="button"
                           onClick={() => toggleCity(city)}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                          className={`px-2.5 py-1 rounded text-xs font-medium cursor-pointer transition-colors ${
                             isSelected
-                              ? 'bg-emerald-500 text-slate-950 font-bold'
-                              : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                           }`}
                         >
                           {city}
@@ -967,152 +793,52 @@ export const CampaignManagementView: React.FC = () => {
               </div>
             )}
 
-            {/* Step 3: Creative & Multi-Platform Preview */}
+            {/* Step 3 */}
             {step === 3 && (
-              <div className="py-6 space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Creative Form */}
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1">
-                        Primary Headline
-                      </label>
-                      <input
-                        type="text"
-                        value={headline}
-                        onChange={(e) => setHeadline(e.target.value)}
-                        placeholder="Catchy advertising headline..."
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-                      />
-                    </div>
+              <div className="py-4 space-y-3 text-xs">
+                <div>
+                  <label className="block text-gray-700 font-medium mb-1">Headline</label>
+                  <input
+                    type="text"
+                    value={headline}
+                    onChange={(e) => setHeadline(e.target.value)}
+                    className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs text-gray-900 focus:outline-none focus:border-blue-600"
+                  />
+                </div>
 
-                    <div>
-                      <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1">
-                        Body Copy / Offer Description
-                      </label>
-                      <textarea
-                        rows={3}
-                        value={bodyCopy}
-                        onChange={(e) => setBodyCopy(e.target.value)}
-                        placeholder="Describe your offer, guarantee, and reasons to buy..."
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-                      />
-                    </div>
+                <div>
+                  <label className="block text-gray-700 font-medium mb-1">Description</label>
+                  <textarea
+                    rows={2}
+                    value={bodyCopy}
+                    onChange={(e) => setBodyCopy(e.target.value)}
+                    className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs text-gray-900 focus:outline-none focus:border-blue-600"
+                  />
+                </div>
 
-                    <div>
-                      <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1">
-                        Media Image URL
-                      </label>
-                      <input
-                        type="text"
-                        value={mediaUrl}
-                        onChange={(e) => setMediaUrl(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1">
-                        Call To Action Button
-                      </label>
-                      <select
-                        value={callToAction}
-                        onChange={(e) => setCallToAction(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-                      >
-                        <option value="Order on WhatsApp">Order on WhatsApp</option>
-                        <option value="Chat with Merchant">Chat with Merchant</option>
-                        <option value="Get Instant Quote">Get Instant Quote</option>
-                        <option value="Visit Storefront">Visit Storefront</option>
-                        <option value="Pay via Flutterwave">Pay via Flutterwave</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Multi-Platform Ad Mock Preview */}
-                  <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between">
-                    <div>
-                      <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
-                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                          Live Multi-Format Preview
-                        </span>
-                        <div className="flex items-center gap-1">
-                          {selectedPlatforms.map(p => (
-                            <button
-                              key={p}
-                              type="button"
-                              onClick={() => setPreviewPlatform(p)}
-                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                previewPlatform === p ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-400'
-                              }`}
-                            >
-                              {p}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Mock Simulated Card */}
-                      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-md text-xs">
-                        <div className="p-3 flex items-center gap-2.5">
-                          <img
-                            src={userBiz?.logoUrl}
-                            alt="Brand"
-                            className="w-7 h-7 rounded-full object-cover ring-1 ring-emerald-500"
-                          />
-                          <div>
-                            <div className="font-bold text-white text-xs">{userBiz?.name}</div>
-                            <div className="text-[10px] text-slate-400">Sponsored • Boost Market Certified</div>
-                          </div>
-                        </div>
-
-                        <div className="px-3 pb-2 text-[11px] text-slate-300">
-                          {bodyCopy || 'Your ad text description will be displayed here across all advertising placements.'}
-                        </div>
-
-                        <img
-                          src={mediaUrl}
-                          alt="Creative preview"
-                          className="w-full h-40 object-cover"
-                        />
-
-                        <div className="p-3 bg-slate-950 flex items-center justify-between">
-                          <div>
-                            <div className="font-bold text-white text-xs">{headline || 'Your Headline Here'}</div>
-                            <div className="text-[10px] text-slate-500">boostmarket.ng/{userBiz?.slug}</div>
-                          </div>
-                          <button
-                            type="button"
-                            className="px-3 py-1 rounded bg-emerald-500 text-slate-950 font-bold text-[11px]"
-                          >
-                            {callToAction}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-[11px] text-emerald-400 flex items-center gap-2">
-                      <ShieldCheck className="w-4 h-4 flex-shrink-0" />
-                      <span><strong>Boost Market Budget Cap Guarantee:</strong> We never charge more than your approved budget limit.</span>
-                    </div>
-                  </div>
+                <div>
+                  <label className="block text-gray-700 font-medium mb-1">Image URL</label>
+                  <input
+                    type="text"
+                    value={mediaUrl}
+                    onChange={(e) => setMediaUrl(e.target.value)}
+                    className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs text-gray-900 focus:outline-none focus:border-blue-600"
+                  />
                 </div>
               </div>
             )}
 
-            {/* Modal Footer Controls */}
-            <div className="flex items-center justify-between pt-4 border-t border-slate-800">
+            {/* Footer */}
+            <div className="flex items-center justify-between pt-3 border-t border-gray-100">
               {step > 1 ? (
                 <button
                   type="button"
                   onClick={() => setStep(step - 1)}
-                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs"
+                  className="px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium text-xs cursor-pointer"
                 >
                   Back
                 </button>
-              ) : (
-                <div />
-              )}
+              ) : <div />}
 
               {step < 3 ? (
                 <button
@@ -1124,18 +850,18 @@ export const CampaignManagementView: React.FC = () => {
                     }
                     setStep(step + 1);
                   }}
-                  className="px-6 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs"
+                  className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs cursor-pointer"
                 >
-                  Next Step
+                  Next
                 </button>
               ) : (
                 <button
                   type="button"
                   disabled={isSubmitting}
                   onClick={handleLaunchCampaign}
-                  className="px-6 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/30 disabled:opacity-50"
+                  className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs cursor-pointer disabled:opacity-50"
                 >
-                  {isSubmitting ? 'Launching...' : '🚀 Launch Multi-Platform Campaign'}
+                  {isSubmitting ? 'Launching...' : 'Launch Campaign'}
                 </button>
               )}
             </div>
@@ -1143,15 +869,15 @@ export const CampaignManagementView: React.FC = () => {
         </div>
       )}
 
-      {/* ADD DIRECT LEAD MODAL */}
+      {/* ADD LEAD MODAL */}
       {isAddLeadModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 shadow-2xl">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
-              <h3 className="font-black text-white text-base">Add Lead to CRM</h3>
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-gray-200 rounded-xl max-w-sm w-full p-5 shadow-xl">
+            <div className="flex items-center justify-between pb-2 border-b border-gray-100 mb-3">
+              <h2 className="font-bold text-gray-900 text-sm">Add Lead</h2>
               <button
                 onClick={() => setIsAddLeadModalOpen(false)}
-                className="text-slate-400 hover:text-white"
+                className="text-gray-400 hover:text-gray-600 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1159,83 +885,60 @@ export const CampaignManagementView: React.FC = () => {
 
             <form onSubmit={handleAddManualLead} className="space-y-3 text-xs">
               <div>
-                <label className="block text-slate-400 font-bold mb-1">Customer Full Name *</label>
+                <label className="block text-gray-700 font-medium mb-1">Customer Name *</label>
                 <input
                   type="text"
                   required
                   placeholder="e.g. Fatima Bello"
                   value={newLeadName}
                   onChange={(e) => setNewLeadName(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs text-gray-900 focus:outline-none focus:border-blue-600"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 font-bold mb-1">Phone / WhatsApp Number *</label>
+                <label className="block text-gray-700 font-medium mb-1">Phone Number *</label>
                 <input
                   type="text"
                   required
                   placeholder="e.g. +2348012345678"
                   value={newLeadPhone}
                   onChange={(e) => setNewLeadPhone(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs text-gray-900 focus:outline-none focus:border-blue-600"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 font-bold mb-1">Email Address</label>
-                <input
-                  type="email"
-                  placeholder="customer@gmail.com"
-                  value={newLeadEmail}
-                  onChange={(e) => setNewLeadEmail(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-400 font-bold mb-1">Product / Service of Interest</label>
+                <label className="block text-gray-700 font-medium mb-1">Product / Interest</label>
                 <input
                   type="text"
-                  placeholder="e.g. Premium Native Agbada (3-piece)"
+                  placeholder="e.g. Leather Loafers"
                   value={newLeadItem}
                   onChange={(e) => setNewLeadItem(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs text-gray-900 focus:outline-none focus:border-blue-600"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 font-bold mb-1">Source Platform</label>
+                <label className="block text-gray-700 font-medium mb-1">Channel</label>
                 <select
                   value={newLeadPlatform}
                   onChange={(e) => setNewLeadPlatform(e.target.value as SupportedAdPlatform)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs text-gray-900 focus:outline-none focus:border-blue-600"
                 >
-                  <option value="instagram">Instagram DM / Ad</option>
-                  <option value="facebook">Facebook Messenger / Ad</option>
-                  <option value="google">Google Search / Map Call</option>
-                  <option value="tiktok">TikTok Direct</option>
-                  <option value="youtube">YouTube Ad</option>
+                  <option value="instagram">Instagram</option>
+                  <option value="facebook">Facebook</option>
+                  <option value="google">Google</option>
+                  <option value="tiktok">TikTok</option>
                 </select>
               </div>
 
-              <div>
-                <label className="block text-slate-400 font-bold mb-1">Notes</label>
-                <textarea
-                  rows={2}
-                  placeholder="Special requests, budget discussion notes..."
-                  value={newLeadNotes}
-                  onChange={(e) => setNewLeadNotes(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-
-              <div className="pt-3">
+              <div className="pt-2">
                 <button
                   type="submit"
-                  className="w-full py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold"
+                  className="w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs transition-colors cursor-pointer"
                 >
-                  Save Lead to CRM Pipeline
+                  Save Lead
                 </button>
               </div>
             </form>
