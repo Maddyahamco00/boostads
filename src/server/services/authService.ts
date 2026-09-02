@@ -1152,16 +1152,52 @@ export class AuthService {
   }
 
   // ----------------------------------------------------
-  // 6. FORGOT & RESET PASSWORD
+  // 6. FORGOT & RESET PASSWORD (CLIENT ONLY)
   // ----------------------------------------------------
-  public async forgotPassword(email: string, origin: string, ip: string, userAgent: string): Promise<{ success: boolean; message: string }> {
+  public async forgotPassword(
+    email: string,
+    origin: string,
+    ip: string,
+    userAgent: string
+  ): Promise<{ success: boolean; message: string }> {
+    if (!email || typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      throw new Error('Please enter a valid email address.');
+    }
+
     const normalizedEmail = email.toLowerCase().trim();
-    const user = db.getUserByEmail(normalizedEmail);
+
+    // 1. Rate Limiting per IP and per Email
+    const ipKey = `fp_ip_${ip}`;
+    const emailKey = `fp_email_${normalizedEmail}`;
+
+    const ipLimit = this.checkResendRateLimit(ipKey, 10, 60 * 1000); // Max 10 per min per IP
+    if (ipLimit.isLimited) {
+      const err: any = new Error(`Too many password reset requests. Please wait ${ipLimit.remainingSeconds || 60}s before trying again.`);
+      err.code = 'RATE_LIMITED';
+      err.remainingSeconds = ipLimit.remainingSeconds;
+      throw err;
+    }
+
+    const emailLimit = this.checkResendRateLimit(emailKey, 3, 60 * 1000); // Max 3 per min per email
+    if (emailLimit.isLimited) {
+      const err: any = new Error(`Too many password reset requests for this email. Please wait ${emailLimit.remainingSeconds || 60}s before trying again.`);
+      err.code = 'RATE_LIMITED';
+      err.remainingSeconds = emailLimit.remainingSeconds;
+      throw err;
+    }
+
+    this.recordResendAttempt(ipKey, 60 * 1000);
+    this.recordResendAttempt(emailKey, 60 * 1000);
 
     // Generic response regardless of whether account exists to prevent email enumeration
     const safeMessage = 'If an account exists for this email, you will receive password reset instructions.';
 
+    const user = db.getUserByEmail(normalizedEmail);
+
+    // Account does not exist
     if (!user) {
+      // Dummy cryptographic calculation to mitigate timing attacks
+      await this.hashPassword('DummyPasswordForTimingMitigation123!');
       this.logSecurityEvent('PASSWORD_RESET_REQUESTED', {
         userEmail: normalizedEmail,
         ipAddress: ip,
@@ -1172,28 +1208,65 @@ export class AuthService {
       return { success: true, message: safeMessage };
     }
 
-    // Invalidate existing password reset tokens
+    // STRICT PRIVILEGE BOUNDARY: Never allow Client Forgot Password flow to target SUPER_ADMIN
+    if (user.role === 'SUPER_ADMIN' || normalizedEmail === 'maddyahamco00@gmail.com') {
+      await this.hashPassword('DummyPasswordForTimingMitigation123!');
+      this.logSecurityEvent('SECURITY_ALERT', {
+        userId: user.id,
+        userEmail: user.email,
+        role: user.role,
+        ipAddress: ip,
+        userAgent,
+        severity: 'CRITICAL',
+        details: { 
+          alert: 'Client forgot-password endpoint targeted Super Admin account. Denied silently to preserve Super Admin boundary.' 
+        }
+      });
+      return { success: true, message: safeMessage };
+    }
+
+    // Inactive or suspended accounts guard
+    if (user.status === 'SUSPENDED' || user.status === 'DISABLED' || user.status === 'DELETED') {
+      await this.hashPassword('DummyPasswordForTimingMitigation123!');
+      this.logSecurityEvent('PASSWORD_RESET_REQUESTED', {
+        userId: user.id,
+        userEmail: user.email,
+        role: user.role,
+        ipAddress: ip,
+        userAgent,
+        severity: 'WARNING',
+        details: { status: user.status, action: 'suppressed_due_to_inactive_status' }
+      });
+      return { success: true, message: safeMessage };
+    }
+
+    // Invalidate existing unused password reset tokens for this user
     Array.from(db.tokens.values()).forEach(t => {
-      if (t.userId === user.id && t.type === 'password_reset') {
+      if (t.userId === user.id && t.type === 'password_reset' && !t.isUsed) {
         t.isUsed = true;
+        t.usedAt = new Date().toISOString();
       }
     });
 
+    // Generate high-entropy single-use reset token
     const rawToken = this.generateRandomToken(32);
     const tokenHash = this.hashToken(rawToken);
     const resetToken: VerificationToken = {
-      id: `tok_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
+      id: `tok_pr_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
       tokenHash,
       userId: user.id,
       email: user.email,
       type: 'password_reset',
-      expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(), // 30 minutes
+      expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(), // 30 minutes expiration
       isUsed: false,
+      usedAt: null,
       createdAt: new Date().toISOString()
     };
     db.tokens.set(resetToken.id, resetToken);
 
-    const actionUrl = `${origin}/?resetToken=${rawToken}`;
+    const baseUrl = (origin || process.env.APP_URL || 'http://localhost:3000').replace(/\/+$/, '');
+    const actionUrl = `${baseUrl}/reset-password?token=${encodeURIComponent(rawToken)}`;
+
     await emailService.sendEmail({
       to: user.email,
       subject: 'Reset Your Boost Market Password',
@@ -1206,6 +1279,7 @@ export class AuthService {
     this.logSecurityEvent('PASSWORD_RESET_REQUESTED', {
       userId: user.id,
       userEmail: user.email,
+      role: user.role,
       ipAddress: ip,
       userAgent,
       severity: 'INFO',
@@ -1215,34 +1289,136 @@ export class AuthService {
     return { success: true, message: safeMessage };
   }
 
-  public async resetPassword(rawToken: string, newPassword: string, ip: string, userAgent: string): Promise<{ success: boolean; message: string }> {
+  public async resetPassword(
+    rawToken: string,
+    newPassword: string,
+    ip: string,
+    userAgent: string
+  ): Promise<{ success: boolean; message: string }> {
+    // 1. Rate Limiting per IP
+    const ipKey = `rp_ip_${ip}`;
+    const ipLimit = this.checkResendRateLimit(ipKey, 15, 60 * 1000); // Max 15 attempts per min per IP
+    if (ipLimit.isLimited) {
+      const err: any = new Error(`Too many password reset attempts. Please wait ${ipLimit.remainingSeconds || 60}s before trying again.`);
+      err.code = 'RATE_LIMITED';
+      err.remainingSeconds = ipLimit.remainingSeconds;
+      throw err;
+    }
+    this.recordResendAttempt(ipKey, 60 * 1000);
+
+    // 2. Strict Input Validation (Defense-in-depth)
+    if (!rawToken || typeof rawToken !== 'string' || rawToken.trim().length < 8) {
+      throw new Error('This password reset link is invalid or has expired.');
+    }
+
+    if (
+      !newPassword ||
+      typeof newPassword !== 'string' ||
+      newPassword.length < 8 ||
+      newPassword.length > 128 ||
+      !/[A-Za-z]/.test(newPassword) ||
+      !/[0-9]/.test(newPassword)
+    ) {
+      throw new Error('Password must be 8-128 characters and contain at least one letter and one number.');
+    }
+
     const tokenHash = this.hashToken(rawToken.trim());
     const tokenRecord = Array.from(db.tokens.values()).find(
-      t => t.tokenHash === tokenHash && t.type === 'password_reset' && !t.isUsed
+      t => t.tokenHash === tokenHash && t.type === 'password_reset'
     );
 
     if (!tokenRecord) {
-      throw new Error('Password reset token is invalid or has already been used.');
+      await this.hashPassword('DummyPasswordForTimingMitigation123!');
+      this.logSecurityEvent('SECURITY_ALERT', {
+        ipAddress: ip,
+        userAgent,
+        severity: 'WARNING',
+        details: { alert: 'Password reset attempted with non-existent token' }
+      });
+      throw new Error('This password reset link is invalid or has expired.');
+    }
+
+    if (tokenRecord.isUsed) {
+      await this.hashPassword('DummyPasswordForTimingMitigation123!');
+      this.logSecurityEvent('SECURITY_ALERT', {
+        userId: tokenRecord.userId,
+        userEmail: tokenRecord.email,
+        ipAddress: ip,
+        userAgent,
+        severity: 'WARNING',
+        details: { alert: 'Attempted to reuse previously consumed password reset token' }
+      });
+      throw new Error('This password reset link is invalid or has expired.');
     }
 
     if (new Date(tokenRecord.expiresAt).getTime() < Date.now()) {
-      throw new Error('Password reset token has expired. Please request a new password reset link.');
+      tokenRecord.isUsed = true;
+      tokenRecord.usedAt = new Date().toISOString();
+      await this.hashPassword('DummyPasswordForTimingMitigation123!');
+      this.logSecurityEvent('SECURITY_ALERT', {
+        userId: tokenRecord.userId,
+        userEmail: tokenRecord.email,
+        ipAddress: ip,
+        userAgent,
+        severity: 'INFO',
+        details: { alert: 'Attempted to use expired password reset token' }
+      });
+      throw new Error('This password reset link is invalid or has expired.');
     }
 
     const user = db.users.get(tokenRecord.userId);
-    if (!user) {
-      throw new Error('User account not found.');
+    if (!user || user.email.toLowerCase() !== tokenRecord.email.toLowerCase()) {
+      await this.hashPassword('DummyPasswordForTimingMitigation123!');
+      throw new Error('This password reset link is invalid or has expired.');
     }
 
-    // Update password hash
-    user.passwordHash = await this.hashPassword(newPassword);
-    user.updatedAt = new Date().toISOString();
-    tokenRecord.isUsed = true;
+    // Strict boundary: Client reset password must never apply to SUPER_ADMIN
+    if (user.role === 'SUPER_ADMIN' || user.email === 'maddyahamco00@gmail.com') {
+      await this.hashPassword('DummyPasswordForTimingMitigation123!');
+      this.logSecurityEvent('SECURITY_ALERT', {
+        userId: user.id,
+        userEmail: user.email,
+        role: user.role,
+        ipAddress: ip,
+        userAgent,
+        severity: 'CRITICAL',
+        details: { alert: 'Client password reset endpoint attempted against Super Admin account. Rejected.' }
+      });
+      throw new Error('This password reset link is invalid or has expired.');
+    }
 
-    // Invalidate all active sessions for security
+    // Account status check
+    if (user.status === 'SUSPENDED' || user.status === 'DISABLED' || user.status === 'DELETED') {
+      throw new Error('Account is inactive or suspended. Please contact support.');
+    }
+
+    // Atomically mark token used to prevent concurrent race condition replays
+    tokenRecord.isUsed = true;
+    tokenRecord.usedAt = new Date().toISOString();
+
+    // Update password hash safely (role remains strictly unchanged)
+    try {
+      user.passwordHash = await this.hashPassword(newPassword);
+      user.updatedAt = new Date().toISOString();
+    } catch (hashErr) {
+      // Revert in the unlikely event of hashing failure
+      tokenRecord.isUsed = false;
+      tokenRecord.usedAt = null;
+      throw new Error('Failed to process password update. Please try again.');
+    }
+
+    // Invalidate any other outstanding password reset tokens for this user
+    Array.from(db.tokens.values()).forEach(t => {
+      if (t.userId === user.id && t.type === 'password_reset' && !t.isUsed) {
+        t.isUsed = true;
+        t.usedAt = new Date().toISOString();
+      }
+    });
+
+    // Invalidate all active sessions for this user across all devices
     this.logoutAll(user.id);
 
-    // Send confirmation email
+    // Send security alert email
     await emailService.sendEmail({
       to: user.email,
       subject: 'Security Alert: Password Changed',
@@ -1259,7 +1435,10 @@ export class AuthService {
       severity: 'INFO'
     });
 
-    return { success: true, message: 'Password has been reset successfully. Please sign in with your new password.' };
+    return { 
+      success: true, 
+      message: 'Password has been reset successfully. Please sign in with your new password.' 
+    };
   }
 
   // ----------------------------------------------------

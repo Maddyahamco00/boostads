@@ -112,6 +112,7 @@ export interface SecurityAuditEvent {
     | 'ACCOUNT_STATUS_CHANGED'
     | 'SUPER_ADMIN_INVARIANT_CHECK'
     | 'UNAUTHORIZED_ACCESS_ATTEMPT'
+    | 'SECURITY_ALERT'
     | 'ADMIN_ACTION';
   userId?: string;
   userEmail?: string;

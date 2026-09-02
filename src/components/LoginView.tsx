@@ -380,9 +380,10 @@ export const LoginView: React.FC<LoginViewProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      setForgotEmail(email);
-                      setAuthMode('forgot_password');
-                      setError(null);
+                      if (typeof window !== 'undefined') {
+                        window.history.pushState({}, '', `/forgot-password${email ? `?email=${encodeURIComponent(email)}` : ''}`);
+                      }
+                      setActiveView('forgot_password');
                     }}
                     className="text-xs font-medium text-[#16C784] hover:underline cursor-pointer"
                   >

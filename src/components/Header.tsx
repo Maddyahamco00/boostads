@@ -53,11 +53,16 @@ export const Header: React.FC = () => {
   const [isOutboxOpen, setIsOutboxOpen] = useState(false);
   const [isTestSuiteOpen, setIsTestSuiteOpen] = useState(false);
 
-  const handleApplyTokenFromOutbox = (_template: string, token: string) => {
+  const handleApplyTokenFromOutbox = (template: string, token: string) => {
     if (typeof window !== 'undefined') {
-      window.history.pushState({}, '', `/verify-email?token=${token}`);
+      if (template === 'password_reset') {
+        window.history.pushState({}, '', `/reset-password?token=${token}`);
+        setActiveView('reset_password');
+      } else {
+        window.history.pushState({}, '', `/verify-email?token=${token}`);
+        setActiveView('verify_email');
+      }
     }
-    setActiveView('verify_email');
     setIsOutboxOpen(false);
   };
 

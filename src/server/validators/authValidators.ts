@@ -131,7 +131,17 @@ export const ResendVerificationSchema = z.object({
 
 // 5. Forgot Password DTO
 export const ForgotPasswordSchema = z.object({
-  email: z.string().email('Invalid email address')
+  email: z
+    .string({ message: 'Email address is required' })
+    .trim()
+    .min(1, 'Email address is required')
+    .email('Please enter a valid email address')
+    .max(255, 'Email address is too long'),
+  role: z.any().optional(),
+  status: z.any().optional(),
+  userId: z.any().optional(),
+  isAdmin: z.any().optional(),
+  permissions: z.any().optional()
 });
 
 // 6. Reset Password DTO

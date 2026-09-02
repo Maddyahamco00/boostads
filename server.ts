@@ -503,15 +503,22 @@ async function startServer() {
         return res.status(400).json({ success: false, error: formatZodError(validation.error) });
       }
 
-      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
-      const userAgent = req.headers['user-agent'] || 'browser';
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = (req.headers['user-agent'] as string) || 'browser';
       const origin = `${req.protocol}://${req.get('host')}`;
 
       const result = await authService.forgotPassword(validation.data.email, origin, clientIp, userAgent);
       res.json(result);
     } catch (err: unknown) {
+      const isRateLimited = (err as any)?.code === 'RATE_LIMITED';
       const message = err instanceof Error ? err.message : 'Failed to process request';
-      res.status(400).json({ success: false, error: message });
+      const status = isRateLimited ? 429 : 400;
+      res.status(status).json({ 
+        success: false, 
+        error: message, 
+        isRateLimited,
+        retryAfterSeconds: (err as any)?.remainingSeconds || 60 
+      });
     }
   });
 
@@ -526,14 +533,21 @@ async function startServer() {
         });
       }
 
-      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
-      const userAgent = req.headers['user-agent'] || 'browser';
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = (req.headers['user-agent'] as string) || 'browser';
 
       const result = await authService.resetPassword(validation.data.token, validation.data.newPassword, clientIp, userAgent);
       res.json(result);
     } catch (err: unknown) {
+      const isRateLimited = (err as any)?.code === 'RATE_LIMITED';
       const message = err instanceof Error ? err.message : 'Failed to reset password';
-      res.status(400).json({ success: false, error: message });
+      const status = isRateLimited ? 429 : 400;
+      res.status(status).json({ 
+        success: false, 
+        error: message,
+        isRateLimited,
+        retryAfterSeconds: (err as any)?.remainingSeconds || 60
+      });
     }
   });
 

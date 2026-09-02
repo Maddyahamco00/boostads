@@ -82,19 +82,23 @@ export class EmailService {
 
       case 'password_reset':
         htmlContent = `
-          <div style="font-family: 'Segoe UI', Arial, sans-serif; background-color: #020617; color: #f8fafc; padding: 40px 20px;">
-            <div style="max-width: 560px; margin: 0 auto; background: #0f172a; border: 1px solid #1e293b; border-radius: 16px; padding: 32px; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
-              <h2 style="font-size: 22px; color: #ffffff; margin-top: 0;">Password Reset Request</h2>
-              <p style="color: #94a3b8; font-size: 14px; line-height: 1.6;">Hello <strong>${userName}</strong>,</p>
-              <p style="color: #94a3b8; font-size: 14px; line-height: 1.6;">We received a request to reset your password for your Boost Market account. If you did not make this request, you can safely ignore this email.</p>
-              <div style="margin: 30px 0; text-align: center;">
-                <a href="${actionUrl}" style="background: linear-gradient(135deg, #3b82f6, #2563eb); color: #ffffff; padding: 14px 32px; border-radius: 12px; font-weight: 800; text-decoration: none; display: inline-block; font-size: 14px;">Reset Password</a>
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #0f172a; color: #f8fafc; padding: 40px 20px;">
+            <div style="max-width: 520px; margin: 0 auto; background: #1e293b; border: 1px solid #334155; border-radius: 16px; padding: 32px; box-shadow: 0 10px 25px rgba(0,0,0,0.3);">
+              <div style="margin-bottom: 24px;">
+                <span style="font-size: 18px; font-weight: 800; color: #16C784; letter-spacing: -0.5px;">BOOST MARKET</span>
               </div>
-              <p style="color: #64748b; font-size: 12px;">This single-use link expires in 30 minutes and will be invalidated once used.</p>
+              <h2 style="font-size: 20px; font-weight: 700; color: #ffffff; margin: 0 0 16px 0;">Reset your password</h2>
+              <p style="color: #94a3b8; font-size: 14px; line-height: 1.6; margin: 0 0 8px 0;">Hello ${userName ? `<strong>${userName}</strong>` : 'there'},</p>
+              <p style="color: #94a3b8; font-size: 14px; line-height: 1.6; margin: 0 0 24px 0;">We received a request to reset the password for your Boost Market account.</p>
+              <div style="margin: 28px 0; text-align: center;">
+                <a href="${actionUrl}" style="background-color: #16C784; color: #ffffff; padding: 12px 28px; border-radius: 8px; font-weight: 600; text-decoration: none; display: inline-block; font-size: 14px;">Reset Password</a>
+              </div>
+              <p style="color: #64748b; font-size: 13px; line-height: 1.5; margin: 0 0 8px 0;">This password reset link will expire in 30 minutes.</p>
+              <p style="color: #64748b; font-size: 12px; line-height: 1.5; margin: 16px 0 0 0; padding-top: 16px; border-top: 1px solid #334155;">If you did not request this password reset, you can safely ignore this email.</p>
             </div>
           </div>
         `;
-        textContent = `Password Reset Request\n\nReset your password with this link:\n${actionUrl}\n\nExpires in 30 minutes.`;
+        textContent = `Boost Market - Reset your password\n\nReset your password using this link:\n${actionUrl}\n\nThis link will expire in 30 minutes.\n\nIf you did not request this password reset, you can safely ignore this email.`;
         break;
 
       case 'password_changed':

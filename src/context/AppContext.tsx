@@ -31,7 +31,9 @@ export type AppView =
   | 'admin_login'
   | 'register' 
   | 'login'
-  | 'verify_email';
+  | 'verify_email'
+  | 'forgot_password'
+  | 'reset_password';
 
 interface AppContextType {
   // Authentication State
@@ -158,6 +160,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       if (window.location.pathname === '/register') {
         return 'register';
+      }
+      if (window.location.pathname === '/forgot-password' || window.location.search.includes('view=forgot_password')) {
+        return 'forgot_password';
+      }
+      if (
+        window.location.pathname === '/reset-password' || 
+        window.location.search.includes('resetToken=') ||
+        (window.location.search.includes('token=') && (window.location.pathname === '/reset-password' || window.location.search.includes('view=reset_password')))
+      ) {
+        return 'reset_password';
       }
       if (window.location.pathname === '/verify-email' || window.location.search.includes('verifyToken=') || (window.location.pathname === '/' && window.location.search.includes('token='))) {
         return 'verify_email';
