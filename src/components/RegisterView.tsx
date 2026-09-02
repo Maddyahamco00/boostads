@@ -5,11 +5,12 @@ import {
   CheckCircle2, 
   AlertCircle, 
   RefreshCw, 
-  Clock,
-  Check
+  Clock, 
+  Check 
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { UserProfile } from '../types';
+import { Logo } from './Logo';
 
 interface RegisterViewProps {
   onNavigateToLogin?: () => void;
@@ -181,46 +182,41 @@ export const RegisterView: React.FC<RegisterViewProps> = ({ onNavigateToLogin })
   };
 
   return (
-    <div className="w-full min-h-[calc(100vh-140px)] py-12 px-4 sm:px-6 lg:px-8 flex flex-col justify-center items-center bg-[#F9FAFB] text-[#111827]">
+    <div className="w-full min-h-[calc(100vh-140px)] py-12 px-4 sm:px-6 lg:px-8 flex flex-col justify-center items-center bg-[#F8FAFC] text-[#111827]">
       
       {/* Brand Header */}
-      <div className="text-center mb-6">
-        <button 
-          onClick={() => setActiveView('discover')}
-          className="inline-flex items-center gap-2 cursor-pointer focus:outline-none"
-        >
-          <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm">
-            B
-          </div>
-          <span className="text-xl font-bold text-gray-900 tracking-tight">
-            Boost Market
-          </span>
-        </button>
+      <div className="text-center mb-8">
+        <Logo 
+          variant="badge" 
+          size="sm" 
+          showTagline={true} 
+          onClick={() => setActiveView('discover')} 
+        />
       </div>
 
       {/* Main Card */}
-      <div className="w-full max-w-md bg-white border border-gray-200 rounded-xl shadow-sm p-6 sm:p-8 text-gray-900">
+      <div className="w-full max-w-md bg-white border border-[#E2E8F0] rounded-2xl shadow-sm p-6 sm:p-8 text-slate-900">
         
         {registeredUser ? (
           /* SUCCESS STATE */
           <div className="space-y-6 text-center">
-            <div className="w-12 h-12 rounded-full bg-green-50 text-green-600 flex items-center justify-center mx-auto">
+            <div className="w-12 h-12 rounded-full bg-[#16C784]/15 text-[#16C784] flex items-center justify-center mx-auto">
               <CheckCircle2 className="w-6 h-6" />
             </div>
 
             <div className="space-y-1">
-              <h2 className="text-xl font-bold text-gray-900">Account created!</h2>
-              <p className="text-sm text-gray-600">
-                We sent a verification link to <strong className="text-gray-900">{registeredUser.email}</strong>.
+              <h2 className="text-xl font-bold text-slate-900">Account created!</h2>
+              <p className="text-sm text-slate-600">
+                We sent a verification link to <strong className="text-slate-900">{registeredUser.email}</strong>.
               </p>
             </div>
 
-            <div className="pt-2 border-t border-gray-100 space-y-2">
+            <div className="pt-2 border-t border-slate-100 space-y-2">
               <button
                 type="button"
                 onClick={handleResendVerification}
                 disabled={resendStatus === 'loading' || cooldownSeconds > 0}
-                className="text-xs font-medium text-blue-600 hover:underline flex items-center justify-center gap-1 mx-auto cursor-pointer"
+                className="text-xs font-semibold text-[#16C784] hover:underline flex items-center justify-center gap-1 mx-auto cursor-pointer"
               >
                 {resendStatus === 'loading' ? (
                   <>
@@ -234,8 +230,8 @@ export const RegisterView: React.FC<RegisterViewProps> = ({ onNavigateToLogin })
                   </>
                 ) : resendStatus === 'sent' ? (
                   <>
-                    <Check className="w-3 h-3 text-green-600" />
-                    <span className="text-green-600">Email sent</span>
+                    <Check className="w-3 h-3 text-[#16C784]" />
+                    <span className="text-[#16C784]">Email sent</span>
                   </>
                 ) : (
                   <span>Resend email</span>
@@ -243,17 +239,17 @@ export const RegisterView: React.FC<RegisterViewProps> = ({ onNavigateToLogin })
               </button>
 
               {resendMessage && (
-                <p className={`text-xs ${resendStatus === 'sent' ? 'text-green-600' : 'text-red-600'}`}>
+                <p className={`text-xs ${resendStatus === 'sent' ? 'text-[#16C784]' : 'text-red-600'}`}>
                   {resendMessage}
                 </p>
               )}
             </div>
 
-            <div className="pt-4 border-t border-gray-100">
+            <div className="pt-4 border-t border-slate-100">
               <button
                 type="button"
                 onClick={handleSignInClick}
-                className="w-full py-2.5 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm transition-colors cursor-pointer"
+                className="w-full py-2.5 px-4 rounded-lg bg-[#16C784] hover:bg-[#14B8A6] text-white font-semibold text-sm transition-colors cursor-pointer shadow-xs"
               >
                 Proceed to Sign In
               </button>
@@ -263,11 +259,12 @@ export const RegisterView: React.FC<RegisterViewProps> = ({ onNavigateToLogin })
           /* REGISTRATION FORM */
           <div>
             <div className="mb-6 text-center">
-              <h1 className="text-xl font-bold text-gray-900">Create your account</h1>
+              <h1 className="text-xl font-bold text-slate-900 tracking-tight">Create your account</h1>
+              <p className="text-xs text-slate-500 mt-1">Join Boost Market to access AI tools and verified services</p>
             </div>
 
             {error && (
-              <div className="mb-5 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm flex items-start gap-2">
+              <div className="mb-5 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                 <div className="flex-1">{error}</div>
               </div>
@@ -276,7 +273,7 @@ export const RegisterView: React.FC<RegisterViewProps> = ({ onNavigateToLogin })
             <form onSubmit={handleSubmit} noValidate className="space-y-4">
               
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Full Name
                 </label>
                 <input
@@ -290,8 +287,8 @@ export const RegisterView: React.FC<RegisterViewProps> = ({ onNavigateToLogin })
                   }}
                   placeholder="John Doe"
                   className={`w-full px-3.5 py-2.5 bg-white border ${
-                    fieldErrors.name ? 'border-red-500' : 'border-gray-200'
-                  } rounded-lg text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 transition-colors`}
+                    fieldErrors.name ? 'border-red-500' : 'border-[#E2E8F0]'
+                  } rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-[#16C784] focus:ring-1 focus:ring-[#16C784] transition-colors`}
                 />
                 {fieldErrors.name && (
                   <p className="mt-1 text-xs text-red-600">{fieldErrors.name}</p>
@@ -299,7 +296,7 @@ export const RegisterView: React.FC<RegisterViewProps> = ({ onNavigateToLogin })
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Email
                 </label>
                 <input
@@ -313,8 +310,8 @@ export const RegisterView: React.FC<RegisterViewProps> = ({ onNavigateToLogin })
                   }}
                   placeholder="name@example.com"
                   className={`w-full px-3.5 py-2.5 bg-white border ${
-                    fieldErrors.email ? 'border-red-500' : 'border-gray-200'
-                  } rounded-lg text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 transition-colors`}
+                    fieldErrors.email ? 'border-red-500' : 'border-[#E2E8F0]'
+                  } rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-[#16C784] focus:ring-1 focus:ring-[#16C784] transition-colors`}
                 />
                 {fieldErrors.email && (
                   <p className="mt-1 text-xs text-red-600">{fieldErrors.email}</p>
@@ -322,7 +319,7 @@ export const RegisterView: React.FC<RegisterViewProps> = ({ onNavigateToLogin })
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Password
                 </label>
                 <div className="relative">
@@ -337,13 +334,13 @@ export const RegisterView: React.FC<RegisterViewProps> = ({ onNavigateToLogin })
                     }}
                     placeholder="Min. 8 characters"
                     className={`w-full px-3.5 pr-10 py-2.5 bg-white border ${
-                      fieldErrors.password ? 'border-red-500' : 'border-gray-200'
-                    } rounded-lg text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 transition-colors`}
+                      fieldErrors.password ? 'border-red-500' : 'border-[#E2E8F0]'
+                    } rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-[#16C784] focus:ring-1 focus:ring-[#16C784] transition-colors`}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -354,7 +351,7 @@ export const RegisterView: React.FC<RegisterViewProps> = ({ onNavigateToLogin })
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Confirm Password
                 </label>
                 <div className="relative">
@@ -369,13 +366,13 @@ export const RegisterView: React.FC<RegisterViewProps> = ({ onNavigateToLogin })
                     }}
                     placeholder="Repeat password"
                     className={`w-full px-3.5 pr-10 py-2.5 bg-white border ${
-                      fieldErrors.confirmPassword ? 'border-red-500' : 'border-gray-200'
-                    } rounded-lg text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 transition-colors`}
+                      fieldErrors.confirmPassword ? 'border-red-500' : 'border-[#E2E8F0]'
+                    } rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-[#16C784] focus:ring-1 focus:ring-[#16C784] transition-colors`}
                   />
                   <button
                     type="button"
                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
                   >
                     {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -386,7 +383,7 @@ export const RegisterView: React.FC<RegisterViewProps> = ({ onNavigateToLogin })
               </div>
 
               <div className="pt-1">
-                <label className="flex items-start gap-2 cursor-pointer text-xs text-gray-600">
+                <label className="flex items-start gap-2 cursor-pointer text-xs text-slate-600">
                   <input
                     type="checkbox"
                     checked={termsAccepted}
@@ -394,7 +391,7 @@ export const RegisterView: React.FC<RegisterViewProps> = ({ onNavigateToLogin })
                       setTermsAccepted(e.target.checked);
                       if (fieldErrors.terms) setFieldErrors(prev => ({ ...prev, terms: undefined }));
                     }}
-                    className="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    className="mt-0.5 rounded border-[#E2E8F0] text-[#16C784] focus:ring-[#16C784]"
                   />
                   <span>I agree to the Terms of Service and Privacy Policy.</span>
                 </label>
@@ -407,7 +404,7 @@ export const RegisterView: React.FC<RegisterViewProps> = ({ onNavigateToLogin })
                 id="create-account-submit-btn"
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full py-2.5 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm transition-colors disabled:opacity-50 cursor-pointer"
+                className="w-full py-2.5 px-4 rounded-lg bg-[#16C784] hover:bg-[#14B8A6] text-white font-semibold text-sm transition-colors disabled:opacity-50 cursor-pointer shadow-xs"
               >
                 {isSubmitting ? (
                   <span className="flex items-center justify-center gap-2">
@@ -421,12 +418,12 @@ export const RegisterView: React.FC<RegisterViewProps> = ({ onNavigateToLogin })
 
             </form>
 
-            <div className="mt-6 text-center text-xs text-gray-500">
+            <div className="mt-6 text-center text-xs text-slate-500">
               Already have an account?{' '}
               <button
                 type="button"
                 onClick={handleSignInClick}
-                className="font-medium text-blue-600 hover:underline cursor-pointer"
+                className="font-semibold text-[#16C784] hover:underline cursor-pointer"
               >
                 Sign in
               </button>

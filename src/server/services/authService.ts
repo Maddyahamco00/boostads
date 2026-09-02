@@ -9,7 +9,7 @@ import {
   VerificationToken, 
   SecurityAuditEvent 
 } from '../../types';
-import { db } from '../db';
+import { db, SUPER_ADMIN_EMAIL, SUPER_ADMIN_ID } from '../db';
 import { emailService } from './emailService';
 import { passwordService } from './passwordService';
 import { emailVerificationTokenService } from './emailVerificationTokenService';
@@ -18,8 +18,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'boost_market_jwt_production_secret
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'boost_market_refresh_secret_key_2026_7718291';
 const PRE_AUTH_SECRET = process.env.PRE_AUTH_SECRET || 'boost_market_preauth_secret_2026_1192837';
 
-const SUPER_ADMIN_EMAIL = 'maddyahamco00@gmail.com';
-const SUPER_ADMIN_ID = 'usr_super_admin_maddy';
+export { SUPER_ADMIN_EMAIL, SUPER_ADMIN_ID };
 
 export interface TokenPayload {
   userId: string;
@@ -272,8 +271,13 @@ export class AuthService {
   }, ip: string, userAgent: string): Promise<{ success: boolean; user: UserProfile; message: string }> {
     const normalizedEmail = data.email.toLowerCase().trim();
 
-    // CRITICAL: Block registering the designated Super Admin email
-    if (normalizedEmail === SUPER_ADMIN_EMAIL) {
+    // CRITICAL: Block registering the designated Super Admin email or reserved admin emails
+    if (
+      normalizedEmail === SUPER_ADMIN_EMAIL.toLowerCase() ||
+      normalizedEmail === 'superadmin@boostmarket.com' ||
+      normalizedEmail.startsWith('superadmin@') ||
+      normalizedEmail.startsWith('admin@boostmarket')
+    ) {
       this.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
         userEmail: normalizedEmail,
         ipAddress: ip,
@@ -850,6 +854,208 @@ export class AuthService {
   }
 
   // ----------------------------------------------------
+  // 4B. SUPER ADMIN LOGIN & STRICT ACCESS BOUNDARY
+  // ----------------------------------------------------
+  public async adminLogin(
+    data: { email: string; password: string; twoFactorCode?: string; recoveryCode?: string },
+    ip: string,
+    userAgent: string
+  ): Promise<{
+    success: boolean;
+    user?: UserProfile;
+    accessToken?: string;
+    refreshToken?: string;
+    twoFactorRequired?: boolean;
+    preAuthToken?: string;
+    email?: string;
+    message: string;
+  }> {
+    const normalizedEmail = data.email.toLowerCase().trim();
+    const rateLimitKey = `admin_login:${normalizedEmail}:${ip}`;
+
+    // 1. Rate Limiting / Progressive Lockout Check
+    const rateStatus = this.checkRateLimit(rateLimitKey);
+    if (rateStatus.isLocked) {
+      this.logSecurityEvent('ACCOUNT_LOCKED', {
+        userEmail: normalizedEmail,
+        ipAddress: ip,
+        userAgent,
+        severity: 'WARNING',
+        details: { remainingSeconds: rateStatus.remainingSeconds }
+      });
+      const err: any = new Error(`Too many failed admin login attempts. Account temporarily locked for ${rateStatus.remainingSeconds} seconds.`);
+      err.code = 'RATE_LIMITED';
+      err.remainingSeconds = rateStatus.remainingSeconds;
+      throw err;
+    }
+
+    // 2. Strict Super Admin Boundary Validation
+    if (normalizedEmail !== SUPER_ADMIN_EMAIL.toLowerCase()) {
+      const nonAdminUser = db.getUserByEmail(normalizedEmail);
+      this.registerFailedAttempt(rateLimitKey);
+      this.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+        userId: nonAdminUser?.id || 'unknown',
+        userEmail: normalizedEmail,
+        role: nonAdminUser?.role || 'UNKNOWN',
+        ipAddress: ip,
+        userAgent,
+        severity: 'CRITICAL',
+        details: {
+          reason: 'Non-admin user attempted authentication via Super Admin portal',
+          attemptedEmail: normalizedEmail
+        }
+      });
+      const err: any = new Error('Access denied. This portal is strictly restricted to the Super Administrator.');
+      err.code = 'UNAUTHORIZED_ADMIN_ACCESS';
+      throw err;
+    }
+
+    const admin = db.users.get(SUPER_ADMIN_ID) || db.getUserByEmail(SUPER_ADMIN_EMAIL);
+    if (!admin || admin.role !== 'SUPER_ADMIN') {
+      this.registerFailedAttempt(rateLimitKey);
+      this.logSecurityEvent('LOGIN_FAILED', {
+        userEmail: normalizedEmail,
+        ipAddress: ip,
+        userAgent,
+        severity: 'CRITICAL',
+        details: { reason: 'Super Admin record missing or compromised' }
+      });
+      const err: any = new Error('Super Admin account configuration error.');
+      err.code = 'ADMIN_ACCOUNT_INVALID';
+      throw err;
+    }
+
+    // 3. Password Verification
+    if (!admin.passwordHash) {
+      const err: any = new Error('Super Admin initial password has not been set. Please use the initial setup email link.');
+      err.code = 'ADMIN_SETUP_REQUIRED';
+      throw err;
+    }
+
+    const isPasswordValid = await this.comparePassword(data.password, admin.passwordHash);
+    if (!isPasswordValid) {
+      this.registerFailedAttempt(rateLimitKey);
+      admin.failedLoginAttempts = (admin.failedLoginAttempts || 0) + 1;
+      this.logSecurityEvent('LOGIN_FAILED', {
+        userId: admin.id,
+        userEmail: admin.email,
+        role: 'SUPER_ADMIN',
+        ipAddress: ip,
+        userAgent,
+        severity: 'WARNING',
+        details: { reason: 'Incorrect admin password', failedAttempts: admin.failedLoginAttempts }
+      });
+      const err: any = new Error('Invalid administrative credentials.');
+      err.code = 'INVALID_CREDENTIALS';
+      throw err;
+    }
+
+    // 4. Status Checks
+    if (admin.status === 'SUSPENDED' || admin.status === 'DISABLED') {
+      this.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+        userId: admin.id,
+        userEmail: admin.email,
+        role: 'SUPER_ADMIN',
+        ipAddress: ip,
+        userAgent,
+        severity: 'CRITICAL',
+        details: { reason: 'Suspended admin login attempt' }
+      });
+      const err: any = new Error('Super Admin account is currently inactive.');
+      err.code = 'ACCOUNT_INACTIVE';
+      throw err;
+    }
+
+    // 5. Two-Factor Authentication Challenge
+    if (admin.twoFactorEnabled && admin.twoFactorSecret) {
+      if (!data.twoFactorCode && !data.recoveryCode) {
+        const preAuthToken = jwt.sign(
+          { userId: admin.id, email: admin.email, role: 'SUPER_ADMIN', type: '2fa_preauth' },
+          PRE_AUTH_SECRET,
+          { expiresIn: '5m' }
+        );
+        return {
+          success: true,
+          twoFactorRequired: true,
+          preAuthToken,
+          email: admin.email,
+          message: 'Two-factor authentication code required.'
+        };
+      }
+
+      let is2faValid = false;
+      if (data.twoFactorCode) {
+        is2faValid = this.verifyTotpCode(admin.twoFactorSecret, data.twoFactorCode.trim());
+      } else if (data.recoveryCode && admin.twoFactorRecoveryCodes) {
+        const codeHash = this.hashToken(data.recoveryCode.trim().toUpperCase());
+        const codeIdx = admin.twoFactorRecoveryCodes.indexOf(codeHash);
+        if (codeIdx !== -1) {
+          is2faValid = true;
+          admin.twoFactorRecoveryCodes.splice(codeIdx, 1);
+        }
+      }
+
+      if (!is2faValid) {
+        this.registerFailedAttempt(rateLimitKey);
+        this.logSecurityEvent('LOGIN_FAILED', {
+          userId: admin.id,
+          userEmail: admin.email,
+          role: 'SUPER_ADMIN',
+          ipAddress: ip,
+          userAgent,
+          severity: 'WARNING',
+          details: { reason: 'Invalid 2FA code or recovery code' }
+        });
+        const err: any = new Error('Invalid two-factor authentication code.');
+        err.code = 'INVALID_2FA_CODE';
+        throw err;
+      }
+    }
+
+    // 6. Successful Admin Authentication
+    this.clearFailedAttempts(rateLimitKey);
+    admin.failedLoginAttempts = 0;
+    admin.lastLoginAt = new Date().toISOString();
+
+    const sessionId = `ses_admin_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+    const session: AuthSession = {
+      id: sessionId,
+      userId: admin.id,
+      email: admin.email,
+      role: 'SUPER_ADMIN', // Strictly enforced server-side
+      tokenHash: this.hashToken(sessionId),
+      ipAddress: ip,
+      userAgent,
+      createdAt: new Date().toISOString(),
+      lastActiveAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString(), // 12 hours for admin sessions
+      isRevoked: false
+    };
+    db.sessions.set(sessionId, session);
+
+    const accessToken = this.generateAccessToken(admin, sessionId);
+    const refreshToken = this.generateRefreshToken(admin, sessionId);
+
+    this.logSecurityEvent('LOGIN_SUCCESS', {
+      userId: admin.id,
+      userEmail: admin.email,
+      role: 'SUPER_ADMIN',
+      ipAddress: ip,
+      userAgent,
+      severity: 'INFO',
+      details: { sessionId, executivePortal: true }
+    });
+
+    return {
+      success: true,
+      user: this.getSafeUser(admin),
+      accessToken,
+      refreshToken,
+      message: 'Super Admin executive authentication successful'
+    };
+  }
+
+  // ----------------------------------------------------
   // 5. TWO-FACTOR LOGIN VERIFICATION
   // ----------------------------------------------------
   public async verifyTwoFactorLogin(
@@ -1087,6 +1293,9 @@ export class AuthService {
     user.passwordHash = await this.hashPassword(newPassword);
     user.updatedAt = new Date().toISOString();
 
+    // Invalidate all active sessions for security
+    this.logoutAll(user.id, ip, userAgent);
+
     await emailService.sendEmail({
       to: user.email,
       subject: 'Security Alert: Password Changed',
@@ -1107,9 +1316,25 @@ export class AuthService {
   }
 
   // ----------------------------------------------------
-  // 8. SUPER ADMIN FIRST-TIME INITIALIZATION
+  // 8. SUPER ADMIN PROVISIONING & INITIALIZATION
   // ----------------------------------------------------
-  public async initAdminSetup(origin: string, ip: string, userAgent: string): Promise<{ success: boolean; message: string }> {
+  public provisionSuperAdmin(explicitPassword?: string): UserProfile {
+    const admin = db.provisionSuperAdmin(explicitPassword);
+    this.logSecurityEvent('PASSWORD_SETUP', {
+      userId: admin.id,
+      userEmail: admin.email,
+      role: 'SUPER_ADMIN',
+      severity: 'INFO',
+      details: { action: 'Super Admin idempotently provisioned and role integrity verified' }
+    });
+    return this.getSafeUser(admin);
+  }
+
+  public async initAdminSetup(
+    origin: string = 'http://localhost:3000',
+    ip: string = '127.0.0.1',
+    userAgent: string = 'browser'
+  ): Promise<{ success: boolean; message: string; setupToken?: string; setupUrl?: string; adminEmail: string }> {
     const admin = db.users.get(SUPER_ADMIN_ID) || db.getUserByEmail(SUPER_ADMIN_EMAIL);
     if (!admin) {
       throw new Error('Super Admin record missing from database store.');
@@ -1158,6 +1383,9 @@ export class AuthService {
 
     return {
       success: true,
+      setupToken: rawToken,
+      setupUrl: actionUrl,
+      adminEmail: SUPER_ADMIN_EMAIL,
       message: `Setup instructions have been dispatched to the designated Super Admin email (${SUPER_ADMIN_EMAIL}).`
     };
   }
@@ -1165,8 +1393,8 @@ export class AuthService {
   public async setupAdminPassword(
     rawToken: string,
     newPassword: string,
-    ip: string,
-    userAgent: string
+    ip: string = '127.0.0.1',
+    userAgent: string = 'browser'
   ): Promise<{ success: boolean; user: UserProfile; message: string }> {
     const tokenHash = this.hashToken(rawToken.trim());
     const tokenRecord = Array.from(db.tokens.values()).find(
@@ -1192,6 +1420,9 @@ export class AuthService {
     admin.emailVerifiedAt = new Date().toISOString();
     admin.updatedAt = new Date().toISOString();
     tokenRecord.isUsed = true;
+
+    // Invalidate any pre-existing sessions for security
+    this.logoutAll(admin.id, ip, userAgent);
 
     this.logSecurityEvent('PASSWORD_SETUP', {
       userId: admin.id,

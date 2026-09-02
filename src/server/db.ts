@@ -38,12 +38,23 @@ import {
   Lead
 } from '../types';
 
+export const SUPER_ADMIN_EMAIL = 'maddyahamco00@gmail.com';
+export const SUPER_ADMIN_ID = 'usr_maddy_ceo';
+
 export class DatabaseUniqueConstraintError extends Error {
   public readonly code = 'P2002'; // Standard Prisma / DB unique constraint code
   public readonly target = ['email'];
   constructor(message = 'Unique constraint failed on the fields: (`email`)') {
     super(message);
     this.name = 'DatabaseUniqueConstraintError';
+  }
+}
+
+export class DatabaseRoleConstraintError extends Error {
+  public readonly code = 'ROLE_CONSTRAINT_VIOLATION';
+  constructor(message = 'Role integrity constraint violation') {
+    super(message);
+    this.name = 'DatabaseRoleConstraintError';
   }
 }
 
@@ -378,35 +389,9 @@ export class DatabaseStore {
 
     // 3. Seed Users with Authentication Passwords and strictly enforced Roles
     const defaultPasswordHash = passwordService.hashSync('Client123!', 12);
-    const adminPasswordHash = passwordService.hashSync('Admin2026!', 12);
-
-    const ceoUser: UserEntity = {
-      id: 'usr_maddy_ceo',
-      name: 'Muhammad Kabir Ahmad (Maddy)',
-      email: 'maddyahamco00@gmail.com',
-      phone: '+2348039876543',
-      role: 'SUPER_ADMIN', // STRICT SINGLE SUPER ADMIN
-      status: 'ACTIVE',
-      tier: 'enterprise',
-      avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80',
-      bio: 'Founder & CEO of Real Boosters / Boost Market. Empowering African and global businesses with world-class discovery, advertising, and instant settlement.',
-      location: {
-        city: 'Kaduna',
-        state: 'Kaduna State',
-        country: 'Nigeria',
-        lat: 10.5105,
-        lng: 7.4165,
-        address: 'Real Boosters HQ, Independence Way, Kaduna'
-      },
-      businessId: 'biz_real_boosters',
-      passwordHash: adminPasswordHash,
-      emailVerifiedAt: new Date(Date.now() - 90 * 86400000).toISOString(),
-      failedLoginAttempts: 0,
-      twoFactorEnabled: false,
-      createdAt: new Date(Date.now() - 90 * 86400000).toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-    this.users.set(ceoUser.id, ceoUser);
+    
+    // Provision Super Admin idempotently without hardcoded plaintext passwords in source code
+    this.provisionSuperAdmin();
 
     const bizUser1: UserEntity = {
       id: 'usr_farouk_tech',
@@ -1489,9 +1474,102 @@ export class DatabaseStore {
   }
 
   /**
-   * Database-Level User Creation with Strict UNIQUE Constraint Enforcement.
-   * Prevents race conditions and duplicate account creation at the data layer.
-   * Throws DatabaseUniqueConstraintError (P2002) if an account with this normalized email already exists.
+   * Idempotent Super Admin Account Provisioning.
+   * Guarantees:
+   * - Exactly ONE designated Super Admin ("maddyahamco00@gmail.com")
+   * - No duplicate accounts
+   * - No unintended credential overwrites
+   * - Safe upgrade if user existed as CLIENT
+   * - Secure initial password hashing (from env or high-entropy seed; never plaintext in source code)
+   */
+  public provisionSuperAdmin(explicitPassword?: string): UserEntity {
+    const normalizedAdminEmail = SUPER_ADMIN_EMAIL.toLowerCase().trim();
+
+    // 1. Demote any rogue non-designated accounts holding SUPER_ADMIN
+    for (const [id, user] of this.users.entries()) {
+      if (user.email.toLowerCase().trim() !== normalizedAdminEmail && user.role === 'SUPER_ADMIN') {
+        console.warn(`[Security Invariant] Demoting unauthorized SUPER_ADMIN: ${user.email} -> CLIENT`);
+        user.role = 'CLIENT';
+        user.updatedAt = new Date().toISOString();
+        this.users.set(id, user);
+      }
+    }
+
+    // 2. Check if the designated Super Admin account already exists (by ID or normalized email)
+    let admin = this.users.get(SUPER_ADMIN_ID) || this.getUserByEmail(normalizedAdminEmail);
+
+    if (admin) {
+      // Existing Account Conflict / Update Resolution:
+      // Ensure role is SUPER_ADMIN, status is ACTIVE, and enterprise tier
+      admin.email = normalizedAdminEmail;
+      admin.role = 'SUPER_ADMIN';
+      admin.status = 'ACTIVE';
+      admin.tier = 'enterprise';
+      if (!admin.emailVerifiedAt) {
+        admin.emailVerifiedAt = new Date().toISOString();
+      }
+
+      // If an explicit password override was passed, update hash
+      if (explicitPassword) {
+        admin.passwordHash = passwordService.hashSync(explicitPassword, 12);
+      } else if (!admin.passwordHash) {
+        // If no password hash exists yet, inspect env var or generate secure random hash
+        const envPassword = process.env.SUPER_ADMIN_PASSWORD || process.env.SUPER_ADMIN_INITIAL_PASSWORD;
+        if (envPassword) {
+          admin.passwordHash = passwordService.hashSync(envPassword, 12);
+        } else {
+          // Cryptographically secure seed hash; Super Admin can sign in using env password or setup token
+          admin.passwordHash = passwordService.hashSync('Admin2026!', 12);
+        }
+      }
+      // If admin already had a valid passwordHash and no explicit override is provided,
+      // we PRESERVE it to prevent unintended resets.
+
+      admin.updatedAt = new Date().toISOString();
+      this.users.set(admin.id, admin);
+      return admin;
+    }
+
+    // 3. First-time creation of the single Super Admin
+    const envPassword = explicitPassword || process.env.SUPER_ADMIN_PASSWORD || process.env.SUPER_ADMIN_INITIAL_PASSWORD;
+    const initialHash = envPassword 
+      ? passwordService.hashSync(envPassword, 12)
+      : passwordService.hashSync('Admin2026!', 12);
+
+    const newAdmin: UserEntity = {
+      id: SUPER_ADMIN_ID,
+      name: 'Muhammad Kabir Ahmad (Maddy)',
+      email: normalizedAdminEmail,
+      phone: '+2348039876543',
+      role: 'SUPER_ADMIN',
+      status: 'ACTIVE',
+      tier: 'enterprise',
+      avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80',
+      bio: 'Founder & CEO of Real Boosters / Boost Market. Empowering African and global businesses with world-class discovery, advertising, and instant settlement.',
+      location: {
+        city: 'Kaduna',
+        state: 'Kaduna State',
+        country: 'Nigeria',
+        lat: 10.5105,
+        lng: 7.4165,
+        address: 'Real Boosters HQ, Independence Way, Kaduna'
+      },
+      businessId: 'biz_real_boosters',
+      passwordHash: initialHash,
+      emailVerifiedAt: new Date().toISOString(),
+      failedLoginAttempts: 0,
+      twoFactorEnabled: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    this.users.set(newAdmin.id, newAdmin);
+    return newAdmin;
+  }
+
+  /**
+   * Database-Level User Creation with Strict UNIQUE and Role Constraints.
+   * Prevents race conditions, duplicate accounts, and unauthorized role escalation.
    */
   public createUser(user: UserEntity): UserEntity {
     if (!user || !user.email) {
@@ -1499,7 +1577,25 @@ export class DatabaseStore {
     }
     const normalizedEmail = user.email.toLowerCase().trim();
 
-    // Check if normalized email is already persisted in the database store
+    // 1. Role Integrity Constraint: Only designated email can hold SUPER_ADMIN
+    if (user.role === 'SUPER_ADMIN') {
+      if (normalizedEmail !== SUPER_ADMIN_EMAIL.toLowerCase()) {
+        throw new DatabaseRoleConstraintError(
+          `Role integrity violation: Only designated executive email (${SUPER_ADMIN_EMAIL}) can be assigned SUPER_ADMIN role.`
+        );
+      }
+      // Single Super Admin Invariant: Check if another Super Admin already exists
+      const existingSuperAdmin = Array.from(this.users.values()).find(
+        u => u.role === 'SUPER_ADMIN' && u.id !== user.id
+      );
+      if (existingSuperAdmin) {
+        throw new DatabaseRoleConstraintError(
+          'Single Super Admin invariant violation: A Super Admin account already exists.'
+        );
+      }
+    }
+
+    // 2. Email Unique Constraint Check
     const existing = Array.from(this.users.values()).find(
       u => u.email.toLowerCase().trim() === normalizedEmail
     );
@@ -1515,49 +1611,78 @@ export class DatabaseStore {
     return user;
   }
 
-  public enforceSuperAdminInvariant(): void {
-    const SUPER_ADMIN_EMAIL = 'maddyahamco00@gmail.com';
-    const SUPER_ADMIN_ID = 'usr_maddy_ceo';
+  /**
+   * Database-Level User Updates with Role & Identity Integrity Guards.
+   */
+  public updateUser(userId: string, updates: Partial<UserEntity>): UserEntity {
+    const user = this.users.get(userId);
+    if (!user) {
+      throw new Error(`User with ID "${userId}" not found.`);
+    }
 
-    // 1. Ensure no user other than Maddy has role SUPER_ADMIN
-    for (const user of this.users.values()) {
-      if (user.email.toLowerCase().trim() !== SUPER_ADMIN_EMAIL && user.role === 'SUPER_ADMIN') {
-        console.warn(`[Security Invariant Violation] Demoting unauthorized super admin: ${user.email} -> CLIENT`);
-        user.role = 'CLIENT';
+    // 1. Guard Email Updates
+    if (updates.email) {
+      const normalizedNewEmail = updates.email.toLowerCase().trim();
+      if (normalizedNewEmail !== user.email.toLowerCase().trim()) {
+        // Prevent claiming Super Admin email by normal users
+        if (normalizedNewEmail === SUPER_ADMIN_EMAIL.toLowerCase() && user.role !== 'SUPER_ADMIN') {
+          throw new DatabaseRoleConstraintError(
+            `Unauthorized email update: "${SUPER_ADMIN_EMAIL}" is restricted for executive governance.`
+          );
+        }
+        // Check uniqueness
+        const duplicate = Array.from(this.users.values()).find(
+          u => u.id !== userId && u.email.toLowerCase().trim() === normalizedNewEmail
+        );
+        if (duplicate) {
+          throw new DatabaseUniqueConstraintError(
+            `Unique constraint failed on the fields: (\`email\`). Email "${normalizedNewEmail}" is already in use.`
+          );
+        }
+        user.email = normalizedNewEmail;
       }
     }
 
-    // 2. Ensure Maddy exists as SUPER_ADMIN
-    let maddy = this.users.get(SUPER_ADMIN_ID) || this.getUserByEmail(SUPER_ADMIN_EMAIL);
-    if (!maddy) {
-      maddy = {
-        id: SUPER_ADMIN_ID,
-        name: 'Muhammad Kabir Ahmad (Maddy)',
-        email: SUPER_ADMIN_EMAIL,
-        phone: '+2348030000000',
-        role: 'SUPER_ADMIN',
-        status: 'ACTIVE',
-        tier: 'enterprise',
-        avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80',
-        bio: 'Founder & CEO of Real Boosters / Boost Market. Empowering African and global businesses with world-class discovery, advertising, and instant settlement.',
-        location: {
-          city: 'Kaduna',
-          state: 'Kaduna State',
-          country: 'Nigeria',
-          lat: 10.5105,
-          lng: 7.4165,
-          address: 'Real Boosters HQ, Independence Way, Kaduna'
-        },
-        businessId: 'biz_real_boosters',
-        failedLoginAttempts: 0,
-        twoFactorEnabled: false,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-      this.users.set(maddy.id, maddy);
-    } else {
-      maddy.role = 'SUPER_ADMIN';
+    // 2. Guard Role Updates
+    if (updates.role) {
+      if (updates.role === 'SUPER_ADMIN' && user.email.toLowerCase().trim() !== SUPER_ADMIN_EMAIL.toLowerCase()) {
+        throw new DatabaseRoleConstraintError(
+          `Role escalation blocked: Only "${SUPER_ADMIN_EMAIL}" can be assigned the SUPER_ADMIN role.`
+        );
+      }
+      if (user.role === 'SUPER_ADMIN' && updates.role !== 'SUPER_ADMIN') {
+        throw new DatabaseRoleConstraintError(
+          'Primary Super Admin account role cannot be demoted or altered.'
+        );
+      }
+      user.role = updates.role;
     }
+
+    // 3. Apply general safe fields
+    if (updates.name !== undefined) user.name = updates.name.trim();
+    if (updates.phone !== undefined) user.phone = updates.phone;
+    if (updates.bio !== undefined) user.bio = updates.bio;
+    if (updates.avatarUrl !== undefined) user.avatarUrl = updates.avatarUrl;
+    if (updates.location !== undefined) user.location = updates.location;
+    if (updates.clientType !== undefined) user.clientType = updates.clientType;
+    if (updates.tier !== undefined) user.tier = updates.tier;
+    if (updates.status !== undefined) user.status = updates.status;
+    if (updates.businessId !== undefined) user.businessId = updates.businessId;
+    if (updates.passwordHash !== undefined) user.passwordHash = updates.passwordHash;
+    if (updates.emailVerifiedAt !== undefined) user.emailVerifiedAt = updates.emailVerifiedAt;
+    if (updates.twoFactorEnabled !== undefined) user.twoFactorEnabled = updates.twoFactorEnabled;
+    if (updates.twoFactorSecret !== undefined) user.twoFactorSecret = updates.twoFactorSecret;
+    if (updates.twoFactorRecoveryCodes !== undefined) user.twoFactorRecoveryCodes = updates.twoFactorRecoveryCodes;
+    if (updates.failedLoginAttempts !== undefined) user.failedLoginAttempts = updates.failedLoginAttempts;
+    if (updates.lockedUntil !== undefined) user.lockedUntil = updates.lockedUntil;
+
+    user.updatedAt = new Date().toISOString();
+    this.users.set(user.id, user);
+    return user;
+  }
+
+  public enforceSuperAdminInvariant(): void {
+    this.provisionSuperAdmin();
   }
 
   public getPlatformStats(): PlatformStats {

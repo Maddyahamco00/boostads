@@ -28,6 +28,7 @@ export type AppView =
   | 'merchant_dashboard' 
   | 'pricing_plans' 
   | 'admin_panel' 
+  | 'admin_login'
   | 'register' 
   | 'login'
   | 'verify_email';
@@ -135,17 +136,23 @@ const guestUser: UserProfile = {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentUser, setCurrentUser] = useState<UserProfile>(defaultUser);
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(true);
+  const [currentUser, setCurrentUser] = useState<UserProfile>(guestUser);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
   const [isLoggingOut, setIsLoggingOut] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [allUsers, setAllUsers] = useState<UserProfile[]>([defaultUser]);
+  const [allUsers, setAllUsers] = useState<UserProfile[]>([guestUser]);
   const [currentLocation, setCurrentLocation] = useState<LocationCoordinates>(defaultLocation);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [activeView, setActiveViewState] = useState<AppView>(() => {
     if (typeof window !== 'undefined') {
+      if (window.location.pathname === '/admin/login') {
+        return 'admin_login';
+      }
+      if (window.location.pathname === '/admin' || window.location.pathname === '/admin/panel') {
+        return 'admin_panel';
+      }
       if (window.location.pathname === '/login') {
         return 'login';
       }
@@ -170,10 +177,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setAuthError(null);
         return res.user;
       } else {
+        setCurrentUser(guestUser);
         setIsAuthenticated(false);
         return null;
       }
     } catch {
+      setCurrentUser(guestUser);
       setIsAuthenticated(false);
       return null;
     } finally {

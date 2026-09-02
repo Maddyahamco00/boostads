@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { authService } from '../services/authService';
-import { db } from '../db';
+import { db, SUPER_ADMIN_EMAIL } from '../db';
 import { UserEntity, UserRole } from '../../types';
 
 // Extend Express Request type
@@ -150,9 +150,58 @@ export const requireRole = (role: UserRole) => {
   };
 };
 
+// Super Admin Authorization Guard
+export const requireSuperAdmin = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  if (!req.user) {
+    return res.status(401).json({
+      success: false,
+      error: 'Authentication required. Please sign in.'
+    });
+  }
+
+  // Account status guard
+  if (req.user.status !== 'ACTIVE') {
+    return res.status(403).json({
+      success: false,
+      error: 'Access forbidden: Super Admin account is not active.'
+    });
+  }
+
+  // Strict role and designated email invariant verification
+  const isDesignatedEmail = req.user.email.toLowerCase().trim() === SUPER_ADMIN_EMAIL.toLowerCase().trim();
+  const hasSuperAdminRole = req.user.role === 'SUPER_ADMIN';
+
+  if (!hasSuperAdminRole || !isDesignatedEmail) {
+    authService.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+      userId: req.user.id,
+      userEmail: req.user.email,
+      role: req.user.role,
+      ipAddress: req.ip || '127.0.0.1',
+      userAgent: req.headers['user-agent'],
+      severity: 'CRITICAL',
+      details: {
+        requiredRole: 'SUPER_ADMIN',
+        userRole: req.user.role,
+        userEmail: req.user.email,
+        path: req.path,
+        method: req.method
+      }
+    });
+
+    return res.status(403).json({
+      success: false,
+      error: 'Access forbidden: Super Admin privileges required.'
+    });
+  }
+
+  next();
+};
+
+// Combined middleware
+export const requireSuperAdminAuth = [authenticate, requireSuperAdmin];
+
 // Role shortcuts
 export const requireClient = requireRole('CLIENT');
-export const requireSuperAdmin = requireRole('SUPER_ADMIN');
 
 // Require Active status
 export const requireActiveStatus = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {

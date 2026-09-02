@@ -2,13 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { 
   CheckCircle2, 
   AlertCircle, 
-  Clock, 
-  RefreshCw, 
-  Mail,
-  Send,
-  Check
+  RefreshCw 
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { Logo } from './Logo';
 
 export const VerifyEmailView: React.FC = () => {
   const { setActiveView } = useApp();
@@ -147,34 +144,29 @@ export const VerifyEmailView: React.FC = () => {
   };
 
   return (
-    <div className="w-full min-h-[calc(100vh-140px)] py-12 px-4 sm:px-6 lg:px-8 flex flex-col justify-center items-center bg-[#F9FAFB] text-[#111827]">
+    <div className="w-full min-h-[calc(100vh-140px)] py-12 px-4 sm:px-6 lg:px-8 flex flex-col justify-center items-center bg-[#F8FAFC] text-[#111827]">
       
       {/* Brand Header */}
-      <div className="text-center mb-6">
-        <button 
-          onClick={() => setActiveView('discover')}
-          className="inline-flex items-center gap-2 cursor-pointer focus:outline-none"
-        >
-          <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm">
-            B
-          </div>
-          <span className="text-xl font-bold text-gray-900 tracking-tight">
-            Boost Market
-          </span>
-        </button>
+      <div className="text-center mb-8">
+        <Logo 
+          variant="badge" 
+          size="sm" 
+          showTagline={true} 
+          onClick={() => setActiveView('discover')} 
+        />
       </div>
 
       {/* Main Card */}
-      <div className="w-full max-w-md bg-white border border-gray-200 rounded-xl shadow-sm p-6 sm:p-8 text-gray-900">
+      <div className="w-full max-w-md bg-white border border-[#E2E8F0] rounded-2xl shadow-sm p-6 sm:p-8 text-slate-900">
         
         {/* 1. LOADING */}
         {status === 'loading' && (
           <div className="text-center py-6">
-            <RefreshCw className="w-8 h-8 text-blue-600 animate-spin mx-auto mb-4" />
-            <h2 className="text-lg font-bold text-gray-900 mb-1">
+            <RefreshCw className="w-8 h-8 text-[#16C784] animate-spin mx-auto mb-4" />
+            <h2 className="text-lg font-bold text-slate-900 mb-1">
               Verifying email...
             </h2>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-slate-500">
               Validating your token and activating your account.
             </p>
           </div>
@@ -183,28 +175,28 @@ export const VerifyEmailView: React.FC = () => {
         {/* 2. SUCCESS */}
         {status === 'success' && (
           <div className="text-center space-y-4">
-            <div className="w-12 h-12 rounded-full bg-green-50 text-green-600 flex items-center justify-center mx-auto">
+            <div className="w-12 h-12 rounded-full bg-[#16C784]/15 text-[#16C784] flex items-center justify-center mx-auto">
               <CheckCircle2 className="w-6 h-6" />
             </div>
 
             <div>
-              <h2 className="text-xl font-bold text-gray-900">
+              <h2 className="text-xl font-bold text-slate-900">
                 Email verified!
               </h2>
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-slate-500 mt-1">
                 Your account is now active and ready to use.
               </p>
             </div>
 
             {userEmail && (
-              <div className="p-2.5 rounded-lg bg-gray-50 border border-gray-100 text-xs text-gray-600">
+              <div className="p-2.5 rounded-lg bg-slate-50 border border-[#E2E8F0] text-xs text-slate-600 font-mono">
                 {userEmail}
               </div>
             )}
 
             <button
               onClick={handleOpenSignIn}
-              className="w-full py-2.5 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm transition-colors cursor-pointer"
+              className="w-full py-2.5 px-4 rounded-lg bg-[#16C784] hover:bg-[#14B8A6] text-white font-semibold text-sm transition-colors cursor-pointer shadow-xs"
             >
               Sign In
             </button>
@@ -214,22 +206,22 @@ export const VerifyEmailView: React.FC = () => {
         {/* 3. ALREADY VERIFIED */}
         {status === 'already_verified' && (
           <div className="text-center space-y-4">
-            <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
+            <div className="w-12 h-12 rounded-full bg-[#16C784]/15 text-[#16C784] flex items-center justify-center mx-auto">
               <CheckCircle2 className="w-6 h-6" />
             </div>
 
             <div>
-              <h2 className="text-xl font-bold text-gray-900">
+              <h2 className="text-xl font-bold text-slate-900">
                 Already verified
               </h2>
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-slate-500 mt-1">
                 This account has already been verified.
               </p>
             </div>
 
             <button
               onClick={handleOpenSignIn}
-              className="w-full py-2.5 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm transition-colors cursor-pointer"
+              className="w-full py-2.5 px-4 rounded-lg bg-[#16C784] hover:bg-[#14B8A6] text-white font-semibold text-sm transition-colors cursor-pointer shadow-xs"
             >
               Sign In
             </button>
@@ -244,7 +236,7 @@ export const VerifyEmailView: React.FC = () => {
             </div>
 
             <div>
-              <h2 className="text-xl font-bold text-gray-900">
+              <h2 className="text-xl font-bold text-slate-900">
                 Verification failed
               </h2>
               <p className="text-xs text-red-600 mt-1">
@@ -254,7 +246,7 @@ export const VerifyEmailView: React.FC = () => {
 
             {/* Resend Form */}
             <div className="pt-2 text-left space-y-2">
-              <label className="block text-xs font-medium text-gray-700">
+              <label className="block text-xs font-semibold text-slate-700">
                 Request a new link
               </label>
               <form onSubmit={handleResend} className="space-y-2">
@@ -265,13 +257,13 @@ export const VerifyEmailView: React.FC = () => {
                   value={resendEmail}
                   onChange={(e) => setResendEmail(e.target.value)}
                   disabled={isResending || cooldownSeconds > 0}
-                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
+                  className="w-full px-3 py-2 bg-white border border-[#E2E8F0] rounded-lg text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-[#16C784] focus:ring-1 focus:ring-[#16C784]"
                 />
 
                 <button
                   type="submit"
                   disabled={isResending || !resendEmail.trim() || cooldownSeconds > 0}
-                  className="w-full py-2 px-3 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-800 text-xs font-medium transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  className="w-full py-2 px-3 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                 >
                   {isResending ? (
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -285,17 +277,17 @@ export const VerifyEmailView: React.FC = () => {
                 </button>
 
                 {resendFeedback && (
-                  <p className={`text-xs ${resendStatus === 'sent' ? 'text-green-600' : 'text-red-600'}`}>
+                  <p className={`text-xs ${resendStatus === 'sent' ? 'text-[#16C784]' : 'text-red-600'}`}>
                     {resendFeedback}
                   </p>
                 )}
               </form>
             </div>
 
-            <div className="pt-2 border-t border-gray-100">
+            <div className="pt-2 border-t border-slate-100">
               <button
                 onClick={handleOpenSignIn}
-                className="w-full py-2 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs transition-colors cursor-pointer"
+                className="w-full py-2 px-4 rounded-lg bg-[#16C784] hover:bg-[#14B8A6] text-white font-semibold text-xs transition-colors cursor-pointer shadow-xs"
               >
                 Go to Sign In
               </button>

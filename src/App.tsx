@@ -16,8 +16,8 @@ import { DiscoverView } from './components/DiscoverView';
 // import { CampaignManagementView } from './components/CampaignManagementView';
 // TODO: Re-enable when Feature 8.x (SaaS Subscription Tiers) is implemented.
 // import { PricingPlansView } from './components/PricingPlansView';
-// TODO: Re-enable when Feature 1.3 (Super Admin Authentication & Governance Panel) is implemented.
-// import { AdminPanelView } from './components/AdminPanelView';
+import { AdminPanelView } from './components/AdminPanelView';
+import { AdminLoginView } from './components/AdminLoginView';
 import { RegisterView } from './components/RegisterView';
 import { LoginView } from './components/LoginView';
 import { VerifyEmailView } from './components/VerifyEmailView';
@@ -50,6 +50,8 @@ const MainLayout: React.FC = () => {
         {activeView === 'register' && <RegisterView />}
         {activeView === 'login' && <LoginView />}
         {activeView === 'verify_email' && <VerifyEmailView />}
+        {activeView === 'admin_login' && <AdminLoginView />}
+        {activeView === 'admin_panel' && <AdminPanelView />}
       </main>
 
       {/* Minimal Footer */}

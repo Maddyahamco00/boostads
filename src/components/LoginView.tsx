@@ -8,13 +8,13 @@ import {
   AlertCircle, 
   RefreshCw, 
   Smartphone,
-  Key,
   Clock,
   Send,
   ArrowLeft
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { authApi, sanitizeRedirectUrl, formatAuthError } from '../lib/api';
+import { Logo } from './Logo';
 
 interface LoginViewProps {
   onSuccess?: () => void;
@@ -273,29 +273,24 @@ export const LoginView: React.FC<LoginViewProps> = ({
   };
 
   return (
-    <div className="w-full min-h-[calc(100vh-140px)] py-12 px-4 sm:px-6 lg:px-8 flex flex-col justify-center items-center bg-[#F9FAFB] text-[#111827]">
+    <div className="w-full min-h-[calc(100vh-140px)] py-12 px-4 sm:px-6 lg:px-8 flex flex-col justify-center items-center bg-[#F8FAFC] text-[#111827]">
       
       {/* Brand Header */}
-      <div className="text-center mb-6">
-        <button 
-          onClick={() => setActiveView('discover')}
-          className="inline-flex items-center gap-2 cursor-pointer focus:outline-none"
-        >
-          <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm">
-            B
-          </div>
-          <span className="text-xl font-bold text-gray-900 tracking-tight">
-            Boost Market
-          </span>
-        </button>
+      <div className="text-center mb-8">
+        <Logo 
+          variant="badge" 
+          size="sm" 
+          showTagline={true} 
+          onClick={() => setActiveView('discover')} 
+        />
       </div>
 
       {/* Main Card */}
-      <div className="w-full max-w-md bg-white border border-gray-200 rounded-xl shadow-sm p-6 sm:p-8 text-gray-900">
+      <div className="w-full max-w-md bg-white border border-[#E2E8F0] rounded-2xl shadow-sm p-6 sm:p-8 text-slate-900">
         
         {/* Success Notice */}
         {successNotice && authMode === 'login' && (
-          <div className="mb-5 p-3 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm flex items-start gap-2">
+          <div className="mb-5 p-3 rounded-lg bg-[#16C784]/10 border border-[#16C784]/30 text-[#16C784] text-xs font-medium flex items-start gap-2">
             <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
             <div className="flex-1">{successNotice}</div>
           </div>
@@ -303,7 +298,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
 
         {/* Error Notice */}
         {error && (
-          <div className="mb-5 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm flex items-start gap-2">
+          <div className="mb-5 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs flex items-start gap-2">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
             <div className="flex-1">
               <div>{error}</div>
@@ -334,7 +329,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
                     )}
                   </button>
                   {resendMessage && (
-                    <p className={`text-xs mt-1 ${resendStatus === 'sent' ? 'text-green-700' : 'text-red-700'}`}>
+                    <p className={`text-xs mt-1 ${resendStatus === 'sent' ? 'text-[#16C784]' : 'text-red-700'}`}>
                       {resendMessage}
                     </p>
                   )}
@@ -348,13 +343,14 @@ export const LoginView: React.FC<LoginViewProps> = ({
         {authMode === 'login' && (
           <div>
             <div className="mb-6 text-center">
-              <h1 className="text-xl font-bold text-gray-900">Sign in to your account</h1>
+              <h1 className="text-xl font-bold text-slate-900 tracking-tight">Sign in to your account</h1>
+              <p className="text-xs text-slate-500 mt-1">Access your business tools and local client services</p>
             </div>
 
             <form onSubmit={handleLoginSubmit} noValidate className="space-y-4">
               
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Email
                 </label>
                 <input
@@ -368,8 +364,8 @@ export const LoginView: React.FC<LoginViewProps> = ({
                   }}
                   placeholder="name@example.com"
                   className={`w-full px-3.5 py-2.5 bg-white border ${
-                    fieldErrors.email ? 'border-red-500' : 'border-gray-200'
-                  } rounded-lg text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 transition-colors`}
+                    fieldErrors.email ? 'border-red-500' : 'border-[#E2E8F0]'
+                  } rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-[#16C784] focus:ring-1 focus:ring-[#16C784] transition-colors`}
                 />
                 {fieldErrors.email && (
                   <p className="mt-1 text-xs text-red-600">{fieldErrors.email}</p>
@@ -378,7 +374,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
 
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs font-medium text-gray-700">
+                  <label className="text-xs font-semibold text-slate-700">
                     Password
                   </label>
                   <button
@@ -388,7 +384,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
                       setAuthMode('forgot_password');
                       setError(null);
                     }}
-                    className="text-xs text-blue-600 hover:underline cursor-pointer"
+                    className="text-xs font-medium text-[#16C784] hover:underline cursor-pointer"
                   >
                     Forgot password?
                   </button>
@@ -405,13 +401,13 @@ export const LoginView: React.FC<LoginViewProps> = ({
                     }}
                     placeholder="••••••••"
                     className={`w-full px-3.5 pr-10 py-2.5 bg-white border ${
-                      fieldErrors.password ? 'border-red-500' : 'border-gray-200'
-                    } rounded-lg text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 transition-colors`}
+                      fieldErrors.password ? 'border-red-500' : 'border-[#E2E8F0]'
+                    } rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-[#16C784] focus:ring-1 focus:ring-[#16C784] transition-colors`}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -425,7 +421,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
                 id="login-submit-btn"
                 type="submit"
                 disabled={isSubmitting || cooldownSeconds > 0}
-                className="w-full py-2.5 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm transition-colors disabled:opacity-50 cursor-pointer"
+                className="w-full py-2.5 px-4 rounded-lg bg-[#16C784] hover:bg-[#14B8A6] text-white font-semibold text-sm transition-colors disabled:opacity-50 cursor-pointer shadow-xs"
               >
                 {isSubmitting ? (
                   <span className="flex items-center justify-center gap-2">
@@ -439,8 +435,8 @@ export const LoginView: React.FC<LoginViewProps> = ({
             </form>
 
             {/* Quick Test Accounts */}
-            <div className="mt-6 pt-4 border-t border-gray-100 text-xs">
-              <div className="text-gray-500 mb-2 font-medium">Demo accounts:</div>
+            <div className="mt-6 pt-4 border-t border-slate-100 text-xs">
+              <div className="text-slate-500 mb-2 font-medium">Demo client accounts:</div>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
@@ -450,10 +446,10 @@ export const LoginView: React.FC<LoginViewProps> = ({
                     setFieldErrors({}); 
                     setError(null);
                   }}
-                  className="p-2 text-left rounded-lg bg-gray-50 hover:bg-gray-100 border border-gray-200 transition-colors cursor-pointer"
+                  className="p-2 text-left rounded-lg bg-slate-50 hover:bg-[#16C784]/10 border border-[#E2E8F0] hover:border-[#16C784]/40 transition-colors cursor-pointer"
                 >
-                  <div className="font-semibold text-gray-900">Business</div>
-                  <div className="text-gray-500 truncate text-[11px]">farouk@kadunacode...</div>
+                  <div className="font-semibold text-slate-900">Business</div>
+                  <div className="text-slate-500 truncate text-[11px]">farouk@kadunacode...</div>
                 </button>
                 <button
                   type="button"
@@ -463,21 +459,21 @@ export const LoginView: React.FC<LoginViewProps> = ({
                     setFieldErrors({}); 
                     setError(null);
                   }}
-                  className="p-2 text-left rounded-lg bg-gray-50 hover:bg-gray-100 border border-gray-200 transition-colors cursor-pointer"
+                  className="p-2 text-left rounded-lg bg-slate-50 hover:bg-[#16C784]/10 border border-[#E2E8F0] hover:border-[#16C784]/40 transition-colors cursor-pointer"
                 >
-                  <div className="font-semibold text-gray-900">Customer</div>
-                  <div className="text-gray-500 truncate text-[11px]">david.okonjo@...</div>
+                  <div className="font-semibold text-slate-900">Customer</div>
+                  <div className="text-slate-500 truncate text-[11px]">david.okonjo@...</div>
                 </button>
               </div>
             </div>
 
             {/* Sign Up Link */}
-            <div className="mt-6 text-center text-xs text-gray-500">
+            <div className="mt-6 text-center text-xs text-slate-500">
               Don't have an account?{' '}
               <button
                 type="button"
                 onClick={() => setActiveView('register')}
-                className="font-medium text-blue-600 hover:underline cursor-pointer"
+                className="font-semibold text-[#16C784] hover:underline cursor-pointer"
               >
                 Sign up
               </button>
@@ -489,11 +485,11 @@ export const LoginView: React.FC<LoginViewProps> = ({
         {authMode === '2fa' && (
           <div className="space-y-4">
             <div className="text-center">
-              <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 mx-auto flex items-center justify-center mb-2">
+              <div className="w-10 h-10 rounded-lg bg-[#16C784]/15 text-[#16C784] mx-auto flex items-center justify-center mb-2">
                 <Smartphone className="w-5 h-5" />
               </div>
-              <h2 className="text-lg font-bold text-gray-900">Two-Factor Authentication</h2>
-              <p className="text-xs text-gray-500 mt-1">
+              <h2 className="text-lg font-bold text-slate-900">Two-Factor Authentication</h2>
+              <p className="text-xs text-slate-500 mt-1">
                 Enter your 6-digit authenticator code or recovery code.
               </p>
             </div>
@@ -509,7 +505,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
                     value={twoFactorCode}
                     onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, ''))}
                     placeholder="123456"
-                    className="w-full text-center tracking-widest font-mono text-xl py-2.5 bg-white border border-gray-200 rounded-lg text-gray-900 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
+                    className="w-full text-center tracking-widest font-mono text-xl py-2.5 bg-white border border-[#E2E8F0] rounded-lg text-slate-900 focus:outline-none focus:border-[#16C784] focus:ring-1 focus:ring-[#16C784]"
                   />
                 </div>
               ) : (
@@ -520,7 +516,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
                     value={recoveryCode}
                     onChange={(e) => setRecoveryCode(e.target.value.toUpperCase())}
                     placeholder="REC-XXXX-XXXX"
-                    className="w-full text-center font-mono text-sm py-2.5 bg-white border border-gray-200 rounded-lg text-gray-900 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
+                    className="w-full text-center font-mono text-sm py-2.5 bg-white border border-[#E2E8F0] rounded-lg text-slate-900 focus:outline-none focus:border-[#16C784] focus:ring-1 focus:ring-[#16C784]"
                   />
                 </div>
               )}
@@ -532,7 +528,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
                     setUseRecoveryCode(!useRecoveryCode);
                     setError(null);
                   }}
-                  className="text-blue-600 hover:underline cursor-pointer"
+                  className="text-[#16C784] font-medium hover:underline cursor-pointer"
                 >
                   {useRecoveryCode ? 'Use 6-digit code' : 'Use recovery code'}
                 </button>
@@ -542,7 +538,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
                     setAuthMode('login');
                     setError(null);
                   }}
-                  className="text-gray-500 hover:text-gray-900 cursor-pointer"
+                  className="text-slate-500 hover:text-slate-900 cursor-pointer"
                 >
                   Back
                 </button>
@@ -551,7 +547,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm transition-colors cursor-pointer"
+                className="w-full py-2.5 rounded-lg bg-[#16C784] hover:bg-[#14B8A6] text-white font-semibold text-sm transition-colors cursor-pointer shadow-xs"
               >
                 {isSubmitting ? 'Verifying...' : 'Verify'}
               </button>
@@ -563,8 +559,8 @@ export const LoginView: React.FC<LoginViewProps> = ({
         {authMode === 'forgot_password' && (
           <div className="space-y-4">
             <div className="text-center">
-              <h2 className="text-lg font-bold text-gray-900">Reset password</h2>
-              <p className="text-xs text-gray-500 mt-1">
+              <h2 className="text-lg font-bold text-slate-900">Reset password</h2>
+              <p className="text-xs text-slate-500 mt-1">
                 Enter your email address and we'll send a reset link.
               </p>
             </div>
@@ -572,7 +568,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
             {!forgotSubmitted ? (
               <form onSubmit={handleForgotPasswordSubmit} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Email
                   </label>
                   <input
@@ -581,7 +577,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
                     value={forgotEmail}
                     onChange={(e) => setForgotEmail(e.target.value)}
                     placeholder="name@example.com"
-                    className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
+                    className="w-full px-3.5 py-2.5 bg-white border border-[#E2E8F0] rounded-lg text-sm text-slate-900 focus:outline-none focus:border-[#16C784] focus:ring-1 focus:ring-[#16C784]"
                   />
                 </div>
 
@@ -592,7 +588,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
                       setAuthMode('login');
                       setError(null);
                     }}
-                    className="text-gray-500 hover:text-gray-900 flex items-center gap-1 cursor-pointer"
+                    className="text-slate-500 hover:text-slate-900 flex items-center gap-1 cursor-pointer font-medium"
                   >
                     <ArrowLeft className="w-3.5 h-3.5" />
                     Back to Sign In
@@ -602,14 +598,14 @@ export const LoginView: React.FC<LoginViewProps> = ({
                 <button
                   type="submit"
                   disabled={isSubmitting || !forgotEmail.trim()}
-                  className="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm transition-colors cursor-pointer"
+                  className="w-full py-2.5 rounded-lg bg-[#16C784] hover:bg-[#14B8A6] text-white font-semibold text-sm transition-colors cursor-pointer shadow-xs"
                 >
                   {isSubmitting ? 'Sending...' : 'Send reset link'}
                 </button>
               </form>
             ) : (
               <div className="space-y-4 text-center">
-                <p className="text-xs text-gray-600">
+                <p className="text-xs text-slate-600">
                   If an account exists for {forgotEmail}, instructions will be sent shortly.
                 </p>
                 <button
@@ -618,7 +614,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
                     setAuthMode('login');
                     setForgotSubmitted(false);
                   }}
-                  className="w-full py-2 px-4 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium transition-colors cursor-pointer"
+                  className="w-full py-2 px-4 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors cursor-pointer"
                 >
                   Back to Sign In
                 </button>

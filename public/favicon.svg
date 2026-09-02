@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bm-grad-lime-green" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#A3FF12" />
+      <stop offset="50%" stop-color="#16C784" />
+      <stop offset="100%" stop-color="#14B8A6" />
+    </linearGradient>
+    
+    <linearGradient id="bm-grad-lime-top" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#C5FF45" />
+      <stop offset="100%" stop-color="#16C784" />
+    </linearGradient>
+
+    <linearGradient id="bm-grad-teal-bot" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#16C784" />
+      <stop offset="100%" stop-color="#0E9488" />
+    </linearGradient>
+
+    <linearGradient id="bm-glass-bg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#0A2923" stop-opacity="0.95" />
+      <stop offset="100%" stop-color="#041210" stop-opacity="0.98" />
+    </linearGradient>
+
+    <linearGradient id="bm-glass-border" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#A3FF12" stop-opacity="0.7" />
+      <stop offset="50%" stop-color="#16C784" stop-opacity="0.4" />
+      <stop offset="100%" stop-color="#14B8A6" stop-opacity="0.7" />
+    </linearGradient>
+
+    <filter id="bm-glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Glass Card Frame -->
+  <rect x="6" y="6" width="108" height="108" rx="24" fill="url(#bm-glass-bg)" stroke="url(#bm-glass-border)" stroke-width="2" />
+  
+  <!-- Subtle Inner Glass Highlight -->
+  <path d="M 10 30 Q 10 10 30 10 L 90 10 Q 106 10 108 24 C 90 32 30 36 10 65 Z" fill="#FFFFFF" opacity="0.08" />
+
+  <!-- Boost 'B' Emblem Symbol -->
+  <g transform="translate(18, 22) scale(0.72)">
+    <!-- Speed Dots (Left) -->
+    <circle cx="28" cy="28" r="7" fill="#A3FF12" />
+    <circle cx="14" cy="48" r="6" fill="#A3FF12" />
+    <circle cx="28" cy="68" r="5" fill="#16C784" />
+    <circle cx="48" cy="100" r="6.5" fill="#14B8A6" />
+
+    <!-- Speed Lines / Bars (Left to Center) -->
+    <rect x="42" y="22" width="28" height="12" rx="6" fill="url(#bm-grad-lime-top)" />
+    <rect x="28" y="42" width="46" height="12" rx="6" fill="#16C784" />
+    <rect x="40" y="62" width="34" height="12" rx="6" fill="url(#bm-grad-lime-green)" />
+    <rect x="40" y="82" width="22" height="12" rx="6" fill="url(#bm-grad-teal-bot)" />
+
+    <!-- Main Stylized 'B' Wings & Lobes -->
+    <!-- Upper Lobe -->
+    <path d="M 62 22 L 80 22 C 96 22 106 32 106 46 C 106 58 98 66 84 68 L 62 68 Z" fill="url(#bm-grad-lime-top)" />
+    <path d="M 72 32 L 80 32 C 88 32 94 37 94 45 C 94 53 88 58 80 58 L 72 58 Z" fill="#071A17" opacity="0.95" />
+
+    <!-- Lower Lobe & Dynamic Sweep -->
+    <path d="M 62 58 L 86 58 C 104 58 114 68 114 84 C 114 100 98 108 80 108 L 62 108 Z" fill="url(#bm-grad-teal-bot)" />
+    <path d="M 72 68 L 84 68 C 94 68 102 74 102 83 C 102 92 94 98 84 98 L 72 98 Z" fill="#071A17" opacity="0.95" />
+
+    <!-- Ribbon Highlight Edge -->
+    <path d="M 80 22 C 96 22 106 32 106 46 C 106 56 99 64 88 67 C 103 70 114 78 114 90 C 114 104 98 108 80 108 C 76 108 72 107 68 105 C 84 102 98 94 98 84 C 98 72 88 64 74 62 C 90 60 96 52 96 44 C 96 34 88 26 76 24 Z" fill="#A3FF12" opacity="0.8" />
+  </g>
+</svg>

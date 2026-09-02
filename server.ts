@@ -622,6 +622,59 @@ async function startServer() {
     }
   });
 
+  // 12.1. Super Admin Login
+  app.post('/api/auth/admin/login', async (req, res) => {
+    try {
+      const { email, password, totpCode } = req.body;
+      if (!email || !password) {
+        return res.status(400).json({ success: false, error: 'Email and password are required' });
+      }
+
+      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'browser';
+
+      const result = await authService.adminLogin(
+        { email, password, twoFactorCode: totpCode },
+        clientIp,
+        userAgent
+      );
+
+      if (result.twoFactorRequired) {
+        return res.json({
+          success: true,
+          requires2FA: true,
+          preAuthToken: result.preAuthToken,
+          email: result.email
+        });
+      }
+
+      if (result.accessToken) {
+        res.cookie('boost_access_token', result.accessToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          path: '/',
+          maxAge: 60 * 60 * 1000
+        });
+      }
+
+      if (result.refreshToken) {
+        res.cookie('boost_refresh_token', result.refreshToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          path: '/',
+          maxAge: 30 * 24 * 60 * 60 * 1000
+        });
+      }
+
+      res.json(result);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Admin authentication failed';
+      res.status(401).json({ success: false, error: message });
+    }
+  });
+
   // 13. Super Admin Set Password
   app.post('/api/auth/admin/setup-password', async (req, res) => {
     try {
@@ -721,7 +774,20 @@ async function startServer() {
     res.json({ success: true, message: 'Email outbox cleared' });
   });
 
-  // 17. Super Admin Security Audit Logs & User Governance
+  // 17. Super Admin Dedicated Me & Security Audit Logs & User Governance
+  app.get('/api/admin/me', authenticate, requireSuperAdmin, (req: AuthenticatedRequest, res) => {
+    const safeUser = authService.getSafeUser(req.user!);
+    res.json({
+      success: true,
+      authenticated: true,
+      user: safeUser,
+      id: safeUser.id,
+      name: safeUser.name,
+      email: safeUser.email,
+      role: safeUser.role
+    });
+  });
+
   app.get('/api/admin/security-logs', authenticate, requireSuperAdmin, (req, res) => {
     const logs = [...db.securityLogs].reverse();
     res.json({ success: true, logs });
@@ -791,7 +857,7 @@ async function startServer() {
   // 2. USERS & PROFILES
   // ==========================================
   app.get('/api/users', (req, res) => {
-    const usersList = Array.from(db.users.values());
+    const usersList = Array.from(db.users.values()).map(u => authService.getSafeUser(u));
     res.json({ success: true, users: usersList });
   });
 
@@ -800,43 +866,28 @@ async function startServer() {
     if (!user) {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
-    res.json({ success: true, user });
+    res.json({ success: true, user: authService.getSafeUser(user) });
   });
 
-  app.post('/api/users/profile', (req, res) => {
-    const { id, name, email, phone, role, bio, location, avatarUrl, clientType } = req.body;
-    let user = db.users.get(id);
-    if (user) {
-      user.name = name || user.name;
-      user.email = email || user.email;
-      user.phone = phone || user.phone;
-      if (role && (role === 'SUPER_ADMIN' || role === 'CLIENT')) {
-        user.role = role;
-      }
-      if (clientType) user.clientType = clientType;
-      user.bio = bio !== undefined ? bio : user.bio;
-      user.location = location || user.location;
-      user.avatarUrl = avatarUrl || user.avatarUrl;
-    } else {
-      user = {
-        id: id || `usr_${Date.now()}`,
-        name: name || 'Anonymous User',
-        email: email || 'user@boostmarket.ng',
+  app.post('/api/users/profile', authenticate, (req: AuthenticatedRequest, res) => {
+    try {
+      const { name, phone, bio, location, avatarUrl, clientType } = req.body;
+      const targetUserId = req.user!.id;
+      
+      const updatedUser = db.updateUser(targetUserId, {
+        name,
         phone,
-        role: (role === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : 'CLIENT'),
-        status: 'ACTIVE',
-        clientType: clientType || 'customer',
-        failedLoginAttempts: 0,
-        twoFactorEnabled: false,
-        tier: 'free',
-        avatarUrl: avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80',
         bio,
-        location: location || { city: 'Kaduna', state: 'Kaduna State', country: 'Nigeria', lat: 10.5105, lng: 7.4165 },
-        createdAt: new Date().toISOString()
-      };
-      db.users.set(user.id, user);
+        location,
+        avatarUrl,
+        clientType
+      });
+
+      res.json({ success: true, user: authService.getSafeUser(updatedUser) });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Profile update failed';
+      res.status(400).json({ success: false, error: message });
     }
-    res.json({ success: true, user });
   });
 
   // ==========================================
@@ -846,7 +897,7 @@ async function startServer() {
     res.json({ success: true, categories: db.categories });
   });
 
-  app.post('/api/admin/categories', (req, res) => {
+  app.post('/api/admin/categories', authenticate, requireSuperAdmin, (req, res) => {
     const { id, name, slug, iconName, description, subcategories, bannerImage } = req.body;
     const existingIndex = db.categories.findIndex(c => c.id === id || c.slug === slug);
     const categoryData = {
@@ -1816,7 +1867,7 @@ async function startServer() {
     res.json({ success: true, business: biz, message: `Successfully upgraded to ${planId}!` });
   });
 
-  app.put('/api/admin/subscriptions/plans', (req, res) => {
+  app.put('/api/admin/subscriptions/plans', authenticate, requireSuperAdmin, (req, res) => {
     const { plans } = req.body;
     if (Array.isArray(plans)) {
       db.subscriptionPlans = plans;
@@ -1893,12 +1944,12 @@ async function startServer() {
   // ==========================================
   // 12. ADMIN MODERATION & AUDIT LOGS
   // ==========================================
-  app.get('/api/admin/reports', (req, res) => {
+  app.get('/api/admin/reports', authenticate, requireSuperAdmin, (req, res) => {
     const reports = Array.from(db.reports.values()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     res.json({ success: true, reports });
   });
 
-  app.post('/api/admin/reports/:id/resolve', (req, res) => {
+  app.post('/api/admin/reports/:id/resolve', authenticate, requireSuperAdmin, (req, res) => {
     const { id } = req.params;
     const { action } = req.body; // 'hide', 'dismiss', 'suspend'
     const report = db.reports.get(id);
@@ -1915,7 +1966,7 @@ async function startServer() {
     res.json({ success: true, report });
   });
 
-  app.get('/api/admin/audit-logs', (req, res) => {
+  app.get('/api/admin/audit-logs', authenticate, requireSuperAdmin, (req, res) => {
     res.json({ success: true, logs: db.auditLogs.slice(-100).reverse() });
   });
 
@@ -1963,11 +2014,11 @@ async function startServer() {
     res.json({ success: true, ...summary, trialBalance });
   });
 
-  app.get('/api/admin/config', (req, res) => {
+  app.get('/api/admin/config', authenticate, requireSuperAdmin, (req, res) => {
     res.json({ success: true, config: db.platformConfig });
   });
 
-  app.put('/api/admin/config', (req, res) => {
+  app.put('/api/admin/config', authenticate, requireSuperAdmin, (req, res) => {
     const { primaryProvider, secondaryProvider, platformFeePercent, fxSpreadPercent, autoSettlementEnabled } = req.body;
     if (primaryProvider) db.platformConfig.primaryProvider = primaryProvider;
     if (secondaryProvider) db.platformConfig.secondaryProvider = secondaryProvider;

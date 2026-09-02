@@ -487,5 +487,130 @@ export const authApi = {
       method: 'POST',
       body: JSON.stringify({ currentPassword, newPassword })
     });
+  },
+
+  /**
+   * Super Admin Login
+   */
+  async adminLogin(data: { email: string; password: string; totpCode?: string }) {
+    return fetchWithAuth<{
+      success: boolean;
+      requires2FA?: boolean;
+      preAuthToken?: string;
+      email?: string;
+      user?: UserProfile;
+      accessToken?: string;
+      refreshToken?: string;
+      message?: string;
+    }>('/api/auth/admin/login', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  /**
+   * Dispatch Super Admin First-Time Setup Link
+   */
+  async initAdminSetup() {
+    return fetchWithAuth<{
+      success: boolean;
+      message: string;
+      setupToken?: string;
+      setupUrl?: string;
+      adminEmail?: string;
+    }>('/api/auth/admin/init-setup', {
+      method: 'POST'
+    });
+  },
+
+  /**
+   * Super Admin Password Setup via Token
+   */
+  async setupAdminPassword(data: { token: string; newPassword: string }) {
+    return fetchWithAuth<{
+      success: boolean;
+      message: string;
+      user?: UserProfile;
+    }>('/api/auth/admin/setup-password', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+};
+
+export const adminApi = {
+  /**
+   * Fetch Super Admin Security Logs
+   */
+  async getSecurityLogs() {
+    return fetchWithAuth<{ success: boolean; logs: any[] }>('/api/admin/security-logs', {
+      method: 'GET'
+    });
+  },
+
+  /**
+   * Fetch Users List
+   */
+  async getUsers() {
+    return fetchWithAuth<{ success: boolean; users: UserProfile[] }>('/api/admin/users', {
+      method: 'GET'
+    });
+  },
+
+  /**
+   * Update User Status (Suspend, Activate, etc.)
+   */
+  async updateUserStatus(userId: string, status: string) {
+    return fetchWithAuth<{ success: boolean; user: UserProfile }>('/api/admin/users/' + userId + '/status', {
+      method: 'PATCH',
+      body: JSON.stringify({ status })
+    });
+  },
+
+  /**
+   * Fetch Content Reports
+   */
+  async getReports() {
+    return fetchWithAuth<{ success: boolean; reports: any[] }>('/api/admin/reports', {
+      method: 'GET'
+    });
+  },
+
+  /**
+   * Resolve Content Report
+   */
+  async resolveReport(reportId: string, action: string) {
+    return fetchWithAuth<{ success: boolean; report: any }>('/api/admin/reports/' + reportId + '/resolve', {
+      method: 'POST',
+      body: JSON.stringify({ action })
+    });
+  },
+
+  /**
+   * Fetch Platform Audit Logs
+   */
+  async getAuditLogs() {
+    return fetchWithAuth<{ success: boolean; logs: any[] }>('/api/admin/audit-logs', {
+      method: 'GET'
+    });
+  },
+
+  /**
+   * Fetch Platform Config
+   */
+  async getConfig() {
+    return fetchWithAuth<{ success: boolean; config: any }>('/api/admin/config', {
+      method: 'GET'
+    });
+  },
+
+  /**
+   * Update Platform Config
+   */
+  async updateConfig(config: any) {
+    return fetchWithAuth<{ success: boolean; config: any }>('/api/admin/config', {
+      method: 'PUT',
+      body: JSON.stringify(config)
+    });
   }
 };
