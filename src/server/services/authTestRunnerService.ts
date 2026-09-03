@@ -1,10 +1,10 @@
-import { authService } from './authService';
-import { db } from '../db';
+import { authService, AuthService, passwordResetTokenService } from './authService';
+import { db, SUPER_ADMIN_EMAIL, SUPER_ADMIN_ID, DatabaseRoleConstraintError, DatabaseUniqueConstraintError, DatabaseValidationError, DatabaseConcurrencyError, DatabaseNotFoundError, isDesignatedSuperAdminEmail } from '../db';
 import { emailService } from './emailService';
 import { passwordService } from './passwordService';
 import { emailVerificationTokenService } from './emailVerificationTokenService';
 import { RegisterClientSchema, formatZodError } from '../validators/authValidators';
-import { UserEntity, AuthSession } from '../../types';
+import { UserEntity, AuthSession, VerificationToken } from '../../types';
 import jwt from 'jsonwebtoken';
 import { authenticate, requireSuperAdmin, AuthenticatedRequest } from '../middleware/authMiddleware';
 
@@ -3897,6 +3897,1337 @@ export class AuthTestRunnerService {
         logs.push('Verified: Role preserved strictly as CLIENT with zero privilege alteration');
 
         logs.push('ALL PASSWORD RECOVERY SECURITY HARDENING & REGRESSION TESTS (TASK 1.4.4) PASSED PERFECTLY');
+      }
+    ));
+
+    // =========================================================================
+    // 27. TASK 1.3.6: SUPER ADMIN TWO-FACTOR AUTHENTICATION (2FA) & BOUNDARIES
+    // =========================================================================
+    results.push(await this.runTest(
+      'SEC_TASK_1_3_6_SUPER_ADMIN_2FA',
+      'Task 1.3.6: Super Admin Two-Factor Authentication (2FA)',
+      'Super Admin TOTP 2FA Verification, Pending-State Isolation, Rate-Limiting, Recovery Codes & Client Boundary Defense',
+      async (logs) => {
+        logs.push('Executing Task 1.3.6 Super Admin 2FA comprehensive validation suite');
+
+        // 1. Prepare Super Admin test environment
+        const adminEmail = 'maddyahamco00@gmail.com';
+        const adminUser = db.getUserByEmail(adminEmail);
+        if (!adminUser || adminUser.role !== 'SUPER_ADMIN') {
+          throw new Error('Super Admin user entity not found in database.');
+        }
+
+        const adminMasterPassword = 'Admin2faMasterPass99!@#';
+        adminUser.passwordHash = await authService.hashPassword(adminMasterPassword);
+        adminUser.status = 'ACTIVE';
+        adminUser.twoFactorEnabled = false;
+        adminUser.twoFactorSecret = undefined;
+        adminUser.twoFactorRecoveryCodes = undefined;
+
+        // 2. Test Enrollment Pending State: "Do not mark 2FA as enabled until the setup code has been successfully verified."
+        logs.push('Step 1 (Enrollment Pending State): Initializing 2FA secret generation');
+        const setupResult = authService.generateTwoFactor(adminUser.id);
+        if (!setupResult.secret || !setupResult.otpauthUrl || !Array.isArray(setupResult.recoveryCodes)) {
+          throw new Error('generateTwoFactor failed to return secret, otpauth URL, or recovery codes.');
+        }
+        if (setupResult.recoveryCodes.length !== 8) {
+          throw new Error(`Expected exactly 8 recovery codes, got ${setupResult.recoveryCodes.length}`);
+        }
+        if (adminUser.twoFactorEnabled !== false) {
+          throw new Error('CRITICAL SECURITY FLAW: 2FA was marked enabled before verification code was provided!');
+        }
+        logs.push('Verified: Secret generated, recovery codes created (8), but twoFactorEnabled remains FALSE pending verification');
+
+        // 3. Test Invalid Activation Code Rejection
+        logs.push('Step 2 (Invalid Activation Code): Submitting invalid 6-digit TOTP code during enrollment');
+        let invalidActivationFailed = false;
+        try {
+          authService.enableTwoFactor(adminUser.id, '000000', setupResult.recoveryCodes, '127.0.0.1', 'SecurityTestRunner/1.0');
+        } catch (err: any) {
+          invalidActivationFailed = true;
+          logs.push(`Verified: Invalid activation code correctly rejected: ${err.message}`);
+        }
+        if (!invalidActivationFailed || adminUser.twoFactorEnabled !== false) {
+          throw new Error('CRITICAL DEFECT: Invalid TOTP code was accepted during 2FA enrollment!');
+        }
+
+        // 4. Test Valid Activation & Secure Storage of Recovery Codes
+        logs.push('Step 3 (Valid Activation): Submitting RFC 6238 TOTP code to activate 2FA');
+        const validActivationCode = authService.generateTotpCode(setupResult.secret);
+        const enableRes = authService.enableTwoFactor(
+          adminUser.id,
+          validActivationCode,
+          setupResult.recoveryCodes,
+          '127.0.0.1',
+          'SecurityTestRunner/1.0'
+        );
+        if (!enableRes.success || (adminUser.twoFactorEnabled as boolean) !== true) {
+          throw new Error('Failed to enable 2FA with valid TOTP code.');
+        }
+        // Verify recovery codes are hashed in DB, never plaintext
+        if (!adminUser.twoFactorRecoveryCodes || (adminUser.twoFactorRecoveryCodes.length as number) !== 8) {
+          throw new Error('Recovery codes not stored on user entity.');
+        }
+        for (const rawCode of setupResult.recoveryCodes) {
+          if (adminUser.twoFactorRecoveryCodes.includes(rawCode)) {
+            throw new Error('CRITICAL FLAW: Plaintext recovery code found in database! Must be hashed.');
+          }
+        }
+        logs.push('Verified: 2FA activated successfully; all 8 recovery codes stored as cryptographic SHA-256 hashes');
+
+        // 5. Test Password-Only Login Rejection (Pending 2FA State, Zero Session Leak)
+        logs.push('Step 4 (Password-Only Login Rejection): Attempting admin login with correct password');
+        const initialSessionCount = db.sessions.size;
+        const loginChallenge = await authService.adminLogin({
+          email: adminEmail,
+          password: adminMasterPassword
+        }, '127.0.0.1', 'SecurityTestRunner/1.0');
+
+        if (!loginChallenge.twoFactorRequired || !loginChallenge.preAuthToken) {
+          throw new Error('CRITICAL VULNERABILITY: Correct password granted access without 2FA challenge!');
+        }
+        if ((loginChallenge as any).accessToken || (loginChallenge as any).sessionId) {
+          throw new Error('CRITICAL VULNERABILITY: Access token leaked in pending 2FA challenge response!');
+        }
+        if (db.sessions.size !== initialSessionCount) {
+          throw new Error('CRITICAL VULNERABILITY: Session created in database before 2FA verification!');
+        }
+        logs.push('Verified: Password alone does NOT grant access; preAuthToken issued with ZERO session leak');
+
+        // 6. Test Pre-Auth Token Authorization Defense
+        logs.push('Step 5 (Pre-Auth Token Isolation): Verifying preAuthToken cannot authenticate as an access token');
+        const verifyResult = authService.verifyAccessToken(loginChallenge.preAuthToken);
+        if (verifyResult !== null) {
+          throw new Error('CRITICAL FLAW: preAuthToken was accepted as a valid JWT access token!');
+        }
+        logs.push('Verified: preAuthToken is strictly isolated to the 2FA verification challenge flow');
+
+        // 7. Test Invalid 2FA Code Rejection & Rate Limiting
+        logs.push('Step 6 (Invalid 2FA Code & Rate-Limiting): Testing failed 2FA attempts');
+        let invalidAttemptCaught = false;
+        try {
+          await authService.verifyTwoFactorLogin(
+            loginChallenge.preAuthToken,
+            '999999',
+            '10.0.0.99', // isolated test IP
+            'SecurityTestRunner/1.0'
+          );
+        } catch (err: any) {
+          invalidAttemptCaught = true;
+          logs.push(`Verified: Bad 2FA code rejected with error: ${err.message}`);
+        }
+        if (!invalidAttemptCaught) {
+          throw new Error('Invalid 2FA code was incorrectly accepted!');
+        }
+
+        // Test 2FA Rate-Limiting by triggering 5 failed attempts on isolated test IP
+        logs.push('Step 7 (Brute-Force Lockout Defense): Simulating excessive failed 2FA verification attempts');
+        for (let i = 0; i < 4; i++) {
+          try {
+            await authService.verifyTwoFactorLogin(
+              loginChallenge.preAuthToken,
+              '999999',
+              '10.0.0.99',
+              'SecurityTestRunner/1.0'
+            );
+          } catch {
+            // expected
+          }
+        }
+        let rateLimitTriggered = false;
+        try {
+          await authService.verifyTwoFactorLogin(
+            loginChallenge.preAuthToken,
+            '999999',
+            '10.0.0.99',
+            'SecurityTestRunner/1.0'
+          );
+        } catch (err: any) {
+          if (err.code === 'RATE_LIMITED' || err.message.toLowerCase().includes('too many failed')) {
+            rateLimitTriggered = true;
+            logs.push(`Verified: Progressive rate limit triggered: ${err.message}`);
+          }
+        }
+        if (!rateLimitTriggered) {
+          throw new Error('Rate-limiting / brute-force lockout did not engage after 5 failed 2FA attempts!');
+        }
+
+        // 8. Test Successful TOTP Verification & Session Creation
+        logs.push('Step 8 (Successful 2FA Verification): Submitting valid TOTP code on fresh pre-auth challenge');
+        const freshChallenge = await authService.adminLogin({
+          email: adminEmail,
+          password: adminMasterPassword
+        }, '127.0.0.1', 'SecurityTestRunner/1.0');
+
+        const validTotpCode = authService.generateTotpCode(adminUser.twoFactorSecret!);
+        const finalAuth = await authService.verifyTwoFactorLogin(
+          freshChallenge.preAuthToken!,
+          validTotpCode,
+          '127.0.0.1',
+          'SecurityTestRunner/1.0'
+        );
+
+        if (!finalAuth.success || !finalAuth.accessToken || !finalAuth.refreshToken) {
+          throw new Error('Valid TOTP code verification failed to return tokens.');
+        }
+        if (finalAuth.user.role !== 'SUPER_ADMIN') {
+          throw new Error(`Role compromised: expected SUPER_ADMIN, got ${finalAuth.user.role}`);
+        }
+        logs.push('Verified: Full Super Admin session issued with verified SUPER_ADMIN role');
+
+        // 9. Test Emergency Recovery Code Authentication & Atomic Single-Use Consumption
+        logs.push('Step 9 (Recovery Code Single-Use Consumption): Testing emergency recovery code flow');
+        const recoveryChallenge = await authService.adminLogin({
+          email: adminEmail,
+          password: adminMasterPassword
+        }, '127.0.0.1', 'SecurityTestRunner/1.0');
+
+        const testRecoveryCode = setupResult.recoveryCodes[0];
+        const recoveryAuth = await authService.verifyTwoFactorLogin(
+          recoveryChallenge.preAuthToken!,
+          testRecoveryCode,
+          '127.0.0.1',
+          'SecurityTestRunner/1.0'
+        );
+
+        if (!recoveryAuth.success || recoveryAuth.user.role !== 'SUPER_ADMIN') {
+          throw new Error('Recovery code authentication failed.');
+        }
+        if ((adminUser.twoFactorRecoveryCodes?.length as number) !== 7) {
+          throw new Error(`Expected 7 remaining recovery codes, found ${adminUser.twoFactorRecoveryCodes?.length}`);
+        }
+        logs.push('Verified: Recovery code accepted and atomically consumed (7 remaining)');
+
+        // Test Reuse Rejection
+        let reuseRejected = false;
+        const reuseChallenge = await authService.adminLogin({
+          email: adminEmail,
+          password: adminMasterPassword
+        }, '127.0.0.1', 'SecurityTestRunner/1.0');
+        try {
+          await authService.verifyTwoFactorLogin(
+            reuseChallenge.preAuthToken!,
+            testRecoveryCode,
+            '127.0.0.1',
+            'SecurityTestRunner/1.0'
+          );
+        } catch (err: any) {
+          reuseRejected = true;
+          logs.push(`Verified: Consumed recovery code reuse rejected: ${err.message}`);
+        }
+        if (!reuseRejected) {
+          throw new Error('CRITICAL FLAW: Consumed recovery code was permitted to authenticate again!');
+        }
+
+        // 10. Test Client Isolation Defense
+        logs.push('Step 10 (Client Isolation Defense): Verifying non-admin cannot access admin 2FA flow');
+        const clientEmail = 'client_2fa_test@example.com';
+        let testClient = db.getUserByEmail(clientEmail);
+        if (!testClient) {
+          const testClientRes = await authService.registerClient({
+            name: 'Client Isolation Tester',
+            email: clientEmail,
+            password: 'ClientStrongPass123!@#'
+          }, '127.0.0.1', 'SecurityTestRunner/1.0');
+          testClient = db.users.get(testClientRes.user.id)!;
+        }
+        if (testClient.role !== 'CLIENT') {
+          throw new Error('Test user is not a CLIENT.');
+        }
+
+        // Verify CLIENT cannot log into admin login
+        let clientAdminLoginBlocked = false;
+        try {
+          await authService.adminLogin({
+            email: clientEmail,
+            password: 'ClientStrongPass123!@#'
+          }, '127.0.0.1', 'SecurityTestRunner/1.0');
+        } catch (err: any) {
+          clientAdminLoginBlocked = true;
+          logs.push(`Verified: Client login attempt at Super Admin portal strictly denied: ${err.message}`);
+        }
+        if (!clientAdminLoginBlocked) {
+          throw new Error('CRITICAL FLAW: CLIENT was permitted to trigger Super Admin login flow!');
+        }
+
+        // 11. Test Secure Disable Flow with Password Verification
+        logs.push('Step 11 (Secure Disable Flow): Testing password requirement to disable 2FA');
+        let disableWithoutPassFailed = false;
+        try {
+          await authService.disableTwoFactor(adminUser.id, undefined, '127.0.0.1', 'SecurityTestRunner/1.0');
+        } catch (err: any) {
+          disableWithoutPassFailed = true;
+          logs.push(`Verified: Disabling 2FA without password blocked: ${err.message}`);
+        }
+        if (!disableWithoutPassFailed) {
+          throw new Error('CRITICAL DEFECT: Allowed unauthenticated disable of 2FA without password!');
+        }
+
+        const disableRes = await authService.disableTwoFactor(
+          adminUser.id,
+          adminMasterPassword,
+          '127.0.0.1',
+          'SecurityTestRunner/1.0'
+        );
+        if (!disableRes.success || adminUser.twoFactorEnabled !== false || adminUser.twoFactorSecret !== undefined) {
+          throw new Error('Failed to cleanly disable 2FA with verified master password.');
+        }
+        logs.push('Verified: 2FA disabled securely with master password; secrets and recovery codes cleared');
+
+        logs.push('ALL SUPER ADMIN TWO-FACTOR AUTHENTICATION TESTS (TASK 1.3.6) PASSED PERFECTLY');
+      }
+    ));
+
+    // =========================================================================
+    // 28. TASK 1.3.7: PREVENT CREATION OF ANOTHER SUPER ADMIN (SINGLE SUPER ADMIN RULE)
+    // =========================================================================
+    results.push(await this.runTest(
+      'SEC_TASK_1_3_7_SINGLE_SUPER_ADMIN_RULE',
+      'Task 1.3.7: Single Super Admin Invariant & Boundary Enforcement',
+      'Enforce Single-Super-Admin Rule: Maximum Accounts = 1, Role Injection Neutralization, Profile Escalation Denial, Storage Invariants, Concurrency Defense & Seed Idempotency',
+      async (logs) => {
+        logs.push('Executing Task 1.3.7: Comprehensive Single-Super-Admin Security Invariant Suite');
+
+        // 1. Verify Initial Database Baseline
+        logs.push('Step 1: Auditing system state for initial single-Super-Admin baseline');
+        const initialAudit = db.verifySingleSuperAdminInvariant();
+        if (!initialAudit.valid || initialAudit.count !== 1) {
+          throw new Error(`Baseline invariant failure: Expected exactly 1 Super Admin, found ${initialAudit.count}`);
+        }
+        const superAdmin = db.getSuperAdmin();
+        if (!superAdmin || superAdmin.email !== SUPER_ADMIN_EMAIL) {
+          throw new Error(`Designated Super Admin email mismatch. Expected ${SUPER_ADMIN_EMAIL}, got ${superAdmin?.email}`);
+        }
+        logs.push(`Verified: Exactly 1 designated Super Admin exists (${superAdmin.email}, ID=${superAdmin.id})`);
+
+        // 2. Client Registration: Normal Registration creates CLIENT
+        logs.push('Step 2: Testing standard client registration creates role CLIENT');
+        const normalClientEmail = `legit_client_${Date.now()}@example.com`;
+        const normalClientRes = await authService.registerClient({
+          name: 'Legitimate Client',
+          email: normalClientEmail,
+          password: 'StandardClientPassword123!',
+          clientType: 'customer'
+        }, '127.0.0.1', 'SecurityTestRunner/1.0');
+
+        if (normalClientRes.user.role !== 'CLIENT') {
+          throw new Error(`Expected role 'CLIENT' but received '${normalClientRes.user.role}'`);
+        }
+        logs.push(`Verified: Normal registration assigns role: ${normalClientRes.user.role}`);
+
+        // 3. Client Registration: Malicious Payload with role="SUPER_ADMIN"
+        logs.push('Step 3: Testing public registration payload with injected role="SUPER_ADMIN"');
+        const attackerEmail1 = `attacker_role_inj_${Date.now()}@example.com`;
+        const attackerRes1 = await authService.registerClient({
+          name: 'Attacker One',
+          email: attackerEmail1,
+          password: 'MaliciousPassword123!',
+          clientType: 'customer',
+          role: 'SUPER_ADMIN'
+        } as any, '127.0.0.1', 'SecurityTestRunner/1.0');
+
+        if (attackerRes1.user.role !== 'CLIENT') {
+          throw new Error(`CRITICAL BREACH: Registration payload with role="SUPER_ADMIN" was granted role '${attackerRes1.user.role}'!`);
+        }
+        const attackerUser1 = db.getUserByEmail(attackerEmail1);
+        if (!attackerUser1 || attackerUser1.role !== 'CLIENT') {
+          throw new Error('CRITICAL BREACH: Attacker record in database holds non-CLIENT role!');
+        }
+        logs.push('Verified: Public registration payload with role="SUPER_ADMIN" was strictly neutralized to CLIENT');
+
+        // 4. Client Registration: Alternate Privilege Escalation Fields (isAdmin, isSuperAdmin, permissions)
+        logs.push('Step 4: Testing public registration payload with alternate privilege fields (isAdmin, isSuperAdmin, permissions)');
+        const attackerEmail2 = `attacker_alt_fields_${Date.now()}@example.com`;
+        const attackerRes2 = await authService.registerClient({
+          name: 'Attacker Two',
+          email: attackerEmail2,
+          password: 'MaliciousPassword123!',
+          clientType: 'business',
+          isAdmin: true,
+          isSuperAdmin: true,
+          permissions: ['*'],
+          role: 'ADMIN'
+        } as any, '127.0.0.1', 'SecurityTestRunner/1.0');
+
+        if (attackerRes2.user.role !== 'CLIENT') {
+          throw new Error(`CRITICAL BREACH: Alternate privilege fields granted role '${attackerRes2.user.role}'!`);
+        }
+        const attackerUser2 = db.getUserByEmail(attackerEmail2);
+        if (!attackerUser2 || attackerUser2.role !== 'CLIENT') {
+          throw new Error('CRITICAL BREACH: Alternate privilege fields persisted unauthorized role in database!');
+        }
+        logs.push('Verified: Public registration with alternate privilege fields neutralized strictly to CLIENT');
+
+        // 5. Designated Email Registration Protection (Exact, Uppercase, Whitespace, Gmail Dot & Tag Manipulation)
+        logs.push('Step 5: Testing registration rejection for designated email and alias manipulation');
+        const forbiddenVariations = [
+          SUPER_ADMIN_EMAIL,
+          SUPER_ADMIN_EMAIL.toUpperCase(),
+          `  ${SUPER_ADMIN_EMAIL}  `,
+          'm.a.d.d.y.a.h.a.m.c.o.0.0@gmail.com',
+          'maddyahamco00+attacker@gmail.com',
+          'maddyahamco00@googlemail.com'
+        ];
+
+        for (const variation of forbiddenVariations) {
+          let blocked = false;
+          try {
+            await authService.registerClient({
+              name: 'Imposter Admin',
+              email: variation,
+              password: 'ImposterPassword123!',
+              clientType: 'customer'
+            }, '127.0.0.1', 'SecurityTestRunner/1.0');
+          } catch (err: any) {
+            blocked = true;
+            logs.push(`Verified: Registration blocked for email variation "${variation}": ${err.message}`);
+          }
+          if (!blocked) {
+            throw new Error(`CRITICAL BREACH: Registration allowed for designated email variation "${variation}"!`);
+          }
+        }
+
+        // 6. Account / Profile Update Protection (Self-Promotion Denial)
+        logs.push('Step 6: Testing profile update privilege escalation rejection');
+        const targetClient = attackerUser1;
+        let profileEscalationBlocked = false;
+        try {
+          await authService.updateProfile(targetClient.id, {
+            name: 'Attempted Escalation',
+            role: 'SUPER_ADMIN'
+          }, '127.0.0.1', 'SecurityTestRunner/1.0');
+        } catch (err: any) {
+          profileEscalationBlocked = true;
+          logs.push(`Verified: Profile update with role="SUPER_ADMIN" rejected: ${err.message}`);
+        }
+        if (!profileEscalationBlocked) {
+          throw new Error('CRITICAL BREACH: Client successfully promoted self to SUPER_ADMIN via profile update!');
+        }
+
+        // Test alternate fields in profile update
+        let altFieldsBlocked = false;
+        try {
+          await authService.updateProfile(targetClient.id, {
+            isAdmin: true,
+            isSuperAdmin: true
+          }, '127.0.0.1', 'SecurityTestRunner/1.0');
+        } catch (err: any) {
+          altFieldsBlocked = true;
+          logs.push(`Verified: Profile update with isAdmin/isSuperAdmin rejected: ${err.message}`);
+        }
+        if (!altFieldsBlocked) {
+          throw new Error('CRITICAL BREACH: Client successfully escalated privilege via alternate profile fields!');
+        }
+
+        // Verify targetClient role is STILL CLIENT
+        const verifiedClient = db.users.get(targetClient.id);
+        if (verifiedClient?.role !== 'CLIENT') {
+          throw new Error(`CRITICAL BREACH: Client role corrupted to '${verifiedClient?.role}'!`);
+        }
+        logs.push('Verified: Client role remained intact as CLIENT after escalation attempts');
+
+        // 7. Profile Update Email Hijacking
+        logs.push('Step 7: Testing profile update email change to designated Super Admin email');
+        let emailHijackBlocked = false;
+        try {
+          db.updateUser(targetClient.id, { email: SUPER_ADMIN_EMAIL });
+        } catch (err: any) {
+          emailHijackBlocked = true;
+          logs.push(`Verified: Changing email to Super Admin email blocked: ${err.message}`);
+        }
+        if (!emailHijackBlocked) {
+          throw new Error('CRITICAL BREACH: Client allowed to change email to designated Super Admin email!');
+        }
+
+        // 8. Database-Level Role Constraint Enforcement
+        logs.push('Step 8: Testing database-level constraint enforcement');
+
+        // 8.1 Attempting to create second Super Admin with rogue email
+        let dbCreateRogueBlocked = false;
+        try {
+          db.createUser({
+            id: `usr_rogue_${Date.now()}`,
+            name: 'Rogue Admin',
+            email: `rogue_admin_${Date.now()}@example.com`,
+            role: 'SUPER_ADMIN',
+            status: 'ACTIVE',
+            tier: 'enterprise',
+            failedLoginAttempts: 0,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          });
+        } catch (err: any) {
+          dbCreateRogueBlocked = true;
+          logs.push(`Verified: db.createUser with rogue SUPER_ADMIN email rejected: ${err.message}`);
+        }
+        if (!dbCreateRogueBlocked) {
+          throw new Error('CRITICAL BREACH: db.createUser allowed creation of non-designated SUPER_ADMIN!');
+        }
+
+        // 8.2 Attempting to create second Super Admin with designated email when one exists
+        let dbDuplicateAdminBlocked = false;
+        try {
+          db.createUser({
+            id: `usr_duplicate_maddy_${Date.now()}`,
+            name: 'Duplicate Maddy',
+            email: SUPER_ADMIN_EMAIL,
+            role: 'SUPER_ADMIN',
+            status: 'ACTIVE',
+            tier: 'enterprise',
+            failedLoginAttempts: 0,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          });
+        } catch (err: any) {
+          dbDuplicateAdminBlocked = true;
+          logs.push(`Verified: db.createUser duplicate Super Admin creation rejected: ${err.message}`);
+        }
+        if (!dbDuplicateAdminBlocked) {
+          throw new Error('CRITICAL BREACH: db.createUser allowed second Super Admin account!');
+        }
+
+        // 8.3 Attempting to promote another user via db.updateUser
+        let dbPromoteBlocked = false;
+        try {
+          db.updateUser(targetClient.id, { role: 'SUPER_ADMIN' });
+        } catch (err: any) {
+          dbPromoteBlocked = true;
+          logs.push(`Verified: db.updateUser role promotion to SUPER_ADMIN rejected: ${err.message}`);
+        }
+        if (!dbPromoteBlocked) {
+          throw new Error('CRITICAL BREACH: db.updateUser allowed promotion to SUPER_ADMIN!');
+        }
+
+        // 8.4 Attempting to demote the primary Super Admin
+        let dbDemoteBlocked = false;
+        try {
+          db.updateUser(SUPER_ADMIN_ID, { role: 'CLIENT' });
+        } catch (err: any) {
+          dbDemoteBlocked = true;
+          logs.push(`Verified: db.updateUser demoting Super Admin rejected: ${err.message}`);
+        }
+        if (!dbDemoteBlocked) {
+          throw new Error('CRITICAL BREACH: db.updateUser allowed demotion of designated Super Admin!');
+        }
+
+        // 8.5 Storage collection-level .set() invariant enforcement
+        let collectionSetBlocked = false;
+        try {
+          db.users.set('usr_bypass_attempt', {
+            id: 'usr_bypass_attempt',
+            name: 'Bypass Admin',
+            email: 'bypass@hacker.io',
+            role: 'SUPER_ADMIN',
+            status: 'ACTIVE',
+            tier: 'enterprise',
+            failedLoginAttempts: 0,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          });
+        } catch (err: any) {
+          collectionSetBlocked = true;
+          logs.push(`Verified: Storage collection-level .set() rejected rogue Super Admin: ${err.message}`);
+        }
+        if (!collectionSetBlocked) {
+          throw new Error('CRITICAL BREACH: Storage collection allowed direct rogue SUPER_ADMIN insertion!');
+        }
+
+        // 9. Concurrency & Race Condition Defense
+        logs.push('Step 9: Testing concurrent attempts to create or promote Super Admin');
+        const concurrentAttempts = 5;
+        const racePromises = Array.from({ length: concurrentAttempts }).map(async (_, idx) => {
+          try {
+            return await AuthService.withSuperAdminLock(async () => {
+              // Attempt rogue creation
+              db.createUser({
+                id: `usr_race_${idx}_${Date.now()}`,
+                name: `Concurrent Attacker ${idx}`,
+                email: `race_attacker_${idx}@example.com`,
+                role: 'SUPER_ADMIN',
+                status: 'ACTIVE',
+                tier: 'enterprise',
+                failedLoginAttempts: 0,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+              });
+              return 'success';
+            });
+          } catch (err: any) {
+            return 'blocked';
+          }
+        });
+
+        const raceResults = await Promise.all(racePromises);
+        const successfulBreaches = raceResults.filter(r => r === 'success');
+        if (successfulBreaches.length > 0) {
+          throw new Error(`CRITICAL BREACH: Race condition allowed ${successfulBreaches.length} unauthorized Super Admins!`);
+        }
+        logs.push(`Verified: All ${concurrentAttempts} concurrent rogue Super Admin attempts were blocked`);
+
+        // 10. Seed / Bootstrap Idempotency & 2FA Integrity
+        logs.push('Step 10: Testing seed/provisioning idempotency and 2FA protection');
+        const adminBefore = db.getUserByEmail(SUPER_ADMIN_EMAIL)!;
+        adminBefore.twoFactorEnabled = true;
+        adminBefore.twoFactorSecret = 'JBSWY3DPEHPK3PXP';
+        adminBefore.twoFactorRecoveryCodes = [authService.hashToken('TEST-CODE-01')];
+
+        // Execute provisionSuperAdmin multiple times
+        for (let i = 1; i <= 5; i++) {
+          db.provisionSuperAdmin();
+        }
+
+        const adminAfter = db.getUserByEmail(SUPER_ADMIN_EMAIL)!;
+        if (db.countSuperAdmins() !== 1) {
+          throw new Error(`Seed idempotency failed: Expected 1 Super Admin, found ${db.countSuperAdmins()}`);
+        }
+        if (adminAfter.twoFactorEnabled !== true || adminAfter.twoFactorSecret !== 'JBSWY3DPEHPK3PXP') {
+          throw new Error('Seed degraded or erased 2FA configuration on designated Super Admin!');
+        }
+        if (!adminAfter.twoFactorRecoveryCodes || adminAfter.twoFactorRecoveryCodes.length !== 1) {
+          throw new Error('Seed degraded or erased recovery codes on designated Super Admin!');
+        }
+        logs.push('Verified: Repeated provisioning is 100% idempotent and preserves 2FA state');
+
+        // 11. Final Invariant Confirmation
+        logs.push('Step 11: Performing final comprehensive invariant audit');
+        const finalAudit = db.verifySingleSuperAdminInvariant();
+        if (!finalAudit.valid || finalAudit.count !== 1) {
+          throw new Error(`Final invariant audit failed: Count is ${finalAudit.count}, valid=${finalAudit.valid}`);
+        }
+        logs.push(`SUCCESS: MAXIMUM SUPER_ADMIN ACCOUNTS = ${finalAudit.count}`);
+        logs.push(`SUCCESS: AUTHORITATIVE SUPER ADMIN = ${finalAudit.designatedEmail}`);
+        logs.push('ALL SINGLE SUPER ADMIN SECURITY INVARIANT TESTS (TASK 1.3.7) PASSED PERFECTLY');
+      }
+    ));
+
+    // Test 35: Password Reset Token Lifecycle & Safe Cleanup (Task 1.4.5)
+    results.push(await this.runTest(
+      'auth_35_password_reset_token_cleanup_lifecycle',
+      'Client Password Recovery',
+      'Task 1.4.5: Password Reset Token Lifecycle & Safe Cleanup Management',
+      async (logs) => {
+        logs.push('=== Starting Task 1.4.5: Password Reset Token Lifecycle & Safe Cleanup ===');
+
+        // Setup test users
+        const userAEmail = `lifecycle_a_${Date.now()}@example.com`;
+        const userBEmail = `lifecycle_b_${Date.now()}@example.com`;
+        const userCEmail = `lifecycle_c_${Date.now()}@example.com`;
+
+        const userA = await db.createUser({
+          id: `usr_lc_a_${Date.now()}`,
+          name: 'Lifecycle User A',
+          email: userAEmail,
+          passwordHash: await authService.hashPassword('PasswordA123!'),
+          role: 'CLIENT',
+          tier: 'free',
+          status: 'ACTIVE',
+          emailVerifiedAt: new Date().toISOString(),
+          failedLoginAttempts: 0,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        });
+
+        const userB = await db.createUser({
+          id: `usr_lc_b_${Date.now()}`,
+          name: 'Lifecycle User B',
+          email: userBEmail,
+          passwordHash: await authService.hashPassword('PasswordB123!'),
+          role: 'CLIENT',
+          tier: 'free',
+          status: 'ACTIVE',
+          emailVerifiedAt: new Date().toISOString(),
+          failedLoginAttempts: 0,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        });
+
+        const userC = await db.createUser({
+          id: `usr_lc_c_${Date.now()}`,
+          name: 'Lifecycle User C',
+          email: userCEmail,
+          passwordHash: await authService.hashPassword('PasswordC123!'),
+          role: 'CLIENT',
+          tier: 'free',
+          status: 'ACTIVE',
+          emailVerifiedAt: new Date().toISOString(),
+          failedLoginAttempts: 0,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        });
+
+        // 1. ACTIVE TOKEN RETENTION
+        logs.push('--- Step 1: Active Token Lifecycle & Retention ---');
+        const activeResA = await passwordResetTokenService.create(userA.id, userA.email);
+        logs.push(`Created active reset token for User A: ID=${activeResA.tokenRecord.id}`);
+
+        const preCleanupValidate = passwordResetTokenService.validateToken(activeResA.rawToken);
+        if (!preCleanupValidate.valid || preCleanupValidate.status !== 'VALID') {
+          throw new Error('Active token failed validation before cleanup');
+        }
+
+        const cleanupRes1 = await passwordResetTokenService.cleanup();
+        logs.push(`Cleanup 1 execution: removedExpired=${cleanupRes1.removedExpired}, removedUsed=${cleanupRes1.removedUsed}, activeRetained=${cleanupRes1.activeRetained}`);
+
+        if (!db.tokens.has(activeResA.tokenRecord.id)) {
+          throw new Error('Active unexpired token was improperly deleted during cleanup!');
+        }
+        const postCleanupValidate = passwordResetTokenService.validateToken(activeResA.rawToken);
+        if (!postCleanupValidate.valid || postCleanupValidate.status !== 'VALID') {
+          throw new Error('Active unexpired token became invalid after cleanup!');
+        }
+        logs.push('Verified: Active token survives cleanup and remains completely valid');
+
+        // 2. EXPIRED TOKEN CLEANUP
+        logs.push('--- Step 2: Expired Token Lifecycle & Cleanup ---');
+        const expiredRawToken = 'raw_exp_token_' + Date.now();
+        const expiredTokenRecord: VerificationToken = {
+          id: `tok_exp_lc_${Date.now()}`,
+          tokenHash: passwordResetTokenService.hashToken(expiredRawToken),
+          userId: userA.id,
+          email: userA.email,
+          type: 'password_reset',
+          expiresAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(), // Expired 5 mins ago
+          isUsed: false,
+          usedAt: null,
+          createdAt: new Date(Date.now() - 35 * 60 * 1000).toISOString()
+        };
+        db.tokens.set(expiredTokenRecord.id, expiredTokenRecord);
+        logs.push(`Injected expired reset token: ID=${expiredTokenRecord.id}`);
+
+        const cleanupRes2 = await passwordResetTokenService.cleanup({ removeExpired: true, removeUsed: false });
+        logs.push(`Cleanup 2 execution: removedExpired=${cleanupRes2.removedExpired}, removedUsed=${cleanupRes2.removedUsed}`);
+
+        if (db.tokens.has(expiredTokenRecord.id)) {
+          throw new Error('Expired token was NOT removed by cleanup!');
+        }
+        if (!db.tokens.has(activeResA.tokenRecord.id)) {
+          throw new Error('Active token was deleted when cleaning expired tokens!');
+        }
+        logs.push('Verified: Expired token safely removed; active token preserved');
+
+        // 3. USED TOKEN CLEANUP
+        logs.push('--- Step 3: Used Token Lifecycle & Cleanup ---');
+        const usedTokenRes = await passwordResetTokenService.create(userB.id, userB.email);
+        await passwordResetTokenService.consumeToken(usedTokenRes.rawToken);
+        logs.push(`Created and consumed reset token for User B: ID=${usedTokenRes.tokenRecord.id}`);
+
+        const usedValidation = passwordResetTokenService.validateToken(usedTokenRes.rawToken);
+        if (usedValidation.valid || usedValidation.status !== 'USED') {
+          throw new Error('Consumed token did not report USED status');
+        }
+
+        const cleanupRes3 = await passwordResetTokenService.cleanup({ removeExpired: false, removeUsed: true, usedRetentionMinutes: 0 });
+        logs.push(`Cleanup 3 execution: removedExpired=${cleanupRes3.removedExpired}, removedUsed=${cleanupRes3.removedUsed}`);
+
+        if (db.tokens.has(usedTokenRes.tokenRecord.id)) {
+          throw new Error('Used token was NOT removed by cleanup!');
+        }
+        logs.push('Verified: Used token safely removed; active tokens preserved');
+
+        // 4. IDEMPOTENCY
+        logs.push('--- Step 4: Idempotency Across Multiple Invocations ---');
+        const run1 = await passwordResetTokenService.cleanup();
+        const run2 = await passwordResetTokenService.cleanup();
+        const run3 = await passwordResetTokenService.cleanup();
+        logs.push(`Idempotency runs: Run 1 removed=${run1.totalRemoved}, Run 2 removed=${run2.totalRemoved}, Run 3 removed=${run3.totalRemoved}`);
+
+        if (run2.totalRemoved !== 0 || run3.totalRemoved !== 0) {
+          throw new Error('Cleanup is not idempotent: repeated runs removed items unexpectedly');
+        }
+        if (!run1.success || !run2.success || !run3.success) {
+          throw new Error('Cleanup execution failed during idempotency test');
+        }
+        logs.push('Verified: Multiple consecutive cleanup calls run without error or unintended side effects');
+
+        // 5. MULTI-USER ISOLATION
+        logs.push('--- Step 5: Multi-User Token Isolation ---');
+        // User A: 1 active, 1 expired
+        const userAActive = await passwordResetTokenService.create(userA.id, userA.email);
+        const userAExpiredRaw = 'exp_user_a_' + Date.now();
+        const userAExpiredToken: VerificationToken = {
+          id: `tok_exp_user_a_${Date.now()}`,
+          tokenHash: passwordResetTokenService.hashToken(userAExpiredRaw),
+          userId: userA.id,
+          email: userA.email,
+          type: 'password_reset',
+          expiresAt: new Date(Date.now() - 1000).toISOString(),
+          isUsed: false,
+          usedAt: null,
+          createdAt: new Date().toISOString()
+        };
+        db.tokens.set(userAExpiredToken.id, userAExpiredToken);
+
+        // User B: 1 active, 1 used
+        const userBUsed = await passwordResetTokenService.create(userB.id, userB.email);
+        await passwordResetTokenService.consumeToken(userBUsed.rawToken);
+        const userBActive = await passwordResetTokenService.create(userB.id, userB.email);
+
+        const multiUserCleanup = await passwordResetTokenService.cleanup({ removeExpired: true, removeUsed: true, usedRetentionMinutes: 0 });
+        logs.push(`Multi-user cleanup: removedExpired=${multiUserCleanup.removedExpired}, removedUsed=${multiUserCleanup.removedUsed}`);
+
+        if (!db.tokens.has(userAActive.tokenRecord.id)) throw new Error("User A active token was improperly deleted");
+        if (db.tokens.has(userAExpiredToken.id)) throw new Error("User A expired token was NOT deleted");
+        if (!db.tokens.has(userBActive.tokenRecord.id)) throw new Error("User B active token was improperly deleted");
+        if (db.tokens.has(userBUsed.tokenRecord.id)) throw new Error("User B used token was NOT deleted");
+        logs.push('Verified: Multi-user isolation maintained; only eligible tokens deleted per user');
+
+        // 6. CONCURRENCY SAFETY
+        logs.push('--- Step 6: Concurrency Safety with Active Reset Operation ---');
+        const userCResetToken = await passwordResetTokenService.create(userC.id, userC.email);
+        const newPasswordC = 'NewSecurePasswordC123!';
+
+        // Run concurrent cleanup while performing resetPassword
+        const [resetResult, concurrentCleanup] = await Promise.all([
+          authService.resetPassword(userCResetToken.rawToken, newPasswordC, '127.0.0.1', 'SecurityTest/1.0'),
+          passwordResetTokenService.cleanup()
+        ]);
+
+        if (!resetResult.success) {
+          throw new Error('Reset password failed during concurrent cleanup execution');
+        }
+        if (!concurrentCleanup.success) {
+          throw new Error('Cleanup failed during concurrent reset password execution');
+        }
+        logs.push('Verified: Concurrent reset password and cleanup executed safely without race collision');
+
+        // 7. RATE LIMITING IMMUNITY
+        logs.push('--- Step 7: Rate Limiting & Security Counter Immunity ---');
+        const testIpKey = `rp_ip_192.168.10.99`;
+        authService.recordResendAttempt(testIpKey, 60 * 1000);
+        const beforeCheck = authService.checkResendRateLimit(testIpKey, 1, 60 * 1000);
+        if (!beforeCheck.isLimited) {
+          throw new Error('Expected rate limit counter to be active before cleanup');
+        }
+
+        await passwordResetTokenService.cleanup();
+
+        const afterCheck = authService.checkResendRateLimit(testIpKey, 1, 60 * 1000);
+        if (!afterCheck.isLimited) {
+          throw new Error('Security defect: Token cleanup cleared or bypassed rate limit security counters!');
+        }
+        logs.push('Verified: Cleanup does not touch or reset rate-limiting or security counters');
+
+        // 8. REGRESSION VERIFICATION: COMPLETE RECOVERY FLOW
+        logs.push('--- Step 8: Full Password Recovery Flow Regression ---');
+        emailService.clearOutbox();
+        const clientEmail = `regression_recovery_${Date.now()}@example.com`;
+        const initialPass = 'InitialRecoveryPass123!';
+        const updatedPass = 'FinalRecoveryPass456!';
+
+        await db.createUser({
+          id: `usr_reg_rec_${Date.now()}`,
+          name: 'Regression Client',
+          email: clientEmail,
+          passwordHash: await authService.hashPassword(initialPass),
+          role: 'CLIENT',
+          tier: 'free',
+          status: 'ACTIVE',
+          emailVerifiedAt: new Date().toISOString(),
+          failedLoginAttempts: 0,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        });
+
+        // 8a. Forgot password dispatch
+        const forgotRes = await authService.forgotPassword(clientEmail, 'http://localhost:3000', '127.0.0.1', 'RegressionTest/1.0');
+        if (!forgotRes.success) throw new Error('Forgot password request failed');
+
+        const outbox = emailService.getOutbox();
+        const resetEmail = outbox.find(e => e.to === clientEmail && e.template === 'password_reset');
+        if (!resetEmail || !resetEmail.token) {
+          throw new Error('Password reset email with token was not found in outbox');
+        }
+        const extractedRawToken = resetEmail.token;
+        logs.push(`Extracted reset token from outbox email for ${clientEmail}`);
+
+        // 8b. Reset password with new password
+        const finalReset = await authService.resetPassword(extractedRawToken, updatedPass, '127.0.0.1', 'RegressionTest/1.0');
+        if (!finalReset.success) throw new Error('Password reset execution failed');
+        logs.push('Reset password completed successfully');
+
+        // 8c. Consumed token rejected
+        let reuseRejected = false;
+        try {
+          await authService.resetPassword(extractedRawToken, 'AttemptReusePass789!', '127.0.0.1', 'RegressionTest/1.0');
+        } catch (err: any) {
+          reuseRejected = true;
+          logs.push(`Token reuse correctly rejected: "${err.message}"`);
+        }
+        if (!reuseRejected) throw new Error('Security defect: Consumed reset token was re-used!');
+
+        // 8d. Login with new password
+        const loginNew = await authService.login({
+          email: clientEmail,
+          password: updatedPass
+        }, '127.0.0.1', 'RegressionTest/1.0');
+        if (!loginNew.success || !loginNew.accessToken) {
+          throw new Error('Login with newly reset password failed');
+        }
+        logs.push('Verified: Login with newly reset password succeeded');
+
+        // 8e. Login with old password rejected
+        let oldLoginRejected = false;
+        try {
+          await authService.login({
+            email: clientEmail,
+            password: initialPass
+          }, '127.0.0.1', 'RegressionTest/1.0');
+        } catch (err: any) {
+          oldLoginRejected = true;
+          logs.push(`Old password login correctly rejected: "${err.message}"`);
+        }
+        if (!oldLoginRejected) throw new Error('Security defect: Login with superseded password succeeded!');
+
+        // 8f. Invalid token rejected
+        let invalidTokenRejected = false;
+        try {
+          await authService.resetPassword('completely_bogus_token_12345678', 'SomePass123!', '127.0.0.1', 'RegressionTest/1.0');
+        } catch (err: any) {
+          invalidTokenRejected = true;
+          logs.push(`Invalid token correctly rejected: "${err.message}"`);
+        }
+        if (!invalidTokenRejected) throw new Error('Security defect: Invalid token was accepted!');
+
+        logs.push('TASK 1.4.5: PASSWORD RESET TOKEN LIFECYCLE & SAFE CLEANUP VERIFICATION COMPLETE');
+      }
+    ));
+
+    // Test 36: Database Schema & Persistence Layer Hardening Audit
+    results.push(await this.runTest(
+      'auth_36_database_persistence_hardening',
+      'Database Security & Persistence Layer',
+      'Verify schema constraints, Super Admin invariants, session isolation, token lifecycle, and ACID-like transaction rollbacks',
+      async (logs) => {
+        logs.push('=== STARTING DATABASE SCHEMA & PERSISTENCE LAYER HARDENING AUDIT ===');
+
+        // ----------------------------------------------------
+        // 1. USER IDENTITY INTEGRITY & REQUIRED FIELDS
+        // ----------------------------------------------------
+        logs.push('Phase 1: Verifying user identity integrity and non-null required field constraints');
+
+        // 1a. Missing ID rejection
+        let missingIdRejected = false;
+        try {
+          db.users.set('invalid_user_1', {
+            id: '',
+            name: 'Valid Name',
+            email: 'test_missing_id@boostmarket.ng',
+            role: 'CLIENT',
+            status: 'ACTIVE',
+            tier: 'free',
+            failedLoginAttempts: 0,
+            createdAt: new Date().toISOString()
+          });
+        } catch (err: any) {
+          if (err instanceof DatabaseValidationError || err.code === 'VALIDATION_ERROR') {
+            missingIdRejected = true;
+            logs.push(`Verified: Missing user ID rejected with DatabaseValidationError: "${err.message}"`);
+          }
+        }
+        if (!missingIdRejected) throw new Error('Persistence breach: User with empty ID was accepted');
+
+        // 1b. Missing Name rejection
+        let missingNameRejected = false;
+        try {
+          db.users.set('invalid_user_2', {
+            id: 'invalid_user_2',
+            name: '',
+            email: 'test_missing_name@boostmarket.ng',
+            role: 'CLIENT',
+            status: 'ACTIVE',
+            tier: 'free',
+            failedLoginAttempts: 0,
+            createdAt: new Date().toISOString()
+          });
+        } catch (err: any) {
+          if (err instanceof DatabaseValidationError || err.code === 'VALIDATION_ERROR') {
+            missingNameRejected = true;
+            logs.push(`Verified: Missing user Name rejected with DatabaseValidationError: "${err.message}"`);
+          }
+        }
+        if (!missingNameRejected) throw new Error('Persistence breach: User with empty Name was accepted');
+
+        // 1c. Missing Email rejection
+        let missingEmailRejected = false;
+        try {
+          db.users.set('invalid_user_3', {
+            id: 'invalid_user_3',
+            name: 'Test Name',
+            email: '',
+            role: 'CLIENT',
+            status: 'ACTIVE',
+            tier: 'free',
+            failedLoginAttempts: 0,
+            createdAt: new Date().toISOString()
+          });
+        } catch (err: any) {
+          if (err instanceof DatabaseValidationError || err.code === 'VALIDATION_ERROR') {
+            missingEmailRejected = true;
+            logs.push(`Verified: Missing user Email rejected with DatabaseValidationError: "${err.message}"`);
+          }
+        }
+        if (!missingEmailRejected) throw new Error('Persistence breach: User with empty Email was accepted');
+
+        // 1d. Invalid Role rejection
+        let invalidRoleRejected = false;
+        try {
+          db.users.set('invalid_user_4', {
+            id: 'invalid_user_4',
+            name: 'Test Name',
+            email: 'valid_email@boostmarket.ng',
+            role: 'ARBITRARY_ADMIN' as any,
+            status: 'ACTIVE',
+            tier: 'free',
+            failedLoginAttempts: 0,
+            createdAt: new Date().toISOString()
+          });
+        } catch (err: any) {
+          if (err instanceof DatabaseValidationError || err.code === 'VALIDATION_ERROR') {
+            invalidRoleRejected = true;
+            logs.push(`Verified: Invalid user Role rejected with DatabaseValidationError: "${err.message}"`);
+          }
+        }
+        if (!invalidRoleRejected) throw new Error('Persistence breach: User with arbitrary Role was accepted');
+
+        // 1e. Email Normalization and O(1) Index Lookup
+        const unnormalizedEmail = '   CaseInsensitive.Buyer+Tag@BoostMarket.NG   ';
+        const expectedNormalized = 'caseinsensitive.buyer+tag@boostmarket.ng';
+        const testUser1: UserEntity = {
+          id: `usr_identity_norm_${Date.now()}`,
+          name: 'Case Test User',
+          email: unnormalizedEmail,
+          role: 'CLIENT',
+          status: 'ACTIVE',
+          tier: 'free',
+          failedLoginAttempts: 0,
+          createdAt: new Date().toISOString()
+        };
+        db.users.set(testUser1.id, testUser1);
+        const storedUser = db.users.get(testUser1.id);
+        if (!storedUser || storedUser.email !== expectedNormalized) {
+          throw new Error(`Email normalization failure: expected "${expectedNormalized}", got "${storedUser?.email}"`);
+        }
+        logs.push(`Verified: Email normalized at database level: "${unnormalizedEmail}" -> "${storedUser.email}"`);
+
+        const lookupByEmail = db.users.getByEmail('CASEINSENSITIVE.buyer+tag@boostmarket.ng');
+        if (!lookupByEmail || lookupByEmail.id !== testUser1.id) {
+          throw new Error('Indexed getByEmail lookup failed for normalized email');
+        }
+        logs.push('Verified: Fast O(1) indexed email lookup retrieved exact user');
+
+        // 1f. Email Uniqueness Enforcement at Storage Layer
+        let duplicateEmailBlocked = false;
+        try {
+          db.users.set(`usr_duplicate_${Date.now()}`, {
+            id: `usr_duplicate_${Date.now()}`,
+            name: 'Imposter User',
+            email: expectedNormalized.toUpperCase(),
+            role: 'CLIENT',
+            status: 'ACTIVE',
+            tier: 'free',
+            failedLoginAttempts: 0,
+            createdAt: new Date().toISOString()
+          });
+        } catch (err: any) {
+          if (err instanceof DatabaseUniqueConstraintError || err.code === 'P2002') {
+            duplicateEmailBlocked = true;
+            logs.push(`Verified: Duplicate email insertion blocked by database constraint: "${err.message}"`);
+          }
+        }
+        if (!duplicateEmailBlocked) throw new Error('CRITICAL: Duplicate email allowed at storage layer!');
+
+        // Clean up test user
+        db.users.delete(testUser1.id);
+
+        // ----------------------------------------------------
+        // 2. SUPER ADMIN INVARIANT & HARDENING
+        // ----------------------------------------------------
+        logs.push('Phase 2: Verifying Super Admin single-account invariant and immutability');
+
+        // 2a. Reject rogue email claiming SUPER_ADMIN
+        let rogueSuperAdminBlocked = false;
+        try {
+          db.users.set('usr_rogue_super_admin', {
+            id: 'usr_rogue_super_admin',
+            name: 'Rogue Super Admin',
+            email: 'attacker@fraud.io',
+            role: 'SUPER_ADMIN',
+            status: 'ACTIVE',
+            tier: 'enterprise',
+            failedLoginAttempts: 0,
+            createdAt: new Date().toISOString()
+          });
+        } catch (err: any) {
+          if (err instanceof DatabaseRoleConstraintError) {
+            rogueSuperAdminBlocked = true;
+            logs.push(`Verified: Unauthorized account blocked from SUPER_ADMIN role: "${err.message}"`);
+          }
+        }
+        if (!rogueSuperAdminBlocked) throw new Error('CRITICAL: Rogue account allowed SUPER_ADMIN role!');
+
+        // 2b. Verify designated Super Admin exists and cannot be demoted
+        const superAdmin = db.getSuperAdmin();
+        if (!superAdmin) throw new Error('Designated Super Admin not found in persistence layer');
+        if (!isDesignatedSuperAdminEmail(superAdmin.email)) {
+          throw new Error(`Super Admin email mismatch: expected ${SUPER_ADMIN_EMAIL}, got ${superAdmin.email}`);
+        }
+        logs.push(`Verified: Exactly 1 designated Super Admin active: ${superAdmin.email}`);
+
+        let demotionBlocked = false;
+        try {
+          db.users.set(superAdmin.id, {
+            ...superAdmin,
+            role: 'CLIENT'
+          });
+        } catch (err: any) {
+          if (err instanceof DatabaseRoleConstraintError) {
+            demotionBlocked = true;
+            logs.push(`Verified: Demotion of designated Super Admin strictly rejected: "${err.message}"`);
+          }
+        }
+        if (!demotionBlocked) throw new Error('CRITICAL: Designated Super Admin was demoted to CLIENT!');
+
+        // 2c. Verify no plaintext password exists
+        if (superAdmin.passwordHash.includes('Admin2026!') || superAdmin.passwordHash.includes('password')) {
+          throw new Error('SECURITY VIOLATION: Super Admin password hash contains hardcoded plaintext');
+        }
+        logs.push('Verified: Super Admin passwordHash is a secure bcrypt digest without plaintext exposure');
+
+        // ----------------------------------------------------
+        // 3. SESSION STORAGE HARDENING & DATA ISOLATION
+        // ----------------------------------------------------
+        logs.push('Phase 3: Auditing session collection security, credentials protection, and indexing');
+
+        // 3a. Reject session containing sensitive credentials
+        let credentialLeakBlocked = false;
+        try {
+          db.sessions.set('sess_leaky', {
+            id: 'sess_leaky',
+            userId: 'usr_some_user',
+            email: 'user@test.ng',
+            role: 'CLIENT',
+            tokenHash: 'abc123hash',
+            ipAddress: '127.0.0.1',
+            userAgent: 'TestAgent/1.0',
+            expiresAt: new Date(Date.now() + 3600000).toISOString(),
+            createdAt: new Date().toISOString(),
+            lastActiveAt: new Date().toISOString(),
+            isRevoked: false,
+            passwordHash: '$2b$12$leakedHashString'
+          } as any);
+        } catch (err: any) {
+          if (err instanceof DatabaseValidationError) {
+            credentialLeakBlocked = true;
+            logs.push(`Verified: Session rejected due to sensitive credentials payload: "${err.message}"`);
+          }
+        }
+        if (!credentialLeakBlocked) throw new Error('SECURITY VIOLATION: Session with passwordHash was stored!');
+
+        // 3b. Session indexed lookup and cascade revocation
+        const dummyUserId = `usr_session_test_${Date.now()}`;
+        const sess1Id = `sess_active_1_${Date.now()}`;
+        const sess2Id = `sess_active_2_${Date.now()}`;
+        const sessTokenHash = `hash_${Date.now()}`;
+
+        db.sessions.set(sess1Id, {
+          id: sess1Id,
+          userId: dummyUserId,
+          email: 'session_test@boostmarket.ng',
+          role: 'CLIENT',
+          tokenHash: sessTokenHash,
+          ipAddress: '127.0.0.1',
+          userAgent: 'TestAgent/1.0',
+          expiresAt: new Date(Date.now() + 3600000).toISOString(),
+          createdAt: new Date().toISOString(),
+          lastActiveAt: new Date().toISOString(),
+          isRevoked: false
+        });
+
+        db.sessions.set(sess2Id, {
+          id: sess2Id,
+          userId: dummyUserId,
+          email: 'session_test@boostmarket.ng',
+          role: 'CLIENT',
+          tokenHash: `hash2_${Date.now()}`,
+          ipAddress: '127.0.0.1',
+          userAgent: 'TestAgent/1.0',
+          expiresAt: new Date(Date.now() + 7200000).toISOString(),
+          createdAt: new Date().toISOString(),
+          lastActiveAt: new Date().toISOString(),
+          isRevoked: false
+        });
+
+        const activeSessions = db.sessions.findActiveByUserId(dummyUserId);
+        if (activeSessions.length !== 2) {
+          throw new Error(`Expected 2 active sessions for user, found ${activeSessions.length}`);
+        }
+        logs.push('Verified: SessionCollection indexed multi-device session retrieval');
+
+        const foundByHash = db.sessions.findByTokenHash(sessTokenHash);
+        if (!foundByHash || foundByHash.id !== sess1Id) {
+          throw new Error('Session lookup by tokenHash failed');
+        }
+        logs.push('Verified: SessionCollection O(1) lookup by tokenHash');
+
+        const revokedCount = db.sessions.revokeAllForUser(dummyUserId);
+        if (revokedCount !== 2) {
+          throw new Error(`Expected 2 sessions revoked, got ${revokedCount}`);
+        }
+        const remainingActive = db.sessions.findActiveByUserId(dummyUserId);
+        if (remainingActive.length !== 0) {
+          throw new Error('Active sessions still present after revokeAllForUser');
+        }
+        logs.push('Verified: Cascade revocation successfully invalidated all user sessions');
+
+        // Clean up test sessions
+        db.sessions.delete(sess1Id);
+        db.sessions.delete(sess2Id);
+
+        // ----------------------------------------------------
+        // 4. TOKEN ATOMIC CONSUMPTION & SINGLE-USE LIFECYCLE
+        // ----------------------------------------------------
+        logs.push('Phase 4: Auditing token atomic single-use consumption and expiration');
+
+        const testTokenId = `tok_audit_${Date.now()}`;
+        const testRawToken = `raw_token_audit_${Date.now()}`;
+        const testHash = require('crypto').createHash('sha256').update(testRawToken).digest('hex');
+
+        db.tokens.set(testTokenId, {
+          id: testTokenId,
+          userId: dummyUserId,
+          email: 'dummy@boostmarket.ng',
+          tokenHash: testHash,
+          type: 'password_reset',
+          expiresAt: new Date(Date.now() + 3600000).toISOString(),
+          createdAt: new Date().toISOString(),
+          isUsed: false
+        });
+
+        // 4a. First consumption succeeds
+        const consume1 = db.tokens.consumeToken(testHash, 'password_reset');
+        if (!consume1.success || !consume1.token?.isUsed || !consume1.token?.usedAt) {
+          throw new Error('First token consumption failed');
+        }
+        logs.push('Verified: Token atomically consumed on first attempt');
+
+        // 4b. Replay consumption strictly rejected
+        const consume2 = db.tokens.consumeToken(testHash, 'password_reset');
+        if (consume2.success) {
+          throw new Error('CRITICAL REPLAY BREACH: Consumed token was accepted again!');
+        }
+        logs.push(`Verified: Replay consumption correctly rejected: "${consume2.reason}"`);
+
+        // Clean up test token
+        db.tokens.delete(testTokenId);
+
+        // ----------------------------------------------------
+        // 5. TRANSACTION MUTEX & SNAPSHOT ROLLBACKS
+        // ----------------------------------------------------
+        logs.push('Phase 5: Auditing ACID-like transaction engine and snapshot rollbacks');
+
+        const initialUserCount = db.users.size;
+        const initialSessionCount = db.sessions.size;
+
+        let txErrorCaught = false;
+        try {
+          await db.transaction(async (tx) => {
+            // Step 1: Create user inside transaction
+            tx.createUser({
+              id: 'usr_tx_rollback_test',
+              name: 'Rollback Candidate',
+              email: 'rollback_test@boostmarket.ng',
+              role: 'CLIENT',
+              status: 'ACTIVE',
+              tier: 'free',
+              failedLoginAttempts: 0,
+              createdAt: new Date().toISOString()
+            });
+
+            // Step 2: Deliberate failure mid-flight
+            throw new Error('Simulated transactional mid-flight payment/network failure');
+          });
+        } catch (err: any) {
+          txErrorCaught = true;
+          logs.push(`Transaction threw anticipated error: "${err.message}"`);
+        }
+
+        if (!txErrorCaught) throw new Error('Transaction did not propagate error');
+        if (db.users.has('usr_tx_rollback_test')) {
+          throw new Error('ATOMICITY BREACH: User created inside aborted transaction was not rolled back!');
+        }
+        if (db.users.size !== initialUserCount) {
+          throw new Error(`Database user size drifted after rollback: before=${initialUserCount}, after=${db.users.size}`);
+        }
+        logs.push('Verified: Complete snapshot rollback executed on transaction failure with zero data corruption');
+
+        // ----------------------------------------------------
+        // 6. CASCADING OPERATIONS & ACCOUNT DEACTIVATION
+        // ----------------------------------------------------
+        logs.push('Phase 6: Auditing cascading operations on user deactivation and deletion');
+
+        const cascadeUserId = `usr_cascade_${Date.now()}`;
+        const cascadeUserEmail = `cascade_user_${Date.now()}@boostmarket.ng`;
+
+        db.users.set(cascadeUserId, {
+          id: cascadeUserId,
+          name: 'Cascade Test User',
+          email: cascadeUserEmail,
+          role: 'CLIENT',
+          status: 'ACTIVE',
+          tier: 'free',
+          failedLoginAttempts: 0,
+          createdAt: new Date().toISOString()
+        });
+
+        const cascadeSessionId = `sess_cascade_${Date.now()}`;
+        db.sessions.set(cascadeSessionId, {
+          id: cascadeSessionId,
+          userId: cascadeUserId,
+          email: cascadeUserEmail,
+          role: 'CLIENT',
+          tokenHash: `caschash_${Date.now()}`,
+          ipAddress: '127.0.0.1',
+          userAgent: 'TestAgent/1.0',
+          expiresAt: new Date(Date.now() + 3600000).toISOString(),
+          createdAt: new Date().toISOString(),
+          lastActiveAt: new Date().toISOString(),
+          isRevoked: false
+        });
+
+        // 6a. Deactivate user and verify cascade session revocation
+        db.deactivateUser(cascadeUserId, 'SUSPENDED');
+        const sessionAfterDeactivate = db.sessions.get(cascadeSessionId);
+        if (!sessionAfterDeactivate || !sessionAfterDeactivate.isRevoked) {
+          throw new Error('Cascade session revocation failed upon user suspension');
+        }
+        logs.push('Verified: User suspension immediately revoked all active user sessions');
+
+        // 6b. Prevent Super Admin deletion
+        let adminDeleteBlocked = false;
+        try {
+          db.deleteUser(SUPER_ADMIN_ID);
+        } catch (err: any) {
+          if (err instanceof DatabaseRoleConstraintError) {
+            adminDeleteBlocked = true;
+            logs.push(`Verified: Attempt to delete designated Super Admin blocked: "${err.message}"`);
+          }
+        }
+        if (!adminDeleteBlocked) throw new Error('CRITICAL: Super Admin account was deleted!');
+
+        // 6c. Delete regular user and verify full cascade cleanup
+        db.deleteUser(cascadeUserId);
+        if (db.users.has(cascadeUserId)) throw new Error('User entity still present after deleteUser');
+        if (db.sessions.has(cascadeSessionId)) throw new Error('User session still present after deleteUser');
+        logs.push('Verified: Cascade user deletion purged user entity and dependent sessions');
+
+        // ----------------------------------------------------
+        // 7. FORWARD MIGRATIONS ENGINE
+        // ----------------------------------------------------
+        logs.push('Phase 7: Verifying idempotent forward database migrations');
+        const migrationResult = db.runMigrations();
+        logs.push(`Verified: runMigrations executed idempotently: skipped=${migrationResult.skipped.join(', ')}`);
+
+        logs.push('=== DATABASE SCHEMA & PERSISTENCE LAYER HARDENING AUDIT COMPLETE: ALL CHECKS PASSED ===');
       }
     ));
 

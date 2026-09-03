@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { passwordService } from './services/passwordService';
 import { 
   Merchant, 
@@ -41,12 +42,46 @@ import {
 export const SUPER_ADMIN_EMAIL = 'maddyahamco00@gmail.com';
 export const SUPER_ADMIN_ID = 'usr_maddy_ceo';
 
+/**
+ * Robust verification helper for the designated executive Super Admin email.
+ * Defends against:
+ * - Case manipulation (mAdDyAhamCo00@GMAIL.COM)
+ * - Leading/trailing and internal zero-width whitespace
+ * - Gmail dot tricks (m.a.d.d.y.a.h.a.m.c.o.0.0@gmail.com)
+ * - Gmail plus tag injection (maddyahamco00+attacker@gmail.com)
+ * - Domain aliases (googlemail.com vs gmail.com)
+ */
+export function isDesignatedSuperAdminEmail(email: string): boolean {
+  if (!email || typeof email !== 'string') return false;
+  const clean = email.replace(/[\u200B-\u200D\uFEFF]/g, '').trim().toLowerCase();
+  const target = SUPER_ADMIN_EMAIL.toLowerCase();
+  if (clean === target) return true;
+
+  const [localPart, domain] = clean.split('@');
+  const [targetLocal, targetDomain] = target.split('@');
+  if (!localPart || !domain || !targetLocal || !targetDomain) return false;
+
+  const isTargetGmail = targetDomain === 'gmail.com' || targetDomain === 'googlemail.com';
+  const isInputGmail = domain === 'gmail.com' || domain === 'googlemail.com';
+
+  if (isTargetGmail && isInputGmail) {
+    const strippedInput = localPart.split('+')[0].replace(/\./g, '');
+    const strippedTarget = targetLocal.split('+')[0].replace(/\./g, '');
+    if (strippedInput === strippedTarget) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export class DatabaseUniqueConstraintError extends Error {
   public readonly code = 'P2002'; // Standard Prisma / DB unique constraint code
-  public readonly target = ['email'];
-  constructor(message = 'Unique constraint failed on the fields: (`email`)') {
+  public readonly target: string[];
+  constructor(message = 'Unique constraint failed on the fields: (`email`)', target: string[] = ['email']) {
     super(message);
     this.name = 'DatabaseUniqueConstraintError';
+    this.target = target;
   }
 }
 
@@ -58,11 +93,511 @@ export class DatabaseRoleConstraintError extends Error {
   }
 }
 
+export class DatabaseValidationError extends Error {
+  public readonly code = 'VALIDATION_ERROR';
+  constructor(message = 'Database entity validation failed') {
+    super(message);
+    this.name = 'DatabaseValidationError';
+  }
+}
+
+export class DatabaseConcurrencyError extends Error {
+  public readonly code = 'CONCURRENCY_CONFLICT';
+  constructor(message = 'Database concurrent transaction conflict') {
+    super(message);
+    this.name = 'DatabaseConcurrencyError';
+  }
+}
+
+export class DatabaseNotFoundError extends Error {
+  public readonly code = 'RECORD_NOT_FOUND';
+  constructor(message = 'Database record not found') {
+    super(message);
+    this.name = 'DatabaseNotFoundError';
+  }
+}
+
+/**
+ * Storage-Level Collection for Users that enforces Single-Super-Admin Invariants,
+ * Email Normalization, and O(1) Unique Email Constraints.
+ * Even direct operations cannot violate:
+ * 1. MAXIMUM SUPER_ADMIN ACCOUNTS = 1
+ * 2. Only designated executive email (maddyahamco00@gmail.com) can hold SUPER_ADMIN
+ * 3. Primary Super Admin role cannot be demoted
+ * 4. Unique email constraint across all user accounts
+ * 5. Required authentication and identity fields cannot be empty or invalid
+ */
+export class UserCollection extends Map<string, UserEntity> {
+  private emailIndex: Map<string, string> = new Map();
+
+  override set(key: string, value: UserEntity): this {
+    if (!value || typeof value !== 'object') {
+      return super.set(key, value);
+    }
+
+    // 1. Validate required fields
+    if (!value.id || typeof value.id !== 'string' || !value.id.trim()) {
+      throw new DatabaseValidationError('User entity requires a valid non-empty "id".');
+    }
+    if (!value.name || typeof value.name !== 'string' || !value.name.trim()) {
+      throw new DatabaseValidationError('User entity requires a valid non-empty "name".');
+    }
+    if (!value.email || typeof value.email !== 'string' || !value.email.trim()) {
+      throw new DatabaseValidationError('User entity requires a valid non-empty "email".');
+    }
+    if (!value.role || (value.role !== 'SUPER_ADMIN' && value.role !== 'CLIENT')) {
+      throw new DatabaseValidationError(`User role "${value.role}" is invalid. Permitted roles: SUPER_ADMIN, CLIENT.`);
+    }
+    const validStatuses = ['PENDING_VERIFICATION', 'ACTIVE', 'SUSPENDED', 'DISABLED', 'DELETED'];
+    if (!value.status || !validStatuses.includes(value.status)) {
+      throw new DatabaseValidationError(`User status "${value.status}" is invalid. Permitted statuses: ${validStatuses.join(', ')}.`);
+    }
+
+    // 2. Email normalization
+    const normalizedEmail = value.email.toLowerCase().trim();
+    value.email = normalizedEmail;
+
+    // 3. Database-level Email Uniqueness Constraint (O(1) lookup via index)
+    const existingId = this.emailIndex.get(normalizedEmail);
+    if (existingId && existingId !== key) {
+      throw new DatabaseUniqueConstraintError(
+        `Unique constraint failed on the fields: (\`email\`). An account with email "${normalizedEmail}" already exists in the database.`
+      );
+    }
+
+    // 4. Super Admin Invariant Enforcement
+    if (value.role === 'SUPER_ADMIN') {
+      // Rule 4a: Only designated executive email can hold SUPER_ADMIN
+      if (!isDesignatedSuperAdminEmail(normalizedEmail)) {
+        throw new DatabaseRoleConstraintError(
+          `Role integrity violation: Account "${normalizedEmail}" cannot be assigned SUPER_ADMIN role. Only designated executive account (${SUPER_ADMIN_EMAIL}) is permitted.`
+        );
+      }
+
+      // Rule 4b: Exactly one Super Admin allowed
+      for (const [existingKey, existingUser] of this.entries()) {
+        if (existingKey !== key && existingUser.role === 'SUPER_ADMIN') {
+          throw new DatabaseRoleConstraintError(
+            `Single Super Admin invariant violation: Another Super Admin account (${existingUser.email}) already exists. Maximum SUPER_ADMIN accounts = 1.`
+          );
+        }
+      }
+    } else {
+      // Rule 4c: Prevent demotion of designated Super Admin
+      const existingUser = super.get(key);
+      if (existingUser && existingUser.role === 'SUPER_ADMIN' && isDesignatedSuperAdminEmail(existingUser.email)) {
+        throw new DatabaseRoleConstraintError(
+          'Primary Super Admin account role cannot be demoted or altered.'
+        );
+      }
+    }
+
+    // 5. Maintain Email Index
+    const priorUser = super.get(key);
+    if (priorUser && priorUser.email && priorUser.email !== normalizedEmail) {
+      this.emailIndex.delete(priorUser.email);
+    }
+    this.emailIndex.set(normalizedEmail, key);
+
+    return super.set(key, value);
+  }
+
+  override delete(key: string): boolean {
+    const existing = super.get(key);
+    if (existing && existing.email) {
+      this.emailIndex.delete(existing.email.toLowerCase().trim());
+    }
+    return super.delete(key);
+  }
+
+  override clear(): void {
+    this.emailIndex.clear();
+    super.clear();
+  }
+
+  public getByEmail(email: string): UserEntity | undefined {
+    if (!email || typeof email !== 'string') return undefined;
+    const normalized = email.toLowerCase().trim();
+    const userId = this.emailIndex.get(normalized);
+    if (userId) {
+      const user = super.get(userId);
+      if (user) return user;
+    }
+    // Fallback scan in case of index sync edge case
+    for (const u of this.values()) {
+      if (u.email && u.email.toLowerCase().trim() === normalized) {
+        this.emailIndex.set(normalized, u.id);
+        return u;
+      }
+    }
+    return undefined;
+  }
+}
+
+/**
+ * Storage-Level Indexed Collection for Verification and Password Reset Tokens.
+ * Provides optimized indexing on tokenHash and userId for O(1) lookups,
+ * and safe query helpers for active, expired, and used tokens.
+ */
+export class TokenCollection extends Map<string, VerificationToken> {
+  private hashIndex: Map<string, string> = new Map();
+  private userIndex: Map<string, Set<string>> = new Map();
+
+  override set(key: string, value: VerificationToken): this {
+    if (value && typeof value === 'object') {
+      // Remove any prior hash mapping if overwriting
+      const existing = super.get(key);
+      if (existing && existing.tokenHash && existing.tokenHash !== value.tokenHash) {
+        this.hashIndex.delete(existing.tokenHash);
+      }
+      if (existing && existing.userId && existing.userId !== value.userId) {
+        const oldSet = this.userIndex.get(existing.userId);
+        if (oldSet) oldSet.delete(key);
+      }
+
+      if (value.tokenHash) {
+        this.hashIndex.set(value.tokenHash, key);
+      }
+      if (value.userId) {
+        let userSet = this.userIndex.get(value.userId);
+        if (!userSet) {
+          userSet = new Set();
+          this.userIndex.set(value.userId, userSet);
+        }
+        userSet.add(key);
+      }
+    }
+    return super.set(key, value);
+  }
+
+  override delete(key: string): boolean {
+    const existing = super.get(key);
+    if (existing) {
+      if (existing.tokenHash) {
+        this.hashIndex.delete(existing.tokenHash);
+      }
+      if (existing.userId) {
+        const userSet = this.userIndex.get(existing.userId);
+        if (userSet) {
+          userSet.delete(key);
+          if (userSet.size === 0) {
+            this.userIndex.delete(existing.userId);
+          }
+        }
+      }
+    }
+    return super.delete(key);
+  }
+
+  override clear(): void {
+    this.hashIndex.clear();
+    this.userIndex.clear();
+    super.clear();
+  }
+
+  public findByHash(tokenHash: string, type?: VerificationToken['type']): VerificationToken | undefined {
+    if (!tokenHash) return undefined;
+    const tokenId = this.hashIndex.get(tokenHash);
+    if (tokenId) {
+      const token = super.get(tokenId);
+      if (token && (!type || token.type === type)) {
+        return token;
+      }
+    }
+    // Fallback scan
+    for (const t of this.values()) {
+      if (t.tokenHash === tokenHash && (!type || t.type === type)) {
+        return t;
+      }
+    }
+    return undefined;
+  }
+
+  public findByUserId(userId: string, type?: VerificationToken['type']): VerificationToken[] {
+    const results: VerificationToken[] = [];
+    const tokenIds = this.userIndex.get(userId);
+    if (tokenIds) {
+      for (const id of tokenIds) {
+        const t = super.get(id);
+        if (t && (!type || t.type === type)) {
+          results.push(t);
+        }
+      }
+      return results;
+    }
+    // Fallback scan
+    for (const t of this.values()) {
+      if (t.userId === userId && (!type || t.type === type)) {
+        results.push(t);
+      }
+    }
+    return results;
+  }
+
+  public findActive(type?: VerificationToken['type'], nowMs: number = Date.now()): VerificationToken[] {
+    const results: VerificationToken[] = [];
+    for (const t of this.values()) {
+      if ((!type || t.type === type) && !t.isUsed && new Date(t.expiresAt).getTime() > nowMs) {
+        results.push(t);
+      }
+    }
+    return results;
+  }
+
+  public findExpired(type?: VerificationToken['type'], nowMs: number = Date.now()): VerificationToken[] {
+    const results: VerificationToken[] = [];
+    for (const t of this.values()) {
+      if ((!type || t.type === type) && new Date(t.expiresAt).getTime() <= nowMs) {
+        results.push(t);
+      }
+    }
+    return results;
+  }
+
+  public findUsed(type?: VerificationToken['type'], cutoffMs: number = Date.now()): VerificationToken[] {
+    const results: VerificationToken[] = [];
+    for (const t of this.values()) {
+      if ((!type || t.type === type) && t.isUsed) {
+        if (!t.usedAt || new Date(t.usedAt).getTime() <= cutoffMs) {
+          results.push(t);
+        }
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Atomically consumes an active, unexpired token.
+   * Returns success status, consumed token entity, or failure reason.
+   */
+  public consumeToken(
+    tokenHash: string,
+    type?: VerificationToken['type'],
+    nowMs: number = Date.now()
+  ): { success: boolean; token?: VerificationToken; reason?: string } {
+    if (!tokenHash) {
+      return { success: false, reason: 'Token hash is required for consumption.' };
+    }
+
+    const token = this.findByHash(tokenHash, type);
+    if (!token) {
+      return { success: false, reason: 'Verification link or token is invalid or does not exist.' };
+    }
+
+    if (token.isUsed || token.usedAt) {
+      return { success: false, reason: 'This token has already been used.', token };
+    }
+
+    if (new Date(token.expiresAt).getTime() <= nowMs) {
+      return { success: false, reason: 'This token has expired. Please request a new link.', token };
+    }
+
+    token.isUsed = true;
+    token.usedAt = new Date().toISOString();
+    return { success: true, token };
+  }
+}
+
+/**
+ * Storage-Level Indexed Collection for Authenticated User Sessions.
+ * Provides:
+ * - O(1) userId indexing for fast multi-device lookups & cascade revocation
+ * - O(1) tokenHash indexing for fast session token verification
+ * - Automatic expiration and revocation filtering
+ * - Strict non-null and sensitive-field validation
+ */
+export class SessionCollection extends Map<string, AuthSession> {
+  private userIndex: Map<string, Set<string>> = new Map();
+  private tokenHashIndex: Map<string, string> = new Map();
+
+  override set(key: string, value: AuthSession): this {
+    if (!value || typeof value !== 'object') {
+      return super.set(key, value);
+    }
+
+    // Required field validation
+    if (!value.id || typeof value.id !== 'string') {
+      throw new DatabaseValidationError('Session entity requires a non-empty string "id".');
+    }
+    if (!value.userId || typeof value.userId !== 'string') {
+      throw new DatabaseValidationError('Session entity requires a non-empty string "userId".');
+    }
+    if (!value.email || typeof value.email !== 'string') {
+      throw new DatabaseValidationError('Session entity requires a non-empty string "email".');
+    }
+    if (!value.role || (value.role !== 'SUPER_ADMIN' && value.role !== 'CLIENT')) {
+      throw new DatabaseValidationError(`Session role "${value.role}" is invalid.`);
+    }
+    if (!value.tokenHash || typeof value.tokenHash !== 'string') {
+      throw new DatabaseValidationError('Session entity requires a non-empty "tokenHash".');
+    }
+    if (!value.expiresAt || typeof value.expiresAt !== 'string') {
+      throw new DatabaseValidationError('Session entity requires a valid "expiresAt" timestamp.');
+    }
+
+    // Ensure sensitive fields (passwords, secrets) are never persisted in session objects
+    if ('passwordHash' in value || 'twoFactorSecret' in value || 'twoFactorRecoveryCodes' in value) {
+      throw new DatabaseValidationError('Session entity cannot contain sensitive authentication credentials.');
+    }
+
+    // Normalize email
+    value.email = value.email.toLowerCase().trim();
+
+    // Clean prior index entries if overwriting
+    const existing = super.get(key);
+    if (existing) {
+      if (existing.userId && existing.userId !== value.userId) {
+        const oldSet = this.userIndex.get(existing.userId);
+        if (oldSet) oldSet.delete(key);
+      }
+      if (existing.tokenHash && existing.tokenHash !== value.tokenHash) {
+        this.tokenHashIndex.delete(existing.tokenHash);
+      }
+    }
+
+    // Maintain indices
+    if (value.userId) {
+      let userSet = this.userIndex.get(value.userId);
+      if (!userSet) {
+        userSet = new Set();
+        this.userIndex.set(value.userId, userSet);
+      }
+      userSet.add(key);
+    }
+
+    if (value.tokenHash) {
+      this.tokenHashIndex.set(value.tokenHash, key);
+    }
+
+    return super.set(key, value);
+  }
+
+  override delete(key: string): boolean {
+    const existing = super.get(key);
+    if (existing) {
+      if (existing.userId) {
+        const userSet = this.userIndex.get(existing.userId);
+        if (userSet) {
+          userSet.delete(key);
+          if (userSet.size === 0) {
+            this.userIndex.delete(existing.userId);
+          }
+        }
+      }
+      if (existing.tokenHash) {
+        this.tokenHashIndex.delete(existing.tokenHash);
+      }
+    }
+    return super.delete(key);
+  }
+
+  override clear(): void {
+    this.userIndex.clear();
+    this.tokenHashIndex.clear();
+    super.clear();
+  }
+
+  public findByUserId(userId: string): AuthSession[] {
+    const results: AuthSession[] = [];
+    const sessionIds = this.userIndex.get(userId);
+    if (sessionIds) {
+      for (const id of sessionIds) {
+        const s = super.get(id);
+        if (s) results.push(s);
+      }
+      return results;
+    }
+    for (const s of this.values()) {
+      if (s.userId === userId) results.push(s);
+    }
+    return results;
+  }
+
+  public findActiveByUserId(userId: string, nowMs: number = Date.now()): AuthSession[] {
+    return this.findByUserId(userId).filter(
+      s => !s.isRevoked && new Date(s.expiresAt).getTime() > nowMs
+    );
+  }
+
+  public findByTokenHash(tokenHash: string): AuthSession | undefined {
+    if (!tokenHash) return undefined;
+    const sessionId = this.tokenHashIndex.get(tokenHash);
+    if (sessionId) {
+      const s = super.get(sessionId);
+      if (s) return s;
+    }
+    for (const s of this.values()) {
+      if (s.tokenHash === tokenHash) return s;
+    }
+    return undefined;
+  }
+
+  public revokeById(sessionId: string): boolean {
+    const session = super.get(sessionId);
+    if (session) {
+      session.isRevoked = true;
+      return true;
+    }
+    return false;
+  }
+
+  public revokeAllForUser(userId: string, exceptSessionId?: string): number {
+    let count = 0;
+    const sessions = this.findByUserId(userId);
+    for (const s of sessions) {
+      if (!exceptSessionId || s.id !== exceptSessionId) {
+        if (!s.isRevoked) {
+          s.isRevoked = true;
+          count++;
+        }
+      }
+    }
+    return count;
+  }
+
+  public cleanupExpired(nowMs: number = Date.now()): number {
+    let removed = 0;
+    for (const [id, s] of this.entries()) {
+      if (new Date(s.expiresAt).getTime() <= nowMs) {
+        this.delete(id);
+        removed++;
+      }
+    }
+    return removed;
+  }
+
+  public cleanupRevoked(retentionMs: number = 0, nowMs: number = Date.now()): number {
+    let removed = 0;
+    for (const [id, s] of this.entries()) {
+      if (s.isRevoked) {
+        const lastActive = new Date(s.lastActiveAt || s.createdAt).getTime();
+        if (nowMs - lastActive >= retentionMs) {
+          this.delete(id);
+          removed++;
+        }
+      }
+    }
+    return removed;
+  }
+}
+
+export interface DatabaseTransactionContext {
+  users: UserCollection;
+  sessions: SessionCollection;
+  tokens: TokenCollection;
+  createUser(user: UserEntity): UserEntity;
+  updateUser(userId: string, updates: Partial<UserEntity>): UserEntity;
+  deleteUser(userId: string): boolean;
+  deactivateUser(userId: string, status?: 'SUSPENDED' | 'DISABLED' | 'DELETED'): UserEntity;
+  consumeToken(tokenHash: string, type?: VerificationToken['type']): VerificationToken;
+  revokeAllUserSessions(userId: string): number;
+}
+
 export class DatabaseStore {
   // Core E-commerce & Marketplace Entities
-  public users: Map<string, UserEntity> = new Map();
-  public sessions: Map<string, AuthSession> = new Map();
-  public tokens: Map<string, VerificationToken> = new Map();
+  public users: UserCollection = new UserCollection();
+  public sessions: SessionCollection = new SessionCollection();
+  public tokens: TokenCollection = new TokenCollection();
   public securityLogs: SecurityAuditEvent[] = [];
   public businesses: Map<string, Business> = new Map();
   public products: Map<string, Product> = new Map();
@@ -1465,12 +2000,13 @@ export class DatabaseStore {
       updatedAt: new Date().toISOString()
     };
     this.merchants.set(merchantMaddy.id, merchantMaddy);
+
+    // Run database migrations on initialization
+    this.runMigrations();
   }
 
   public getUserByEmail(email: string): UserEntity | undefined {
-    if (!email) return undefined;
-    const normalized = email.toLowerCase().trim();
-    return Array.from(this.users.values()).find(u => u.email.toLowerCase().trim() === normalized);
+    return this.users.getByEmail(email);
   }
 
   /**
@@ -1480,7 +2016,7 @@ export class DatabaseStore {
    * - No duplicate accounts
    * - No unintended credential overwrites
    * - Safe upgrade if user existed as CLIENT
-   * - Secure initial password hashing (from env or high-entropy seed; never plaintext in source code)
+   * - Secure initial password hashing (from env or high-entropy random hash; never hardcoded in source code)
    */
   public provisionSuperAdmin(explicitPassword?: string): UserEntity {
     const normalizedAdminEmail = SUPER_ADMIN_EMAIL.toLowerCase().trim();
@@ -1513,13 +2049,14 @@ export class DatabaseStore {
       if (explicitPassword) {
         admin.passwordHash = passwordService.hashSync(explicitPassword, 12);
       } else if (!admin.passwordHash) {
-        // If no password hash exists yet, inspect env var or generate secure random hash
+        // If no password hash exists yet, inspect env var or generate high-entropy secure seed hash
         const envPassword = process.env.SUPER_ADMIN_PASSWORD || process.env.SUPER_ADMIN_INITIAL_PASSWORD;
         if (envPassword) {
           admin.passwordHash = passwordService.hashSync(envPassword, 12);
         } else {
           // Cryptographically secure seed hash; Super Admin can sign in using env password or setup token
-          admin.passwordHash = passwordService.hashSync('Admin2026!', 12);
+          const randomSeed = crypto.randomBytes(32).toString('hex') + '!Aa1';
+          admin.passwordHash = passwordService.hashSync(randomSeed, 12);
         }
       }
       // If admin already had a valid passwordHash and no explicit override is provided,
@@ -1534,7 +2071,7 @@ export class DatabaseStore {
     const envPassword = explicitPassword || process.env.SUPER_ADMIN_PASSWORD || process.env.SUPER_ADMIN_INITIAL_PASSWORD;
     const initialHash = envPassword 
       ? passwordService.hashSync(envPassword, 12)
-      : passwordService.hashSync('Admin2026!', 12);
+      : passwordService.hashSync(crypto.randomBytes(32).toString('hex') + '!Aa1', 12);
 
     const newAdmin: UserEntity = {
       id: SUPER_ADMIN_ID,
@@ -1579,7 +2116,7 @@ export class DatabaseStore {
 
     // 1. Role Integrity Constraint: Only designated email can hold SUPER_ADMIN
     if (user.role === 'SUPER_ADMIN') {
-      if (normalizedEmail !== SUPER_ADMIN_EMAIL.toLowerCase()) {
+      if (!isDesignatedSuperAdminEmail(normalizedEmail)) {
         throw new DatabaseRoleConstraintError(
           `Role integrity violation: Only designated executive email (${SUPER_ADMIN_EMAIL}) can be assigned SUPER_ADMIN role.`
         );
@@ -1590,7 +2127,14 @@ export class DatabaseStore {
       );
       if (existingSuperAdmin) {
         throw new DatabaseRoleConstraintError(
-          'Single Super Admin invariant violation: A Super Admin account already exists.'
+          'Single Super Admin invariant violation: A Super Admin account already exists. Maximum SUPER_ADMIN accounts = 1.'
+        );
+      }
+    } else {
+      // Non-admin user cannot be created with designated Super Admin email
+      if (isDesignatedSuperAdminEmail(normalizedEmail)) {
+        throw new DatabaseRoleConstraintError(
+          `Role integrity violation: Account with designated executive email (${SUPER_ADMIN_EMAIL}) must be provisioned through designated Super Admin initialization, not client creation.`
         );
       }
     }
@@ -1625,7 +2169,7 @@ export class DatabaseStore {
       const normalizedNewEmail = updates.email.toLowerCase().trim();
       if (normalizedNewEmail !== user.email.toLowerCase().trim()) {
         // Prevent claiming Super Admin email by normal users
-        if (normalizedNewEmail === SUPER_ADMIN_EMAIL.toLowerCase() && user.role !== 'SUPER_ADMIN') {
+        if (isDesignatedSuperAdminEmail(normalizedNewEmail) && user.role !== 'SUPER_ADMIN') {
           throw new DatabaseRoleConstraintError(
             `Unauthorized email update: "${SUPER_ADMIN_EMAIL}" is restricted for executive governance.`
           );
@@ -1645,10 +2189,21 @@ export class DatabaseStore {
 
     // 2. Guard Role Updates
     if (updates.role) {
-      if (updates.role === 'SUPER_ADMIN' && user.email.toLowerCase().trim() !== SUPER_ADMIN_EMAIL.toLowerCase()) {
-        throw new DatabaseRoleConstraintError(
-          `Role escalation blocked: Only "${SUPER_ADMIN_EMAIL}" can be assigned the SUPER_ADMIN role.`
+      if (updates.role === 'SUPER_ADMIN') {
+        if (!isDesignatedSuperAdminEmail(user.email)) {
+          throw new DatabaseRoleConstraintError(
+            `Role escalation blocked: Only "${SUPER_ADMIN_EMAIL}" can be assigned the SUPER_ADMIN role.`
+          );
+        }
+        // Invariant: Ensure no other Super Admin exists
+        const existingOther = Array.from(this.users.values()).find(
+          u => u.role === 'SUPER_ADMIN' && u.id !== userId
         );
+        if (existingOther) {
+          throw new DatabaseRoleConstraintError(
+            'Single Super Admin invariant violation: A Super Admin account already exists. Maximum SUPER_ADMIN accounts = 1.'
+          );
+        }
       }
       if (user.role === 'SUPER_ADMIN' && updates.role !== 'SUPER_ADMIN') {
         throw new DatabaseRoleConstraintError(
@@ -1679,6 +2234,30 @@ export class DatabaseStore {
     user.updatedAt = new Date().toISOString();
     this.users.set(user.id, user);
     return user;
+  }
+
+  public countSuperAdmins(): number {
+    let count = 0;
+    for (const u of this.users.values()) {
+      if (u.role === 'SUPER_ADMIN') count++;
+    }
+    return count;
+  }
+
+  public getSuperAdmin(): UserEntity | undefined {
+    return Array.from(this.users.values()).find(u => u.role === 'SUPER_ADMIN');
+  }
+
+  public verifySingleSuperAdminInvariant(): { valid: boolean; count: number; designatedEmail: string; superAdminId?: string } {
+    const superAdmins = Array.from(this.users.values()).filter(u => u.role === 'SUPER_ADMIN');
+    const count = superAdmins.length;
+    const isValid = count === 1 && isDesignatedSuperAdminEmail(superAdmins[0].email);
+    return {
+      valid: isValid,
+      count,
+      designatedEmail: SUPER_ADMIN_EMAIL,
+      superAdminId: superAdmins[0]?.id
+    };
   }
 
   public enforceSuperAdminInvariant(): void {
@@ -1716,6 +2295,185 @@ export class DatabaseStore {
       boostedAdsCount: boosted + 46,
       verifiedBusinessesCount: verified + 72
     };
+  }
+
+  public appliedMigrations: Set<string> = new Set();
+  private transactionLock: Promise<void> = Promise.resolve();
+
+  /**
+   * Cascading user deletion:
+   * 1. Protects designated Super Admin from deletion
+   * 2. Automatically revokes and purges active sessions
+   * 3. Purges active and consumed tokens
+   * 4. Removes user entity
+   */
+  public deleteUser(userId: string): boolean {
+    const user = this.users.get(userId);
+    if (!user) return false;
+
+    // Invariant: cannot delete designated Super Admin account
+    if (user.role === 'SUPER_ADMIN' || isDesignatedSuperAdminEmail(user.email)) {
+      throw new DatabaseRoleConstraintError('The primary Super Admin account cannot be deleted.');
+    }
+
+    // Cascade 1: Revoke and purge all user sessions
+    this.sessions.revokeAllForUser(userId);
+    for (const [sessionId, session] of this.sessions.entries()) {
+      if (session.userId === userId) {
+        this.sessions.delete(sessionId);
+      }
+    }
+
+    // Cascade 2: Invalidate and purge all tokens
+    for (const [tokenId, token] of this.tokens.entries()) {
+      if (token.userId === userId) {
+        this.tokens.delete(tokenId);
+      }
+    }
+
+    // Remove user
+    return this.users.delete(userId);
+  }
+
+  /**
+   * Account deactivation/suspension with cascading session and token revocation.
+   */
+  public deactivateUser(userId: string, status: 'SUSPENDED' | 'DISABLED' | 'DELETED' = 'SUSPENDED'): UserEntity {
+    const user = this.users.get(userId);
+    if (!user) {
+      throw new DatabaseNotFoundError(`User with ID "${userId}" not found.`);
+    }
+
+    if (user.role === 'SUPER_ADMIN' || isDesignatedSuperAdminEmail(user.email)) {
+      throw new DatabaseRoleConstraintError('The primary Super Admin account cannot be deactivated or suspended.');
+    }
+
+    user.status = status;
+    user.updatedAt = new Date().toISOString();
+
+    // Cascade: Revoke all active sessions immediately
+    this.sessions.revokeAllForUser(userId);
+
+    // Invalidate active tokens
+    for (const token of this.tokens.values()) {
+      if (token.userId === userId && !token.isUsed) {
+        token.isUsed = true;
+        token.usedAt = new Date().toISOString();
+      }
+    }
+
+    this.users.set(user.id, user);
+    return user;
+  }
+
+  /**
+   * ACID-like serialized transaction executor with snapshot rollback.
+   * Protects multi-step authentication operations against race conditions and mid-flight failures.
+   */
+  public async transaction<T>(fn: (tx: DatabaseTransactionContext) => Promise<T> | T): Promise<T> {
+    let releaseLock: () => void;
+    const currentLock = new Promise<void>(resolve => { releaseLock = resolve; });
+    const priorLock = this.transactionLock;
+    this.transactionLock = priorLock.then(() => currentLock);
+
+    await priorLock;
+
+    // Snapshot state for atomic rollback on failure
+    const userSnapshot = new Map(Array.from(this.users.entries()).map(([k, v]) => [k, { ...v }]));
+    const sessionSnapshot = new Map(Array.from(this.sessions.entries()).map(([k, v]) => [k, { ...v }]));
+    const tokenSnapshot = new Map(Array.from(this.tokens.entries()).map(([k, v]) => [k, { ...v }]));
+
+    try {
+      const txContext: DatabaseTransactionContext = {
+        users: this.users,
+        sessions: this.sessions,
+        tokens: this.tokens,
+        createUser: (user) => this.createUser(user),
+        updateUser: (userId, updates) => this.updateUser(userId, updates),
+        deleteUser: (userId) => this.deleteUser(userId),
+        deactivateUser: (userId, status) => this.deactivateUser(userId, status),
+        consumeToken: (tokenHash, type) => {
+          const res = this.tokens.consumeToken(tokenHash, type);
+          if (!res.success || !res.token) {
+            throw new Error(res.reason || 'Failed to consume token');
+          }
+          return res.token;
+        },
+        revokeAllUserSessions: (userId) => this.sessions.revokeAllForUser(userId)
+      };
+
+      const result = await fn(txContext);
+      return result;
+    } catch (err) {
+      // Rollback to snapshots
+      this.users.clear();
+      for (const [k, v] of userSnapshot) {
+        this.users.set(k, v);
+      }
+      this.sessions.clear();
+      for (const [k, v] of sessionSnapshot) {
+        this.sessions.set(k, v);
+      }
+      this.tokens.clear();
+      for (const [k, v] of tokenSnapshot) {
+        this.tokens.set(k, v);
+      }
+      throw err;
+    } finally {
+      releaseLock!();
+    }
+  }
+
+  /**
+   * Idempotent Forward Schema Migrations Engine.
+   * Runs versioned integrity checks on database startup.
+   */
+  public runMigrations(): { applied: string[]; skipped: string[] } {
+    const applied: string[] = [];
+    const skipped: string[] = [];
+
+    // Migration 001: 001_auth_schema_hardening
+    const m1 = '001_auth_schema_hardening';
+    if (!this.appliedMigrations.has(m1)) {
+      for (const user of this.users.values()) {
+        if (user.email) {
+          user.email = user.email.toLowerCase().trim();
+        }
+        if (!user.status) {
+          user.status = 'ACTIVE';
+        }
+        if (!user.createdAt) {
+          user.createdAt = new Date().toISOString();
+        }
+        if (user.failedLoginAttempts === undefined) {
+          user.failedLoginAttempts = 0;
+        }
+      }
+
+      this.enforceSuperAdminInvariant();
+      this.appliedMigrations.add(m1);
+      applied.push(m1);
+    } else {
+      skipped.push(m1);
+    }
+
+    // Migration 002: 002_session_token_indexing
+    const m2 = '002_session_token_indexing';
+    if (!this.appliedMigrations.has(m2)) {
+      for (const [id, session] of this.sessions.entries()) {
+        if (!session.createdAt) session.createdAt = new Date().toISOString();
+        if (!session.lastActiveAt) session.lastActiveAt = session.createdAt;
+        if (!session.tokenHash) {
+          session.tokenHash = crypto.createHash('sha256').update(id).digest('hex');
+        }
+      }
+      this.appliedMigrations.add(m2);
+      applied.push(m2);
+    } else {
+      skipped.push(m2);
+    }
+
+    return { applied, skipped };
   }
 }
 

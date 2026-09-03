@@ -12,6 +12,7 @@ export const AdminLoginView: React.FC = () => {
   const [totpCode, setTotpCode] = useState('');
   const [requires2FA, setRequires2FA] = useState(false);
   const [preAuthToken, setPreAuthToken] = useState('');
+  const [isUsingRecoveryCode, setIsUsingRecoveryCode] = useState(false);
 
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -230,10 +231,23 @@ export const AdminLoginView: React.FC = () => {
 
             {/* 2FA Code if required */}
             {requires2FA && (
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Two-Factor Authentication Code
-                </label>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-semibold text-slate-700">
+                    {isUsingRecoveryCode ? 'Emergency Recovery Code' : 'Two-Factor Authentication Code'}
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsUsingRecoveryCode(!isUsingRecoveryCode);
+                      setTotpCode('');
+                      setErrorMessage(null);
+                    }}
+                    className="text-xs text-[#16C784] hover:underline font-semibold cursor-pointer"
+                  >
+                    {isUsingRecoveryCode ? 'Use Authenticator Code' : 'Use Recovery Code'}
+                  </button>
+                </div>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
                     <KeyRound className="w-4 h-4" />
@@ -242,43 +256,65 @@ export const AdminLoginView: React.FC = () => {
                     type="text"
                     required
                     autoFocus
-                    maxLength={8}
+                    maxLength={isUsingRecoveryCode ? 25 : 8}
                     value={totpCode}
                     onChange={(e) => setTotpCode(e.target.value.replace(/\s+/g, ''))}
                     disabled={isLoading}
-                    placeholder="6-digit TOTP code"
-                    className="w-full pl-9 pr-3.5 py-2.5 text-sm font-mono tracking-widest border border-[#E2E8F0] rounded-lg focus:ring-1 focus:ring-[#16C784] focus:border-[#16C784] outline-none"
+                    placeholder={isUsingRecoveryCode ? 'e.g. A1B2-C3D4' : '6-digit TOTP code'}
+                    className="w-full pl-9 pr-3.5 py-2.5 text-sm font-mono tracking-widest border border-[#E2E8F0] rounded-lg focus:ring-1 focus:ring-[#16C784] focus:border-[#16C784] outline-none uppercase"
                   />
                 </div>
-                <p className="text-[11px] text-slate-500 mt-1">
-                  Enter the code from your authenticator app (Google Authenticator, Authy).
-                </p>
+                <div className="flex items-center justify-between text-[11px] text-slate-500">
+                  <span>
+                    {isUsingRecoveryCode
+                      ? 'Single-use backup recovery code issued during 2FA enrollment.'
+                      : 'Enter the code from your authenticator app (Google Authenticator, Authy).'}
+                  </span>
+                </div>
               </div>
             )}
 
             {/* Submit Button */}
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full py-2.5 px-4 rounded-lg bg-[#071A17] hover:bg-[#071A17]/90 text-[#16C784] border border-[#16C784]/40 text-sm font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-50 cursor-pointer shadow-xs"
-            >
-              {isLoading ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin text-[#16C784]" />
-                  <span>Verifying...</span>
-                </>
-              ) : requires2FA ? (
-                <>
-                  <span>Verify Two-Factor Code</span>
-                  <ArrowRight className="w-4 h-4" />
-                </>
-              ) : (
-                <>
-                  <span>Authenticate Super Admin</span>
-                  <ArrowRight className="w-4 h-4" />
-                </>
+            <div className="space-y-2">
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="w-full py-2.5 px-4 rounded-lg bg-[#071A17] hover:bg-[#071A17]/90 text-[#16C784] border border-[#16C784]/40 text-sm font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-50 cursor-pointer shadow-xs"
+              >
+                {isLoading ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin text-[#16C784]" />
+                    <span>Verifying...</span>
+                  </>
+                ) : requires2FA ? (
+                  <>
+                    <span>Verify Two-Factor Code</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                ) : (
+                  <>
+                    <span>Authenticate Super Admin</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
+              </button>
+
+              {requires2FA && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRequires2FA(false);
+                    setPreAuthToken('');
+                    setTotpCode('');
+                    setErrorMessage(null);
+                    setSuccessMessage(null);
+                  }}
+                  className="w-full py-2 px-3 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  ← Back to Password Login
+                </button>
               )}
-            </button>
+            </div>
           </form>
 
           {/* Boundaries Notice */}

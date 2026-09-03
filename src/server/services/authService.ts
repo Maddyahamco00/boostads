@@ -9,10 +9,11 @@ import {
   VerificationToken, 
   SecurityAuditEvent 
 } from '../../types';
-import { db, SUPER_ADMIN_EMAIL, SUPER_ADMIN_ID } from '../db';
+import { db, SUPER_ADMIN_EMAIL, SUPER_ADMIN_ID, isDesignatedSuperAdminEmail } from '../db';
 import { emailService } from './emailService';
 import { passwordService } from './passwordService';
 import { emailVerificationTokenService } from './emailVerificationTokenService';
+import { passwordResetTokenService, TokenCleanupOptions, TokenCleanupResult } from './passwordResetTokenService';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'boost_market_jwt_production_secret_key_2026_9881726';
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'boost_market_refresh_secret_key_2026_7718291';
@@ -34,6 +35,11 @@ export class AuthService {
 
   constructor() {
     console.log('[AuthService] Production Authentication & Authorization Engine Ready');
+  }
+
+  public clearRateLimits(): void {
+    this.failedAttempts.clear();
+    this.resendAttempts.clear();
   }
 
   // ----------------------------------------------------
@@ -258,6 +264,27 @@ export class AuthService {
     return false;
   }
 
+  public generateTotpCode(secret: string, offsetSteps: number = 0): string {
+    const timeStep = 30;
+    const currentEpoch = Math.floor(Date.now() / 1000);
+    const counter = Math.floor(currentEpoch / timeStep) + offsetSteps;
+    const buffer = Buffer.alloc(8);
+    buffer.writeBigInt64BE(BigInt(counter));
+
+    const hmac = crypto.createHmac('sha1', Buffer.from(secret, 'utf8'));
+    hmac.update(buffer);
+    const digest = hmac.digest();
+
+    const offset = digest[digest.length - 1] & 0xf;
+    const binary =
+      ((digest[offset] & 0x7f) << 24) |
+      ((digest[offset + 1] & 0xff) << 16) |
+      ((digest[offset + 2] & 0xff) << 8) |
+      (digest[offset + 3] & 0xff);
+
+    return (binary % 1000000).toString().padStart(6, '0');
+  }
+
   // ----------------------------------------------------
   // 1. CLIENT REGISTRATION (ALWAYS CLIENT ROLE)
   // ----------------------------------------------------
@@ -271,8 +298,9 @@ export class AuthService {
   }, ip: string, userAgent: string): Promise<{ success: boolean; user: UserProfile; message: string }> {
     const normalizedEmail = data.email.toLowerCase().trim();
 
-    // CRITICAL: Block registering the designated Super Admin email or reserved admin emails
+    // CRITICAL: Block registering the designated Super Admin email (including aliases, dots, tags) or reserved admin emails
     if (
+      isDesignatedSuperAdminEmail(normalizedEmail) ||
       normalizedEmail === SUPER_ADMIN_EMAIL.toLowerCase() ||
       normalizedEmail === 'superadmin@boostmarket.com' ||
       normalizedEmail.startsWith('superadmin@') ||
@@ -286,6 +314,32 @@ export class AuthService {
         details: { reason: 'Attempted to publicly register Super Admin email' }
       });
       throw new Error('Registration failed. This email is restricted for executive governance.');
+    }
+
+    // Neutralize and log any client-supplied privileged role injection attempts
+    const rawData = data as any;
+    if (
+      rawData.role ||
+      rawData.isAdmin ||
+      rawData.isSuperAdmin ||
+      rawData.permissions ||
+      rawData.accountType
+    ) {
+      this.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+        userEmail: normalizedEmail,
+        ipAddress: ip,
+        userAgent,
+        severity: 'WARNING',
+        details: {
+          reason: 'Client supplied privileged fields in registration payload. Neutralized to CLIENT.',
+          injectedFields: {
+            role: rawData.role,
+            isAdmin: rawData.isAdmin,
+            isSuperAdmin: rawData.isSuperAdmin,
+            permissions: rawData.permissions
+          }
+        }
+      });
     }
 
     // Check if user already exists
@@ -1085,6 +1139,25 @@ export class AuthService {
       throw new Error('User not found or two-factor authentication is not configured.');
     }
 
+    // Rate Limiting check on 2FA code verification attempts
+    const rateLimitKey = `2fa_verify:${user.id}:${ip}`;
+    const rateStatus = this.checkRateLimit(rateLimitKey);
+    if (rateStatus.isLocked) {
+      this.logSecurityEvent('ACCOUNT_LOCKED', {
+        userId: user.id,
+        userEmail: user.email,
+        role: user.role,
+        ipAddress: ip,
+        userAgent,
+        severity: 'WARNING',
+        details: { remainingSeconds: rateStatus.remainingSeconds, reason: 'Excessive failed 2FA attempts' }
+      });
+      const err: any = new Error(`Too many failed two-factor authentication attempts. Please wait ${rateStatus.remainingSeconds} seconds.`);
+      err.code = 'RATE_LIMITED';
+      err.remainingSeconds = rateStatus.remainingSeconds;
+      throw err;
+    }
+
     const code = codeOrRecoveryCode.trim();
     let is2faValid = false;
 
@@ -1100,6 +1173,7 @@ export class AuthService {
     }
 
     if (!is2faValid) {
+      this.registerFailedAttempt(rateLimitKey);
       this.logSecurityEvent('LOGIN_FAILED', {
         userId: user.id,
         userEmail: user.email,
@@ -1109,13 +1183,21 @@ export class AuthService {
         severity: 'WARNING',
         details: { reason: 'Invalid 2FA verification code' }
       });
-      throw new Error('Invalid two-factor authentication code.');
+      const err: any = new Error('Invalid two-factor authentication code.');
+      err.code = 'INVALID_2FA_CODE';
+      throw err;
     }
 
+    // Clear failed attempts upon successful verification
+    this.clearFailedAttempts(rateLimitKey);
     user.lastLoginAt = new Date().toISOString();
     user.failedLoginAttempts = 0;
 
-    const sessionId = `ses_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+    const sessionId = `ses_${user.role === 'SUPER_ADMIN' ? 'admin_' : ''}${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+    const sessionDurationMs = user.role === 'SUPER_ADMIN'
+      ? 12 * 60 * 60 * 1000 // 12 hours for admin sessions
+      : 30 * 24 * 60 * 60 * 1000; // 30 days for clients
+
     const session: AuthSession = {
       id: sessionId,
       userId: user.id,
@@ -1126,7 +1208,7 @@ export class AuthService {
       userAgent,
       createdAt: new Date().toISOString(),
       lastActiveAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      expiresAt: new Date(Date.now() + sessionDurationMs).toISOString(),
       isRevoked: false
     };
     db.sessions.set(sessionId, session);
@@ -1241,28 +1323,10 @@ export class AuthService {
     }
 
     // Invalidate existing unused password reset tokens for this user
-    Array.from(db.tokens.values()).forEach(t => {
-      if (t.userId === user.id && t.type === 'password_reset' && !t.isUsed) {
-        t.isUsed = true;
-        t.usedAt = new Date().toISOString();
-      }
-    });
+    passwordResetTokenService.invalidateUserTokens(user.id);
 
     // Generate high-entropy single-use reset token
-    const rawToken = this.generateRandomToken(32);
-    const tokenHash = this.hashToken(rawToken);
-    const resetToken: VerificationToken = {
-      id: `tok_pr_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
-      tokenHash,
-      userId: user.id,
-      email: user.email,
-      type: 'password_reset',
-      expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(), // 30 minutes expiration
-      isUsed: false,
-      usedAt: null,
-      createdAt: new Date().toISOString()
-    };
-    db.tokens.set(resetToken.id, resetToken);
+    const { rawToken } = await passwordResetTokenService.create(user.id, user.email, { origin });
 
     const baseUrl = (origin || process.env.APP_URL || 'http://localhost:3000').replace(/\/+$/, '');
     const actionUrl = `${baseUrl}/reset-password?token=${encodeURIComponent(rawToken)}`;
@@ -1322,50 +1386,39 @@ export class AuthService {
       throw new Error('Password must be 8-128 characters and contain at least one letter and one number.');
     }
 
-    const tokenHash = this.hashToken(rawToken.trim());
-    const tokenRecord = Array.from(db.tokens.values()).find(
-      t => t.tokenHash === tokenHash && t.type === 'password_reset'
-    );
-
-    if (!tokenRecord) {
+    const validation = passwordResetTokenService.validateToken(rawToken);
+    if (!validation.valid || !validation.tokenRecord) {
       await this.hashPassword('DummyPasswordForTimingMitigation123!');
-      this.logSecurityEvent('SECURITY_ALERT', {
-        ipAddress: ip,
-        userAgent,
-        severity: 'WARNING',
-        details: { alert: 'Password reset attempted with non-existent token' }
-      });
+      if (validation.status === 'USED') {
+        this.logSecurityEvent('SECURITY_ALERT', {
+          userId: validation.tokenRecord?.userId,
+          userEmail: validation.tokenRecord?.email,
+          ipAddress: ip,
+          userAgent,
+          severity: 'WARNING',
+          details: { alert: 'Attempted to reuse previously consumed password reset token' }
+        });
+      } else if (validation.status === 'EXPIRED') {
+        this.logSecurityEvent('SECURITY_ALERT', {
+          userId: validation.tokenRecord?.userId,
+          userEmail: validation.tokenRecord?.email,
+          ipAddress: ip,
+          userAgent,
+          severity: 'INFO',
+          details: { alert: 'Attempted to use expired password reset token' }
+        });
+      } else {
+        this.logSecurityEvent('SECURITY_ALERT', {
+          ipAddress: ip,
+          userAgent,
+          severity: 'WARNING',
+          details: { alert: 'Password reset attempted with non-existent token' }
+        });
+      }
       throw new Error('This password reset link is invalid or has expired.');
     }
 
-    if (tokenRecord.isUsed) {
-      await this.hashPassword('DummyPasswordForTimingMitigation123!');
-      this.logSecurityEvent('SECURITY_ALERT', {
-        userId: tokenRecord.userId,
-        userEmail: tokenRecord.email,
-        ipAddress: ip,
-        userAgent,
-        severity: 'WARNING',
-        details: { alert: 'Attempted to reuse previously consumed password reset token' }
-      });
-      throw new Error('This password reset link is invalid or has expired.');
-    }
-
-    if (new Date(tokenRecord.expiresAt).getTime() < Date.now()) {
-      tokenRecord.isUsed = true;
-      tokenRecord.usedAt = new Date().toISOString();
-      await this.hashPassword('DummyPasswordForTimingMitigation123!');
-      this.logSecurityEvent('SECURITY_ALERT', {
-        userId: tokenRecord.userId,
-        userEmail: tokenRecord.email,
-        ipAddress: ip,
-        userAgent,
-        severity: 'INFO',
-        details: { alert: 'Attempted to use expired password reset token' }
-      });
-      throw new Error('This password reset link is invalid or has expired.');
-    }
-
+    const tokenRecord = validation.tokenRecord;
     const user = db.users.get(tokenRecord.userId);
     if (!user || user.email.toLowerCase() !== tokenRecord.email.toLowerCase()) {
       await this.hashPassword('DummyPasswordForTimingMitigation123!');
@@ -1408,12 +1461,7 @@ export class AuthService {
     }
 
     // Invalidate any other outstanding password reset tokens for this user
-    Array.from(db.tokens.values()).forEach(t => {
-      if (t.userId === user.id && t.type === 'password_reset' && !t.isUsed) {
-        t.isUsed = true;
-        t.usedAt = new Date().toISOString();
-      }
-    });
+    passwordResetTokenService.invalidateUserTokens(user.id);
 
     // Invalidate all active sessions for this user across all devices
     this.logoutAll(user.id);
@@ -1439,6 +1487,14 @@ export class AuthService {
       success: true, 
       message: 'Password has been reset successfully. Please sign in with your new password.' 
     };
+  }
+
+  /**
+   * Cleans up expired and used password reset tokens from storage.
+   * Safe, idempotent, and leaves active unexpired tokens intact.
+   */
+  public async cleanupPasswordResetTokens(options?: TokenCleanupOptions): Promise<TokenCleanupResult> {
+    return passwordResetTokenService.cleanup(options);
   }
 
   // ----------------------------------------------------
@@ -1492,6 +1548,90 @@ export class AuthService {
     });
 
     return { success: true, message: 'Password changed successfully.' };
+  }
+
+  // ----------------------------------------------------
+  // 7.5. PROFILE UPDATE WITH STRICT PRIVILEGE GUARDS
+  // ----------------------------------------------------
+  private static superAdminLockChain: Promise<void> = Promise.resolve();
+
+  public static async withSuperAdminLock<T>(fn: () => Promise<T>): Promise<T> {
+    const prev = AuthService.superAdminLockChain;
+    let release: () => void;
+    AuthService.superAdminLockChain = new Promise<void>(res => { release = res; });
+    try {
+      await prev;
+      return await fn();
+    } finally {
+      release!();
+    }
+  }
+
+  public async updateProfile(
+    userId: string,
+    payload: any,
+    ip: string = '127.0.0.1',
+    userAgent: string = 'browser'
+  ): Promise<UserEntity> {
+    const user = db.users.get(userId);
+    if (!user) {
+      throw new Error('User not found.');
+    }
+
+    // Explicit Privilege Escalation Defense:
+    // Reject any payload containing privileged role/admin fields
+    const rawRole = payload.role;
+    const rawIsAdmin = payload.isAdmin;
+    const rawIsSuperAdmin = payload.isSuperAdmin;
+    const rawPermissions = payload.permissions;
+    const rawPrivileges = payload.privileges;
+
+    if (
+      rawRole !== undefined ||
+      rawIsAdmin !== undefined ||
+      rawIsSuperAdmin !== undefined ||
+      rawPermissions !== undefined ||
+      rawPrivileges !== undefined
+    ) {
+      this.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+        userId: user.id,
+        userEmail: user.email,
+        role: user.role,
+        ipAddress: ip,
+        userAgent,
+        severity: 'CRITICAL',
+        details: {
+          reason: 'Privilege escalation attempt in profile update. Request rejected.',
+          attemptedRole: rawRole,
+          attemptedIsAdmin: rawIsAdmin,
+          attemptedIsSuperAdmin: rawIsSuperAdmin
+        }
+      });
+      throw new Error('Unauthorized role modification attempt. Privilege escalation is strictly forbidden.');
+    }
+
+    // Strict Allowlist: only user-editable profile properties
+    const safeUpdates: Partial<UserEntity> = {};
+    if (typeof payload.name === 'string' && payload.name.trim().length > 0) {
+      safeUpdates.name = payload.name.trim();
+    }
+    if (typeof payload.phone === 'string') {
+      safeUpdates.phone = payload.phone.trim();
+    }
+    if (typeof payload.bio === 'string') {
+      safeUpdates.bio = payload.bio.trim();
+    }
+    if (typeof payload.avatarUrl === 'string') {
+      safeUpdates.avatarUrl = payload.avatarUrl.trim();
+    }
+    if (payload.clientType && typeof payload.clientType === 'string') {
+      safeUpdates.clientType = payload.clientType;
+    }
+    if (payload.location && typeof payload.location === 'object') {
+      safeUpdates.location = payload.location;
+    }
+
+    return db.updateUser(userId, safeUpdates);
   }
 
   // ----------------------------------------------------
@@ -1666,9 +1806,33 @@ export class AuthService {
     return { success: true, message: 'Two-factor authentication has been enabled successfully.' };
   }
 
-  public disableTwoFactor(userId: string, ip: string, userAgent: string): { success: boolean; message: string } {
+  public async disableTwoFactor(
+    userId: string,
+    password?: string,
+    ip: string = '127.0.0.1',
+    userAgent: string = 'system'
+  ): Promise<{ success: boolean; message: string }> {
     const user = db.users.get(userId);
     if (!user) throw new Error('User not found.');
+
+    // If Super Admin, require password verification before disabling 2FA
+    if (user.role === 'SUPER_ADMIN') {
+      if (!password) {
+        throw new Error('Password confirmation is required to disable two-factor authentication.');
+      }
+      if (!user.passwordHash || !(await this.comparePassword(password, user.passwordHash))) {
+        this.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+          userId: user.id,
+          userEmail: user.email,
+          role: user.role,
+          ipAddress: ip,
+          userAgent,
+          severity: 'WARNING',
+          details: { action: 'Failed password attempt while trying to disable 2FA' }
+        });
+        throw new Error('Invalid password. Password confirmation is required to disable two-factor authentication.');
+      }
+    }
 
     user.twoFactorEnabled = false;
     user.twoFactorSecret = undefined;
@@ -1685,6 +1849,48 @@ export class AuthService {
     });
 
     return { success: true, message: 'Two-factor authentication has been disabled.' };
+  }
+
+  public async regenerateRecoveryCodes(
+    userId: string,
+    password?: string,
+    ip: string = '127.0.0.1',
+    userAgent: string = 'system'
+  ): Promise<{ success: boolean; recoveryCodes: string[]; message: string }> {
+    const user = db.users.get(userId);
+    if (!user || !user.twoFactorEnabled || !user.twoFactorSecret) {
+      throw new Error('Two-factor authentication is not active.');
+    }
+
+    if (user.role === 'SUPER_ADMIN' && password) {
+      if (!user.passwordHash || !(await this.comparePassword(password, user.passwordHash))) {
+        throw new Error('Invalid password confirmation.');
+      }
+    }
+
+    // Generate 8 new random recovery codes
+    const recoveryCodes = Array.from({ length: 8 }).map(() =>
+      `${crypto.randomBytes(3).toString('hex')}-${crypto.randomBytes(3).toString('hex')}`.toUpperCase()
+    );
+
+    user.twoFactorRecoveryCodes = recoveryCodes.map(c => this.hashToken(c.toUpperCase().trim()));
+    user.updatedAt = new Date().toISOString();
+
+    this.logSecurityEvent('2FA_ENABLED', {
+      userId: user.id,
+      userEmail: user.email,
+      role: user.role,
+      ipAddress: ip,
+      userAgent,
+      severity: 'INFO',
+      details: { action: 'Recovery codes regenerated' }
+    });
+
+    return {
+      success: true,
+      recoveryCodes,
+      message: 'New backup recovery codes have been generated. Store them safely.'
+    };
   }
 
   // ----------------------------------------------------
@@ -1728,3 +1934,4 @@ export class AuthService {
 }
 
 export const authService = new AuthService();
+export { passwordResetTokenService };

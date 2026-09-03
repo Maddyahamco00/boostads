@@ -535,10 +535,108 @@ export const authApi = {
       method: 'POST',
       body: JSON.stringify(data)
     });
+  },
+
+  /**
+   * Complete 2FA login challenge with 6-digit TOTP code or recovery code
+   */
+  async verify2faLogin(preAuthToken: string, code: string) {
+    return fetchWithAuth<{
+      success: boolean;
+      user: UserProfile;
+      accessToken: string;
+      refreshToken: string;
+      error?: string;
+    }>('/api/auth/2fa/verify', {
+      method: 'POST',
+      body: JSON.stringify({ preAuthToken, code })
+    });
+  },
+
+  /**
+   * Setup 2FA: generates secret, URI, and 8 recovery codes
+   */
+  async setup2FA() {
+    return fetchWithAuth<{
+      success: boolean;
+      secret: string;
+      otpauthUrl: string;
+      recoveryCodes: string[];
+    }>('/api/auth/2fa/setup', {
+      method: 'POST'
+    });
+  },
+
+  /**
+   * Enable 2FA by verifying the first TOTP code
+   */
+  async enable2FA(totpCode: string, recoveryCodes: string[]) {
+    return fetchWithAuth<{
+      success: boolean;
+      message: string;
+    }>('/api/auth/2fa/enable', {
+      method: 'POST',
+      body: JSON.stringify({ totpCode, recoveryCodes })
+    });
+  },
+
+  /**
+   * Disable 2FA (with optional password confirmation)
+   */
+  async disable2FA(password?: string) {
+    return fetchWithAuth<{
+      success: boolean;
+      message: string;
+    }>('/api/auth/2fa/disable', {
+      method: 'POST',
+      body: JSON.stringify({ password })
+    });
+  },
+
+  /**
+   * Get Super Admin 2FA Status
+   */
+  async get2FAStatus() {
+    return adminApi.get2FAStatus();
+  },
+
+  /**
+   * Regenerate Super Admin backup recovery codes
+   */
+  async regenerateRecoveryCodes(password?: string) {
+    return adminApi.regenerateRecoveryCodes(password);
   }
 };
 
 export const adminApi = {
+  /**
+   * Get Super Admin 2FA Status
+   */
+  async get2FAStatus() {
+    return fetchWithAuth<{
+      success: boolean;
+      enabled: boolean;
+      twoFactorEnabled: boolean;
+      userEmail?: string;
+      remainingRecoveryCodes: number;
+    }>('/api/admin/2fa/status', {
+      method: 'GET'
+    });
+  },
+
+  /**
+   * Regenerate Super Admin backup recovery codes
+   */
+  async regenerateRecoveryCodes(password?: string) {
+    return fetchWithAuth<{
+      success: boolean;
+      recoveryCodes: string[];
+      message: string;
+    }>('/api/admin/2fa/regenerate-recovery-codes', {
+      method: 'POST',
+      body: JSON.stringify({ password })
+    });
+  },
   /**
    * Fetch Super Admin Security Logs
    */

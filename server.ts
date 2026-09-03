@@ -3,7 +3,7 @@ import path from 'path';
 import cookieParser from 'cookie-parser';
 import { createServer as createViteServer } from 'vite';
 import { db } from './src/server/db';
-import { authService } from './src/server/services/authService';
+import { authService, passwordResetTokenService } from './src/server/services/authService';
 import { emailService } from './src/server/services/emailService';
 import { authTestRunnerService } from './src/server/services/authTestRunnerService';
 import { 
@@ -261,22 +261,25 @@ async function startServer() {
   // 3. Two-Factor Login Verification
   app.post('/api/auth/2fa/verify', async (req, res) => {
     try {
-      const { preAuthToken, code } = req.body;
-      if (!preAuthToken || !code) {
+      const { preAuthToken, code, totpCode, recoveryCode } = req.body;
+      const effectiveCode = code || totpCode || recoveryCode;
+      if (!preAuthToken || !effectiveCode) {
         return res.status(400).json({ success: false, error: '2FA token and code are required' });
       }
 
-      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
-      const userAgent = req.headers['user-agent'] || 'browser';
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = (req.headers['user-agent'] as string) || 'browser';
 
-      const result = await authService.verifyTwoFactorLogin(preAuthToken, code, clientIp, userAgent);
+      const result = await authService.verifyTwoFactorLogin(preAuthToken, effectiveCode, clientIp, userAgent);
+
+      const cookieDuration = result.user.role === 'SUPER_ADMIN' ? 12 * 60 * 60 * 1000 : 60 * 60 * 1000;
 
       res.cookie('boost_access_token', result.accessToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',
         path: '/',
-        maxAge: 60 * 60 * 1000
+        maxAge: cookieDuration
       });
 
       res.cookie('boost_refresh_token', result.refreshToken, {
@@ -290,6 +293,15 @@ async function startServer() {
       res.json(result);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Two-factor verification failed';
+      const isRateLimit = (err as any)?.code === 'RATE_LIMITED' || message.toLowerCase().includes('too many failed');
+      if (isRateLimit) {
+        return res.status(429).json({
+          success: false,
+          error: message,
+          code: 'RATE_LIMITED',
+          remainingSeconds: (err as any)?.remainingSeconds || 60
+        });
+      }
       res.status(401).json({ success: false, error: message });
     }
   });
@@ -724,15 +736,16 @@ async function startServer() {
 
   app.post('/api/auth/2fa/enable', authenticate, (req: AuthenticatedRequest, res) => {
     try {
-      const { totpCode, recoveryCodes } = req.body;
-      if (!totpCode || !Array.isArray(recoveryCodes)) {
+      const { totpCode, code, recoveryCodes } = req.body;
+      const effectiveCode = totpCode || code;
+      if (!effectiveCode || !Array.isArray(recoveryCodes)) {
         return res.status(400).json({ success: false, error: 'TOTP code and recovery codes are required' });
       }
 
-      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
-      const userAgent = req.headers['user-agent'] || 'browser';
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = (req.headers['user-agent'] as string) || 'browser';
 
-      const result = authService.enableTwoFactor(req.user!.id, totpCode, recoveryCodes, clientIp, userAgent);
+      const result = authService.enableTwoFactor(req.user!.id, effectiveCode, recoveryCodes, clientIp, userAgent);
       res.json(result);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to enable 2FA';
@@ -740,15 +753,44 @@ async function startServer() {
     }
   });
 
-  app.post('/api/auth/2fa/disable', authenticate, (req: AuthenticatedRequest, res) => {
+  app.post('/api/auth/2fa/disable', authenticate, async (req: AuthenticatedRequest, res) => {
     try {
-      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
-      const userAgent = req.headers['user-agent'] || 'browser';
+      const { password } = req.body;
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = (req.headers['user-agent'] as string) || 'browser';
 
-      const result = authService.disableTwoFactor(req.user!.id, clientIp, userAgent);
+      const result = await authService.disableTwoFactor(req.user!.id, password, clientIp, userAgent);
       res.json(result);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to disable 2FA';
+      res.status(400).json({ success: false, error: message });
+    }
+  });
+
+  // Dedicated Super Admin 2FA Management Endpoints
+  app.get('/api/admin/2fa/status', authenticate, requireSuperAdmin, (req: AuthenticatedRequest, res) => {
+    const admin = db.users.get(req.user!.id);
+    if (!admin) return res.status(404).json({ success: false, error: 'Admin not found' });
+    const isEnabled = Boolean(admin.twoFactorEnabled && admin.twoFactorSecret);
+    res.json({
+      success: true,
+      enabled: isEnabled,
+      twoFactorEnabled: isEnabled,
+      userEmail: admin.email,
+      remainingRecoveryCodes: admin.twoFactorRecoveryCodes ? admin.twoFactorRecoveryCodes.length : 0
+    });
+  });
+
+  app.post('/api/admin/2fa/regenerate-recovery-codes', authenticate, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const { password } = req.body;
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = (req.headers['user-agent'] as string) || 'browser';
+
+      const result = await authService.regenerateRecoveryCodes(req.user!.id, password, clientIp, userAgent);
+      res.json(result);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to regenerate recovery codes';
       res.status(400).json({ success: false, error: message });
     }
   });
@@ -788,6 +830,26 @@ async function startServer() {
     res.json({ success: true, message: 'Email outbox cleared' });
   });
 
+  // Maintenance: Password Reset & Verification Token Cleanup
+  app.post('/api/admin/maintenance/cleanup-tokens', authenticate, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const { removeExpired = true, removeUsed = true, usedRetentionMinutes = 0 } = req.body || {};
+      const result = await passwordResetTokenService.cleanup({
+        removeExpired,
+        removeUsed,
+        usedRetentionMinutes
+      });
+      res.json({ success: true, ...result });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Token cleanup failed' });
+    }
+  });
+
+  app.get('/api/admin/maintenance/token-stats', authenticate, requireSuperAdmin, (req: AuthenticatedRequest, res) => {
+    const stats = passwordResetTokenService.getStats();
+    res.json({ success: true, stats });
+  });
+
   // 17. Super Admin Dedicated Me & Security Audit Logs & User Governance
   app.get('/api/admin/me', authenticate, requireSuperAdmin, (req: AuthenticatedRequest, res) => {
     const safeUser = authService.getSafeUser(req.user!);
@@ -810,6 +872,66 @@ async function startServer() {
   app.get('/api/admin/users', authenticate, requireSuperAdmin, (req, res) => {
     const safeUsers = Array.from(db.users.values()).map(u => authService.getSafeUser(u));
     res.json({ success: true, users: safeUsers });
+  });
+
+  // Explicit Admin User Creation Guard: PREVENT CREATION OF ANOTHER SUPER ADMIN
+  app.post('/api/admin/users', authenticate, requireSuperAdmin, (req: AuthenticatedRequest, res) => {
+    try {
+      const { role, email, isSuperAdmin, isAdmin } = req.body;
+      if (role === 'SUPER_ADMIN' || isSuperAdmin || isAdmin) {
+        return res.status(403).json({
+          success: false,
+          error: 'Creation of another Super Admin is prohibited. Only the designated executive account can be SUPER_ADMIN.',
+          code: 'SUPER_ADMIN_CREATION_PROHIBITED'
+        });
+      }
+
+      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'browser';
+
+      return res.status(400).json({
+        success: false,
+        error: 'Direct admin user creation is disabled. Users must register via the public client portal.',
+        code: 'OPERATION_NOT_PERMITTED'
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Operation failed';
+      res.status(400).json({ success: false, error: message });
+    }
+  });
+
+  app.patch('/api/admin/users/:id/role', authenticate, requireSuperAdmin, (req: AuthenticatedRequest, res) => {
+    const { id } = req.params;
+    const { role } = req.body;
+
+    const user = db.users.get(id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    if (role === 'SUPER_ADMIN') {
+      return res.status(403).json({
+        success: false,
+        error: 'Role escalation blocked: There can be only ONE Super Admin account. Promoting another user to SUPER_ADMIN is strictly prohibited.',
+        code: 'PRIVILEGE_ESCALATION_BLOCKED'
+      });
+    }
+
+    if (user.role === 'SUPER_ADMIN' && role !== 'SUPER_ADMIN') {
+      return res.status(403).json({
+        success: false,
+        error: 'Primary Super Admin account role cannot be demoted or altered.',
+        code: 'SUPER_ADMIN_DEMOTION_PROHIBITED'
+      });
+    }
+
+    try {
+      const updated = db.updateUser(id, { role });
+      res.json({ success: true, user: authService.getSafeUser(updated) });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Role update failed';
+      res.status(400).json({ success: false, error: message });
+    }
   });
 
   app.patch('/api/admin/users/:id/status', authenticate, requireSuperAdmin, (req: AuthenticatedRequest, res) => {
@@ -883,25 +1005,86 @@ async function startServer() {
     res.json({ success: true, user: authService.getSafeUser(user) });
   });
 
-  app.post('/api/users/profile', authenticate, (req: AuthenticatedRequest, res) => {
+  const handleProfileUpdate = async (req: AuthenticatedRequest, res: any, targetUserId: string) => {
     try {
-      const { name, phone, bio, location, avatarUrl, clientType } = req.body;
-      const targetUserId = req.user!.id;
-      
-      const updatedUser = db.updateUser(targetUserId, {
-        name,
-        phone,
-        bio,
-        location,
-        avatarUrl,
-        clientType
-      });
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = (req.headers['user-agent'] as string) || 'browser';
 
+      // Explicit Privilege Escalation Defense: Reject privileged role modification
+      if (
+        req.body.role !== undefined ||
+        req.body.isAdmin !== undefined ||
+        req.body.isSuperAdmin !== undefined ||
+        req.body.permissions !== undefined ||
+        req.body.privileges !== undefined
+      ) {
+        authService.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+          userId: req.user!.id,
+          userEmail: req.user!.email,
+          role: req.user!.role,
+          ipAddress: clientIp,
+          userAgent,
+          severity: 'CRITICAL',
+          details: {
+            reason: 'Attempted privilege escalation in profile update endpoint.',
+            attemptedPayload: {
+              role: req.body.role,
+              isAdmin: req.body.isAdmin,
+              isSuperAdmin: req.body.isSuperAdmin
+            }
+          }
+        });
+
+        return res.status(403).json({
+          success: false,
+          error: 'Unauthorized role modification attempt. Privilege escalation is strictly forbidden.',
+          code: 'PRIVILEGE_ESCALATION_BLOCKED'
+        });
+      }
+
+      // Authorization guard: normal users can only update their own profile
+      if (req.user!.id !== targetUserId && req.user!.role !== 'SUPER_ADMIN') {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: You can only update your own account.',
+          code: 'FORBIDDEN'
+        });
+      }
+
+      const updatedUser = await authService.updateProfile(targetUserId, req.body, clientIp, userAgent);
       res.json({ success: true, user: authService.getSafeUser(updatedUser) });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Profile update failed';
-      res.status(400).json({ success: false, error: message });
+      const isForbidden = message.toLowerCase().includes('unauthorized') || 
+                          message.toLowerCase().includes('escalation') ||
+                          message.toLowerCase().includes('forbidden') ||
+                          message.toLowerCase().includes('role');
+      res.status(isForbidden ? 403 : 400).json({ success: false, error: message });
     }
+  };
+
+  app.post('/api/users/profile', authenticate, (req: AuthenticatedRequest, res) => {
+    handleProfileUpdate(req, res, req.user!.id);
+  });
+
+  app.patch('/api/users/profile', authenticate, (req: AuthenticatedRequest, res) => {
+    handleProfileUpdate(req, res, req.user!.id);
+  });
+
+  app.patch('/api/users/me', authenticate, (req: AuthenticatedRequest, res) => {
+    handleProfileUpdate(req, res, req.user!.id);
+  });
+
+  app.put('/api/users/me', authenticate, (req: AuthenticatedRequest, res) => {
+    handleProfileUpdate(req, res, req.user!.id);
+  });
+
+  app.patch('/api/users/:id', authenticate, (req: AuthenticatedRequest, res) => {
+    handleProfileUpdate(req, res, req.params.id);
+  });
+
+  app.put('/api/users/:id', authenticate, (req: AuthenticatedRequest, res) => {
+    handleProfileUpdate(req, res, req.params.id);
   });
 
   // ==========================================
@@ -2101,6 +2284,9 @@ async function startServer() {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
+
+  // Start periodic background token maintenance (every 15 mins)
+  passwordResetTokenService.startPeriodicCleanup(15);
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`=================================================`);

@@ -12,11 +12,18 @@ import {
   Lock, 
   FileText, 
   LogOut, 
-  ArrowLeft 
+  ArrowLeft,
+  KeyRound,
+  Copy,
+  Check,
+  AlertCircle,
+  ShieldAlert,
+  Download,
+  Key
 } from 'lucide-react';
 import { AuditLogEntity } from '../types';
 import { AuthTestSuiteModal } from './AuthTestSuiteModal';
-import { fetchWithAuth, formatAuthError } from '../lib/api';
+import { authApi, fetchWithAuth, formatAuthError } from '../lib/api';
 import { Logo } from './Logo';
 
 export const AdminPanelView: React.FC = () => {
@@ -34,7 +41,7 @@ export const AdminPanelView: React.FC = () => {
     refreshData 
   } = useApp();
 
-  const [activeTab, setActiveTab] = useState<'businesses' | 'ads' | 'reports' | 'financials' | 'audit_logs' | 'users'>('businesses');
+  const [activeTab, setActiveTab] = useState<'businesses' | 'ads' | 'reports' | 'financials' | 'audit_logs' | 'users' | 'security'>('businesses');
   const [fxSpread, setFxSpread] = useState<number>(2.0);
   const [isTestSuiteOpen, setIsTestSuiteOpen] = useState(false);
 
@@ -42,6 +49,30 @@ export const AdminPanelView: React.FC = () => {
   const [auditLogs, setAuditLogs] = useState<AuditLogEntity[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditFilter, setAuditFilter] = useState('');
+
+  // Two-Factor Authentication (2FA) State
+  const [twoFactorStatus, setTwoFactorStatus] = useState<{
+    twoFactorEnabled: boolean;
+    remainingRecoveryCodes: number;
+    userEmail: string;
+  } | null>(null);
+  const [twoFactorLoading, setTwoFactorLoading] = useState(false);
+  const [setupData, setSetupData] = useState<{
+    secret: string;
+    otpauthUrl: string;
+    recoveryCodes: string[];
+  } | null>(null);
+  const [totpVerifyInput, setTotpVerifyInput] = useState('');
+  const [disablePasswordInput, setDisablePasswordInput] = useState('');
+  const [regenPasswordInput, setRegenPasswordInput] = useState('');
+  const [isDisableModalOpen, setIsDisableModalOpen] = useState(false);
+  const [isRegenModalOpen, setIsRegenModalOpen] = useState(false);
+  const [securityMessage, setSecurityMessage] = useState<string | null>(null);
+  const [securityError, setSecurityError] = useState<string | null>(null);
+  const [copiedSecret, setCopiedSecret] = useState(false);
+  const [copiedCodes, setCopiedCodes] = useState(false);
+  const [newRecoveryCodes, setNewRecoveryCodes] = useState<string[] | null>(null);
+  const [isSubmitting2FA, setIsSubmitting2FA] = useState(false);
 
   // 1. Loading State (Prevent UI Flash)
   if (isAuthLoading) {
@@ -126,8 +157,132 @@ export const AdminPanelView: React.FC = () => {
   useEffect(() => {
     if (activeTab === 'audit_logs') {
       fetchAuditLogs();
+    } else if (activeTab === 'security') {
+      fetchTwoFactorStatus();
+      setSecurityError(null);
+      setSecurityMessage(null);
     }
   }, [activeTab]);
+
+  const fetchTwoFactorStatus = async () => {
+    setTwoFactorLoading(true);
+    try {
+      const res = await authApi.get2FAStatus();
+      if (res.success) {
+        setTwoFactorStatus({
+          twoFactorEnabled: res.twoFactorEnabled,
+          remainingRecoveryCodes: res.remainingRecoveryCodes,
+          userEmail: res.userEmail
+        });
+      }
+    } catch (err: unknown) {
+      console.error('Failed to load 2FA status:', err);
+    } finally {
+      setTwoFactorLoading(false);
+    }
+  };
+
+  const handleStartSetup = async () => {
+    setIsSubmitting2FA(true);
+    setSecurityError(null);
+    setSecurityMessage(null);
+    try {
+      const res = await authApi.setup2FA();
+      if (res.success) {
+        setSetupData({
+          secret: res.secret,
+          otpauthUrl: res.otpauthUrl,
+          recoveryCodes: res.recoveryCodes
+        });
+      }
+    } catch (err: unknown) {
+      const formatted = formatAuthError(err);
+      setSecurityError(formatted.message);
+    } finally {
+      setIsSubmitting2FA(false);
+    }
+  };
+
+  const handleConfirmEnable2FA = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!setupData || !totpVerifyInput.trim()) {
+      setSecurityError('Please enter the 6-digit TOTP code from your authenticator app.');
+      return;
+    }
+
+    setIsSubmitting2FA(true);
+    setSecurityError(null);
+    setSecurityMessage(null);
+    try {
+      const res = await authApi.enable2FA(totpVerifyInput.trim(), setupData.recoveryCodes);
+      if (res.success) {
+        setSecurityMessage('Two-Factor Authentication successfully activated for Super Admin.');
+        setNewRecoveryCodes(setupData.recoveryCodes);
+        setSetupData(null);
+        setTotpVerifyInput('');
+        await fetchTwoFactorStatus();
+      }
+    } catch (err: unknown) {
+      const formatted = formatAuthError(err);
+      setSecurityError(formatted.message);
+    } finally {
+      setIsSubmitting2FA(false);
+    }
+  };
+
+  const handleConfirmDisable2FA = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!disablePasswordInput) {
+      setSecurityError('Super Admin password is required to disable Two-Factor Authentication.');
+      return;
+    }
+
+    setIsSubmitting2FA(true);
+    setSecurityError(null);
+    setSecurityMessage(null);
+    try {
+      const res = await authApi.disable2FA(disablePasswordInput);
+      if (res.success) {
+        setSecurityMessage('Two-Factor Authentication has been disabled.');
+        setIsDisableModalOpen(false);
+        setDisablePasswordInput('');
+        setNewRecoveryCodes(null);
+        await fetchTwoFactorStatus();
+      }
+    } catch (err: unknown) {
+      const formatted = formatAuthError(err);
+      setSecurityError(formatted.message);
+    } finally {
+      setIsSubmitting2FA(false);
+    }
+  };
+
+  const handleConfirmRegenerateCodes = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!regenPasswordInput) {
+      setSecurityError('Super Admin password is required to regenerate recovery codes.');
+      return;
+    }
+
+    setIsSubmitting2FA(true);
+    setSecurityError(null);
+    setSecurityMessage(null);
+    try {
+      const res = await authApi.regenerateRecoveryCodes(regenPasswordInput);
+      if (res.success && res.recoveryCodes) {
+        setNewRecoveryCodes(res.recoveryCodes);
+        setSecurityMessage('New emergency recovery codes have been generated. Store them safely.');
+        setIsRegenModalOpen(false);
+        setRegenPasswordInput('');
+        await fetchTwoFactorStatus();
+      }
+    } catch (err: unknown) {
+      const formatted = formatAuthError(err);
+      setSecurityError(formatted.message);
+    } finally {
+      setIsSubmitting2FA(false);
+    }
+  };
 
   const totalGMV = invoices.filter(i => i.status === 'paid').reduce((acc, i) => acc + i.total, 0);
 
@@ -344,6 +499,18 @@ export const AdminPanelView: React.FC = () => {
             }`}
           >
             FX Settings
+          </button>
+          <button
+            onClick={() => setActiveTab('security')}
+            className={`pb-2.5 px-3 border-b-2 whitespace-nowrap transition-colors cursor-pointer font-semibold flex items-center gap-1.5 ${
+              activeTab === 'security' ? 'border-[#16C784] text-[#16C784]' : 'border-transparent text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            <ShieldCheck className="w-4 h-4" />
+            <span>Security & 2FA</span>
+            {twoFactorStatus?.twoFactorEnabled && (
+              <span className="w-1.5 h-1.5 rounded-full bg-[#16C784]" />
+            )}
           </button>
         </div>
       </div>
@@ -714,6 +881,463 @@ export const AdminPanelView: React.FC = () => {
                   ))}
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* 7. SECURITY & 2FA TAB */}
+        {activeTab === 'security' && (
+          <div className="space-y-6">
+            {/* Header & Context */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200">
+              <div>
+                <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-[#16C784]" />
+                  <span>Super Admin Security & Two-Factor Authentication</span>
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  RFC 6238 compliant TOTP multi-factor protection and emergency recovery code vault for the Super Admin account.
+                </p>
+              </div>
+              <button
+                onClick={fetchTwoFactorStatus}
+                disabled={twoFactorLoading}
+                className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer w-fit"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${twoFactorLoading ? 'animate-spin' : ''}`} />
+                <span>Refresh Status</span>
+              </button>
+            </div>
+
+            {/* Alert Messages */}
+            {securityMessage && (
+              <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{securityMessage}</span>
+                </div>
+                <button 
+                  onClick={() => setSecurityMessage(null)}
+                  className="text-emerald-700 hover:text-emerald-950 text-xs font-semibold cursor-pointer ml-3"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
+            {securityError && (
+              <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{securityError}</span>
+                </div>
+                <button 
+                  onClick={() => setSecurityError(null)}
+                  className="text-rose-700 hover:text-rose-950 text-xs font-semibold cursor-pointer ml-3"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
+            {/* Status Overview Card */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs">
+                <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">
+                  2FA Protection Status
+                </span>
+                <div className="flex items-center gap-2 mt-1">
+                  {twoFactorLoading ? (
+                    <RefreshCw className="w-4 h-4 animate-spin text-slate-400" />
+                  ) : twoFactorStatus?.twoFactorEnabled ? (
+                    <>
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                        <Check className="w-3.5 h-3.5" />
+                        Active & Enforced
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        Disabled / Not Configured
+                      </span>
+                    </>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500 mt-2">
+                  Requires 6-digit TOTP code or emergency recovery code on every login.
+                </p>
+              </div>
+
+              <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs">
+                <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">
+                  Protected Principal
+                </span>
+                <p className="text-sm font-bold text-slate-900 font-mono">
+                  {twoFactorStatus?.userEmail || 'maddyahamco00@gmail.com'}
+                </p>
+                <div className="flex items-center gap-1.5 mt-2 text-[11px] text-slate-500">
+                  <Key className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Role: SUPER_ADMIN (Immutable)</span>
+                </div>
+              </div>
+
+              <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs">
+                <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">
+                  Emergency Recovery Vault
+                </span>
+                <p className="text-sm font-bold text-slate-900">
+                  {twoFactorStatus?.twoFactorEnabled ? (
+                    <span className="text-emerald-700 font-semibold">
+                      {twoFactorStatus.remainingRecoveryCodes} code{twoFactorStatus.remainingRecoveryCodes === 1 ? '' : 's'} available
+                    </span>
+                  ) : (
+                    <span className="text-slate-400">None enrolled</span>
+                  )}
+                </p>
+                <p className="text-[11px] text-slate-500 mt-2">
+                  Each recovery code is single-use and hashed with SHA-256 in storage.
+                </p>
+              </div>
+            </div>
+
+            {/* Display newly generated / regenerated recovery codes if available */}
+            {newRecoveryCodes && newRecoveryCodes.length > 0 && (
+              <div className="bg-[#071A17] text-white border border-[#16C784]/30 rounded-xl p-5 shadow-xs space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <ShieldAlert className="w-5 h-5 text-[#16C784]" />
+                    <h3 className="text-sm font-bold text-white">
+                      Your Emergency Recovery Codes (Save Immediately)
+                    </h3>
+                  </div>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(newRecoveryCodes.join('\n'));
+                      setCopiedCodes(true);
+                      setTimeout(() => setCopiedCodes(false), 2000);
+                    }}
+                    className="px-3 py-1.5 bg-[#16C784] hover:bg-[#16C784]/90 text-[#071A17] font-semibold rounded-lg text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    {copiedCodes ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedCodes ? 'Copied to Clipboard' : 'Copy All Codes'}</span>
+                  </button>
+                </div>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  These codes can be used to authenticate if you lose access to your authenticator app. Each code can only be used once. Store them in a secure password manager or offline safe. They will not be displayed again.
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+                  {newRecoveryCodes.map((code, idx) => (
+                    <div 
+                      key={idx}
+                      className="px-3 py-2 bg-white/10 border border-white/15 rounded-lg text-center font-mono font-semibold text-xs text-[#16C784] tracking-wider"
+                    >
+                      {code}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Main Action View: Enrolled vs Unenrolled */}
+            {twoFactorStatus?.twoFactorEnabled ? (
+              <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs space-y-5">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Two-Factor Authentication Controls
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Your Super Admin account is protected by multi-factor authentication. You can rotate recovery codes or disable 2FA below.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3 pt-2">
+                  <button
+                    onClick={() => {
+                      setRegenPasswordInput('');
+                      setSecurityError(null);
+                      setIsRegenModalOpen(true);
+                    }}
+                    className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Regenerate Emergency Backup Codes</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setDisablePasswordInput('');
+                      setSecurityError(null);
+                      setIsDisableModalOpen(true);
+                    }}
+                    className="px-4 py-2 border border-rose-300 text-rose-700 hover:bg-rose-50 rounded-lg text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>Disable Two-Factor Authentication</span>
+                  </button>
+                </div>
+
+                <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 text-xs text-slate-600 space-y-1.5">
+                  <p className="font-semibold text-slate-800">Security Architecture Mandates:</p>
+                  <ul className="list-disc pl-4 space-y-1 text-slate-600">
+                    <li>Session TTL: Super Admin sessions expire in 12 hours regardless of client cookie preferences.</li>
+                    <li>Rate Limiting: Exceeding 5 failed TOTP attempts activates progressive lockout defense.</li>
+                    <li>Role Boundary: Client accounts cannot invoke admin authentication routes or access 2FA secrets.</li>
+                  </ul>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs space-y-6">
+                {!setupData ? (
+                  <div className="space-y-4">
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900">
+                        Enroll in Two-Factor Authentication
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                        Secure your Super Admin account with standard TOTP (Time-Based One-Time Password) authentication compatible with Google Authenticator, Microsoft Authenticator, 1Password, and Authy.
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={handleStartSetup}
+                      disabled={isSubmitting2FA}
+                      className="px-4 py-2.5 bg-[#071A17] hover:bg-[#071A17]/90 text-[#16C784] border border-[#16C784]/40 rounded-lg text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer shadow-xs"
+                    >
+                      {isSubmitting2FA ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin text-[#16C784]" />
+                          <span>Generating Secure Keys...</span>
+                        </>
+                      ) : (
+                        <>
+                          <KeyRound className="w-3.5 h-3.5" />
+                          <span>Begin 2FA Enrollment</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-900">
+                          Complete 2FA Setup
+                        </h3>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          Follow the 3 steps below to verify your authenticator app and activate protection.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setSetupData(null);
+                          setTotpVerifyInput('');
+                          setSecurityError(null);
+                        }}
+                        className="text-xs text-slate-500 hover:text-slate-800 font-semibold cursor-pointer"
+                      >
+                        Cancel Setup
+                      </button>
+                    </div>
+
+                    {/* Step 1: Secret Key */}
+                    <div className="space-y-2">
+                      <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                        <span className="w-5 h-5 rounded-full bg-slate-900 text-white text-[11px] flex items-center justify-center font-mono">1</span>
+                        <span>Add to your Authenticator App</span>
+                      </span>
+                      <p className="text-xs text-slate-500 pl-6.5">
+                        Scan the URI or manually enter the Base32 Secret Key into Google Authenticator or your password vault:
+                      </p>
+                      <div className="pl-6.5 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                        <div className="px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-mono text-xs font-semibold text-slate-800 tracking-wider flex-1 break-all">
+                          {setupData.secret}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(setupData.secret);
+                            setCopiedSecret(true);
+                            setTimeout(() => setCopiedSecret(false), 2000);
+                          }}
+                          className="px-3 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                        >
+                          {copiedSecret ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                          <span>{copiedSecret ? 'Copied' : 'Copy Secret'}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Step 2: Emergency Recovery Codes */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                          <span className="w-5 h-5 rounded-full bg-slate-900 text-white text-[11px] flex items-center justify-center font-mono">2</span>
+                          <span>Save 8 Single-Use Recovery Codes</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(setupData.recoveryCodes.join('\n'));
+                            setCopiedCodes(true);
+                            setTimeout(() => setCopiedCodes(false), 2000);
+                          }}
+                          className="text-xs text-[#16C784] hover:underline font-semibold flex items-center gap-1 cursor-pointer"
+                        >
+                          {copiedCodes ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                          <span>{copiedCodes ? 'Copied Codes' : 'Copy All'}</span>
+                        </button>
+                      </div>
+                      <p className="text-xs text-slate-500 pl-6.5">
+                        If you ever lose access to your authenticator device, each code grants a one-time emergency sign-in.
+                      </p>
+                      <div className="pl-6.5 grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {setupData.recoveryCodes.map((code, idx) => (
+                          <div
+                            key={idx}
+                            className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded text-center font-mono text-xs text-slate-700 font-semibold"
+                          >
+                            {code}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Step 3: Verify & Activate */}
+                    <form onSubmit={handleConfirmEnable2FA} className="space-y-3 pt-2">
+                      <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                        <span className="w-5 h-5 rounded-full bg-slate-900 text-white text-[11px] flex items-center justify-center font-mono">3</span>
+                        <span>Verify 6-digit TOTP Code</span>
+                      </span>
+                      <div className="pl-6.5 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                        <input
+                          type="text"
+                          required
+                          maxLength={8}
+                          value={totpVerifyInput}
+                          onChange={(e) => setTotpVerifyInput(e.target.value.replace(/\s+/g, ''))}
+                          placeholder="e.g. 123456"
+                          className="w-full sm:w-48 px-3.5 py-2 text-sm font-mono tracking-widest border border-slate-200 rounded-lg focus:ring-1 focus:ring-[#16C784] focus:border-[#16C784] outline-none text-center"
+                        />
+                        <button
+                          type="submit"
+                          disabled={isSubmitting2FA || !totpVerifyInput.trim()}
+                          className="px-4 py-2 bg-[#071A17] hover:bg-[#071A17]/90 text-[#16C784] border border-[#16C784]/40 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-50 cursor-pointer shadow-xs"
+                        >
+                          {isSubmitting2FA ? (
+                            <>
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin text-[#16C784]" />
+                              <span>Activating 2FA...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Check className="w-3.5 h-3.5" />
+                              <span>Verify & Activate 2FA</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Modal: Disable 2FA */}
+        {isDisableModalOpen && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-xl border border-slate-200 space-y-4">
+              <div className="flex items-center gap-3 text-rose-600">
+                <ShieldAlert className="w-6 h-6" />
+                <h3 className="text-sm font-bold text-slate-900">
+                  Confirm Disabling Two-Factor Authentication
+                </h3>
+              </div>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Disabling 2FA lowers the security of the executive Super Admin account. To authorize this change, please enter your master password:
+              </p>
+              <form onSubmit={handleConfirmDisable2FA} className="space-y-3">
+                <input
+                  type="password"
+                  required
+                  autoFocus
+                  value={disablePasswordInput}
+                  onChange={(e) => setDisablePasswordInput(e.target.value)}
+                  placeholder="Enter Super Admin Password"
+                  className="w-full px-3.5 py-2 text-sm border border-slate-200 rounded-lg focus:ring-1 focus:ring-rose-500 focus:border-rose-500 outline-none"
+                />
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsDisableModalOpen(false);
+                      setDisablePasswordInput('');
+                    }}
+                    className="px-3.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting2FA || !disablePasswordInput}
+                    className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
+                  >
+                    {isSubmitting2FA ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
+                    <span>Confirm Disable</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Modal: Regenerate Recovery Codes */}
+        {isRegenModalOpen && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-xl border border-slate-200 space-y-4">
+              <div className="flex items-center gap-3 text-slate-800">
+                <RefreshCw className="w-5 h-5 text-[#16C784]" />
+                <h3 className="text-sm font-bold text-slate-900">
+                  Regenerate Emergency Recovery Codes
+                </h3>
+              </div>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Generating new recovery codes will immediately invalidate all existing unused recovery codes. Enter your Super Admin master password to proceed:
+              </p>
+              <form onSubmit={handleConfirmRegenerateCodes} className="space-y-3">
+                <input
+                  type="password"
+                  required
+                  autoFocus
+                  value={regenPasswordInput}
+                  onChange={(e) => setRegenPasswordInput(e.target.value)}
+                  placeholder="Enter Super Admin Password"
+                  className="w-full px-3.5 py-2 text-sm border border-slate-200 rounded-lg focus:ring-1 focus:ring-[#16C784] focus:border-[#16C784] outline-none"
+                />
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsRegenModalOpen(false);
+                      setRegenPasswordInput('');
+                    }}
+                    className="px-3.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting2FA || !regenPasswordInput}
+                    className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
+                  >
+                    {isSubmitting2FA ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
+                    <span>Generate New Codes</span>
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}
