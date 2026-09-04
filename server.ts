@@ -1,7 +1,7 @@
 import express from 'express';
 import path from 'path';
 import cookieParser from 'cookie-parser';
-import { createServer as createViteServer } from 'vite';
+import next from 'next';
 import { db } from './src/server/db';
 import { authService, passwordResetTokenService } from './src/server/services/authService';
 import { securityMonitoringService } from './src/server/services/securityMonitoringService';
@@ -2509,21 +2509,16 @@ async function startServer() {
   });
 
   // ==========================================
-  // 14. VITE MIDDLEWARE (DEV & PRODUCTION)
+  // 14. NEXT.JS APP ROUTER MIDDLEWARE & SSR
   // ==========================================
-  if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa'
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
-  }
+  const dev = process.env.NODE_ENV !== 'production';
+  const nextApp = next({ dev, dir: process.cwd() });
+  const handle = nextApp.getRequestHandler();
+  await nextApp.prepare();
+
+  app.all('*', (req, res) => {
+    return handle(req, res);
+  });
 
   // Start periodic background token maintenance (every 15 mins)
   passwordResetTokenService.startPeriodicCleanup(15);

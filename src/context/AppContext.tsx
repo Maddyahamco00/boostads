@@ -1,3 +1,5 @@
+'use client';
+
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { 
   UserProfile, 
@@ -150,6 +152,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [activeView, setActiveViewState] = useState<AppView>(() => {
     if (typeof window !== 'undefined') {
+      if (window.location.pathname === '/profile' || window.location.pathname === '/dashboard') {
+        return 'profile';
+      }
       if (window.location.pathname === '/admin/login') {
         return 'admin_login';
       }
@@ -300,42 +305,49 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [checkAuth]);
 
   const setActiveView = useCallback((view: AppView) => {
-    const isProtected = ['merchant_dashboard', 'invoices', 'campaigns', 'create_ad', 'ai_marketing', 'admin_panel'].includes(view);
+    const isProtected = ['merchant_dashboard', 'invoices', 'campaigns', 'create_ad', 'ai_marketing', 'admin_panel', 'profile'].includes(view);
     const targetView = (!isAuthenticated && isProtected) ? 'login' : view;
 
     setActiveViewState(targetView);
     if (typeof window !== 'undefined') {
-      if (targetView === 'login') {
-        if (window.location.pathname !== '/login') {
-          window.history.pushState({}, '', '/login');
-        }
-      } else if (targetView === 'register') {
-        if (window.location.pathname !== '/register') {
-          window.history.pushState({}, '', '/register');
-        }
-      } else if (targetView === 'verify_email') {
-        if (window.location.pathname !== '/verify-email') {
-          window.history.pushState({}, '', '/verify-email');
-        }
-      } else {
-        if (window.location.pathname === '/login' || window.location.pathname === '/register' || window.location.pathname === '/verify-email') {
-          window.history.pushState({}, '', '/');
-        }
+      let targetPath = '/';
+      if (targetView === 'login') targetPath = '/login';
+      else if (targetView === 'register') targetPath = '/register';
+      else if (targetView === 'verify_email') targetPath = '/verify-email';
+      else if (targetView === 'forgot_password') targetPath = '/forgot-password';
+      else if (targetView === 'reset_password') targetPath = '/reset-password';
+      else if (targetView === 'profile') targetPath = '/profile';
+      else if (targetView === 'admin_login') targetPath = '/admin/login';
+      else if (targetView === 'admin_panel') targetPath = '/admin';
+
+      if (window.location.pathname !== targetPath && !window.location.search.includes('token=')) {
+        window.history.pushState({}, '', targetPath);
       }
     }
   }, [isAuthenticated]);
 
   useEffect(() => {
     const handlePopState = () => {
-      if (window.location.pathname === '/login') {
+      const p = window.location.pathname;
+      if (p === '/login') {
         setActiveViewState('login');
-      } else if (window.location.pathname === '/register') {
+      } else if (p === '/register') {
         setActiveViewState('register');
-      } else if (window.location.pathname === '/verify-email' || window.location.search.includes('verifyToken=') || (window.location.pathname === '/' && window.location.search.includes('token='))) {
+      } else if (p === '/profile' || p === '/dashboard') {
+        setActiveViewState(isAuthenticated ? 'profile' : 'login');
+      } else if (p === '/admin/login') {
+        setActiveViewState('admin_login');
+      } else if (p === '/admin' || p === '/admin/panel') {
+        setActiveViewState('admin_panel');
+      } else if (p === '/forgot-password') {
+        setActiveViewState('forgot_password');
+      } else if (p === '/reset-password' || window.location.search.includes('resetToken=')) {
+        setActiveViewState('reset_password');
+      } else if (p === '/verify-email' || window.location.search.includes('verifyToken=') || window.location.search.includes('token=')) {
         setActiveViewState('verify_email');
       } else {
         setActiveViewState(prev => {
-          if (!isAuthenticated && ['merchant_dashboard', 'invoices', 'campaigns', 'create_ad', 'ai_marketing', 'admin_panel'].includes(prev)) {
+          if (!isAuthenticated && ['merchant_dashboard', 'invoices', 'campaigns', 'create_ad', 'ai_marketing', 'admin_panel', 'profile'].includes(prev)) {
             return 'login';
           }
           return 'discover';
