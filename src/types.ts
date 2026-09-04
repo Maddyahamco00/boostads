@@ -55,6 +55,16 @@ export interface UserProfile {
   updatedAt?: string;
 }
 
+export interface AccountSecurityState {
+  emailVerified: boolean;
+  emailVerifiedAt?: string | null;
+  accountStatus: AccountStatus;
+  twoFactorEnabled: boolean;
+  activeSessionsCount: number;
+  lastLoginAt?: string | null;
+  hasPassword: boolean;
+}
+
 export interface UserEntity extends UserProfile {
   passwordHash?: string;
   twoFactorSecret?: string;

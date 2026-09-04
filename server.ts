@@ -593,6 +593,35 @@ async function startServer() {
     }
   });
 
+  // Client change-password alias
+  app.post('/api/client/change-password', authenticate, async (req: AuthenticatedRequest, res) => {
+    try {
+      const validation = ChangePasswordSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({
+          success: false,
+          error: formatZodError(validation.error)
+        });
+      }
+
+      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'browser';
+
+      const result = await authService.changePassword(
+        req.user!.id,
+        validation.data.currentPassword,
+        validation.data.newPassword,
+        clientIp,
+        userAgent
+      );
+
+      res.json(result);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to change password';
+      res.status(400).json({ success: false, error: message });
+    }
+  });
+
   // 11. Current Session Profile (Me)
   app.get('/api/auth/me', (req: AuthenticatedRequest, res) => {
     if (req.query.optional === 'true' || req.query.check === 'true') {
@@ -602,6 +631,7 @@ async function startServer() {
         }
         const safeUser = authService.getSafeUser(req.user);
         const sessions = authService.getActiveSessions(req.user.id);
+        const securityState = authService.getAccountSecurityState(req.user);
         return res.json({
           success: true,
           authenticated: true,
@@ -610,7 +640,8 @@ async function startServer() {
           name: safeUser.name,
           email: safeUser.email,
           role: safeUser.role,
-          sessionsCount: sessions.length
+          sessionsCount: sessions.length,
+          securityState
         });
       });
     }
@@ -621,6 +652,7 @@ async function startServer() {
       }
       const safeUser = authService.getSafeUser(req.user);
       const sessions = authService.getActiveSessions(req.user.id);
+      const securityState = authService.getAccountSecurityState(req.user);
       res.json({
         success: true,
         authenticated: true,
@@ -629,7 +661,8 @@ async function startServer() {
         name: safeUser.name,
         email: safeUser.email,
         role: safeUser.role,
-        sessionsCount: sessions.length
+        sessionsCount: sessions.length,
+        securityState
       });
     });
   });
@@ -1127,16 +1160,64 @@ async function startServer() {
   // ==========================================
   // 2. USERS & PROFILES
   // ==========================================
-  app.get('/api/users', (req, res) => {
-    const usersList = Array.from(db.users.values()).map(u => authService.getSafeUser(u));
-    res.json({ success: true, users: usersList });
+  const handleGetProfile = (req: AuthenticatedRequest, res: any) => {
+    const user = db.users.get(req.user!.id);
+    if (!user) {
+      return res.status(401).json({ success: false, error: 'User not found or session expired.' });
+    }
+    const safeUser = authService.getSafeUser(user);
+    const securityState = authService.getAccountSecurityState(user);
+    res.json({
+      success: true,
+      user: safeUser,
+      securityState
+    });
+  };
+
+  // Secure endpoints to retrieve authenticated client's own profile
+  app.get('/api/client/profile', authenticate, handleGetProfile);
+  app.get('/api/users/profile', authenticate, handleGetProfile);
+  app.get('/api/users/me', authenticate, handleGetProfile);
+
+  app.get('/api/users', optionalAuthenticate, (req: AuthenticatedRequest, res) => {
+    if (req.user && req.user.role === 'SUPER_ADMIN') {
+      const usersList = Array.from(db.users.values()).map(u => authService.getSafeUser(u));
+      return res.json({ success: true, users: usersList });
+    }
+    if (req.user) {
+      // Normal clients only see themselves in users list
+      return res.json({ success: true, users: [authService.getSafeUser(req.user)] });
+    }
+    res.json({ success: true, users: [] });
   });
 
-  app.get('/api/users/:id', (req, res) => {
-    const user = db.users.get(req.params.id);
+  app.get('/api/users/:id', authenticate, (req: AuthenticatedRequest, res) => {
+    const targetId = req.params.id;
+    const effectiveId = (targetId === 'me' || targetId === 'profile') ? req.user!.id : targetId;
+
+    // Normal client can ONLY view their own profile. Only SUPER_ADMIN can inspect other accounts.
+    if (req.user!.role !== 'SUPER_ADMIN' && req.user!.id !== effectiveId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden: You are not authorized to view this account profile.',
+        code: 'FORBIDDEN'
+      });
+    }
+
+    const user = db.users.get(effectiveId);
     if (!user) {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
+
+    // Normal clients cannot inspect the Super Admin
+    if (user.role === 'SUPER_ADMIN' && req.user!.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden: Super Admin profile is restricted.',
+        code: 'FORBIDDEN'
+      });
+    }
+
     res.json({ success: true, user: authService.getSafeUser(user) });
   });
 
@@ -1144,6 +1225,15 @@ async function startServer() {
     try {
       const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || req.socket.remoteAddress || '127.0.0.1';
       const userAgent = (req.headers['user-agent'] as string) || 'browser';
+
+      // Schema Validation
+      const validation = UpdateProfileSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({
+          success: false,
+          error: formatZodError(validation.error)
+        });
+      }
 
       // Explicit Privilege Escalation Defense: Reject privileged role modification
       if (
@@ -1187,7 +1277,12 @@ async function startServer() {
       }
 
       const updatedUser = await authService.updateProfile(targetUserId, req.body, clientIp, userAgent);
-      res.json({ success: true, user: authService.getSafeUser(updatedUser) });
+      const securityState = authService.getAccountSecurityState(updatedUser);
+      res.json({ 
+        success: true, 
+        user: authService.getSafeUser(updatedUser),
+        securityState
+      });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Profile update failed';
       const isForbidden = message.toLowerCase().includes('unauthorized') || 
@@ -1197,6 +1292,15 @@ async function startServer() {
       res.status(isForbidden ? 403 : 400).json({ success: false, error: message });
     }
   };
+
+  // Client own-profile update endpoints
+  app.patch('/api/client/profile', authenticate, (req: AuthenticatedRequest, res) => {
+    handleProfileUpdate(req, res, req.user!.id);
+  });
+
+  app.put('/api/client/profile', authenticate, (req: AuthenticatedRequest, res) => {
+    handleProfileUpdate(req, res, req.user!.id);
+  });
 
   app.post('/api/users/profile', authenticate, (req: AuthenticatedRequest, res) => {
     handleProfileUpdate(req, res, req.user!.id);

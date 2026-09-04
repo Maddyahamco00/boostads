@@ -196,17 +196,28 @@ export const EnableTwoFactorSchema = z.object({
 
 // 10. Profile Update DTO
 export const UpdateProfileSchema = z.object({
-  name: z.string().min(2).max(100).optional(),
-  phone: z.string().max(30).optional(),
-  bio: z.string().max(500).optional(),
-  avatarUrl: z.string().url().or(z.string().length(0)).optional(),
+  name: z.string().min(2, 'Name must be at least 2 characters').max(100, 'Name cannot exceed 100 characters').optional(),
+  phone: z.string().max(30, 'Phone number cannot exceed 30 characters').optional(),
+  bio: z.string().max(500, 'Bio cannot exceed 500 characters').optional(),
+  avatarUrl: z.string().url('Avatar must be a valid URL').or(z.string().length(0)).optional(),
+  clientType: z.enum(['customer', 'business', 'freelancer', 'advertiser', 'service_provider']).optional(),
   location: z.object({
-    city: z.string(),
-    state: z.string(),
-    country: z.string(),
-    lat: z.number(),
-    lng: z.number(),
-    address: z.string().optional(),
+    city: z.string().max(100).optional(),
+    state: z.string().max(100).optional(),
+    country: z.string().max(100).optional(),
+    lat: z.number().optional(),
+    lng: z.number().optional(),
+    address: z.string().max(200).optional(),
     serviceAreaKm: z.number().optional()
-  }).optional()
+  }).optional(),
+  // Disallowed / Immutable / Escalation fields explicitly defined as optional for server inspection
+  role: z.any().optional(),
+  isAdmin: z.any().optional(),
+  isSuperAdmin: z.any().optional(),
+  permissions: z.any().optional(),
+  privileges: z.any().optional(),
+  email: z.any().optional(),
+  status: z.any().optional(),
+  tier: z.any().optional(),
+  id: z.any().optional()
 });

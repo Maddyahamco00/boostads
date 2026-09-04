@@ -12,7 +12,8 @@ import {
   LogOut, 
   UserPlus, 
   Shield, 
-  Key 
+  Key,
+  User 
 } from 'lucide-react';
 import { Logo } from './Logo';
 import { SecuritySettingsModal } from './SecuritySettingsModal';
@@ -243,6 +244,17 @@ export const Header: React.FC = () => {
                   </div>
 
                   <div className="py-1">
+                    <button
+                      id="header-profile-btn"
+                      onClick={() => {
+                        setActiveView('profile');
+                        setIsUserDropdownOpen(false);
+                      }}
+                      className="w-full text-left px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-lg flex items-center gap-2 cursor-pointer"
+                    >
+                      <User className="w-3.5 h-3.5 text-[#16C784]" />
+                      Account Profile
+                    </button>
                     {currentUser.role === 'SUPER_ADMIN' && currentUser.email.toLowerCase() === 'maddyahamco00@gmail.com' && (
                       <button
                         id="header-admin-portal-btn"

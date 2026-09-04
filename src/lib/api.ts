@@ -8,7 +8,7 @@
  * - Type-safe endpoint wrappers
  */
 
-import { UserProfile } from '../types';
+import { UserProfile, AccountSecurityState } from '../types';
 
 export class ApiError extends Error {
   public status: number;
@@ -486,6 +486,33 @@ export const authApi = {
     return fetchWithAuth<{ success: boolean; message: string }>('/api/auth/change-password', {
       method: 'POST',
       body: JSON.stringify({ currentPassword, newPassword })
+    });
+  },
+
+  /**
+   * Get authenticated client's own profile and security status
+   */
+  async getProfile() {
+    return fetchWithAuth<{
+      success: boolean;
+      user: UserProfile;
+      securityState: AccountSecurityState;
+    }>('/api/client/profile', {
+      method: 'GET'
+    });
+  },
+
+  /**
+   * Update authenticated client's permitted profile fields
+   */
+  async updateProfile(updates: Partial<UserProfile>) {
+    return fetchWithAuth<{
+      success: boolean;
+      user: UserProfile;
+      securityState?: AccountSecurityState;
+    }>('/api/client/profile', {
+      method: 'PATCH',
+      body: JSON.stringify(updates)
     });
   },
 

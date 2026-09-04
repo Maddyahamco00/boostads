@@ -7,7 +7,8 @@ import {
   AccountStatus, 
   AuthSession, 
   VerificationToken, 
-  SecurityAuditEvent 
+  SecurityAuditEvent,
+  AccountSecurityState
 } from '../../types';
 import { db, SUPER_ADMIN_EMAIL, SUPER_ADMIN_ID, isDesignatedSuperAdminEmail } from '../db';
 import { emailService } from './emailService';
@@ -103,6 +104,19 @@ export class AuthService {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { passwordHash, twoFactorSecret, twoFactorRecoveryCodes, failedLoginAttempts, lockedUntil, ...safeUser } = user;
     return safeUser;
+  }
+
+  public getAccountSecurityState(user: UserEntity): AccountSecurityState {
+    const sessions = this.getActiveSessions(user.id);
+    return {
+      emailVerified: !!user.emailVerifiedAt,
+      emailVerifiedAt: user.emailVerifiedAt || null,
+      accountStatus: user.status,
+      twoFactorEnabled: !!user.twoFactorEnabled,
+      activeSessionsCount: sessions.length,
+      lastLoginAt: user.lastLoginAt || null,
+      hasPassword: !!user.passwordHash
+    };
   }
 
   // ----------------------------------------------------
@@ -1709,6 +1723,10 @@ export class AuthService {
       throw new Error('Current password is incorrect.');
     }
 
+    if (currentPassword === newPassword) {
+      throw new Error('New password cannot be the same as your current password.');
+    }
+
     user.passwordHash = await this.hashPassword(newPassword);
     user.updatedAt = new Date().toISOString();
 
@@ -1809,6 +1827,18 @@ export class AuthService {
         }
       });
       throw new Error('Unauthorized role modification attempt. Privilege escalation is strictly forbidden.');
+    }
+
+    // Explicit Defense: Prevent claiming or hijacking the Super Admin email
+    if (payload.email !== undefined && isDesignatedSuperAdminEmail(String(payload.email))) {
+      securityMonitoringService.recordPrivilegeEscalationAttempt(
+        'SUPER_ADMIN_EMAIL_HIJACK',
+        user.email,
+        ip,
+        userAgent,
+        'Attempted to claim designated Super Admin email in profile update'
+      );
+      throw new Error('Unauthorized email modification attempt. Designated Super Admin email is strictly protected.');
     }
 
     // Strict Allowlist: only user-editable profile properties

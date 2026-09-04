@@ -33,7 +33,8 @@ export type AppView =
   | 'login'
   | 'verify_email'
   | 'forgot_password'
-  | 'reset_password';
+  | 'reset_password'
+  | 'profile';
 
 interface AppContextType {
   // Authentication State
