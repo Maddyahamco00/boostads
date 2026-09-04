@@ -143,9 +143,9 @@ export const AdminPanelView: React.FC = () => {
   const fetchAuditLogs = async () => {
     setAuditLoading(true);
     try {
-      const data = await fetchWithAuth<{ success: boolean; auditLogs: AuditLogEntity[] }>('/api/admin/audit-logs');
+      const data = await fetchWithAuth<{ success: boolean; auditLogs?: AuditLogEntity[]; logs?: AuditLogEntity[] }>('/api/admin/audit-logs');
       if (data.success) {
-        setAuditLogs(data.auditLogs);
+        setAuditLogs(data.auditLogs || data.logs || []);
       }
     } catch (err) {
       console.error('Failed to load audit logs:', err);

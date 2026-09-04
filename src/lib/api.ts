@@ -605,6 +605,43 @@ export const authApi = {
    */
   async regenerateRecoveryCodes(password?: string) {
     return adminApi.regenerateRecoveryCodes(password);
+  },
+
+  /**
+   * Get active user sessions
+   */
+  async getSessions() {
+    return fetchWithAuth<{
+      success: boolean;
+      sessions: Array<{
+        id: string;
+        ipAddress: string;
+        userAgent: string;
+        createdAt: string;
+        lastActiveAt: string;
+        isCurrent: boolean;
+      }>;
+    }>('/api/auth/sessions', {
+      method: 'GET'
+    });
+  },
+
+  /**
+   * Revoke a specific user session
+   */
+  async revokeSession(sessionId: string) {
+    return fetchWithAuth<{ success: boolean; message: string }>(`/api/auth/sessions/${encodeURIComponent(sessionId)}`, {
+      method: 'DELETE'
+    });
+  },
+
+  /**
+   * Revoke all other user sessions (keeps current session)
+   */
+  async revokeAllOtherSessions() {
+    return fetchWithAuth<{ success: boolean; message: string; revokedCount?: number }>('/api/auth/sessions/all-other', {
+      method: 'POST'
+    });
   }
 };
 
@@ -688,7 +725,7 @@ export const adminApi = {
    * Fetch Platform Audit Logs
    */
   async getAuditLogs() {
-    return fetchWithAuth<{ success: boolean; logs: any[] }>('/api/admin/audit-logs', {
+    return fetchWithAuth<{ success: boolean; logs: any[]; auditLogs?: any[] }>('/api/admin/audit-logs', {
       method: 'GET'
     });
   },

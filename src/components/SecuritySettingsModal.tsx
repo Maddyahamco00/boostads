@@ -10,7 +10,16 @@ import {
   LogOut
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { SessionEntity } from '../types';
+import { authApi, formatAuthError } from '../lib/api';
+
+interface ActiveSessionItem {
+  id: string;
+  ipAddress: string;
+  userAgent: string;
+  createdAt: string;
+  lastActiveAt: string;
+  isCurrent?: boolean;
+}
 
 interface SecuritySettingsModalProps {
   isOpen: boolean;
@@ -25,7 +34,7 @@ export const SecuritySettingsModal: React.FC<SecuritySettingsModalProps> = ({
   const [activeTab, setActiveTab] = useState<'sessions' | '2fa' | 'password'>('sessions');
 
   // Sessions state
-  const [sessions, setSessions] = useState<SessionEntity[]>([]);
+  const [sessions, setSessions] = useState<ActiveSessionItem[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
 
   // Password state
@@ -52,10 +61,9 @@ export const SecuritySettingsModal: React.FC<SecuritySettingsModalProps> = ({
   const fetchSessions = async () => {
     setLoadingSessions(true);
     try {
-      const res = await fetch('/api/auth/sessions');
-      const data = await res.json();
-      if (data.success) {
-        setSessions(data.sessions);
+      const res = await authApi.getSessions();
+      if (res.success) {
+        setSessions(res.sessions);
       }
     } catch (err) {
       console.error('Failed to load sessions', err);
@@ -74,27 +82,27 @@ export const SecuritySettingsModal: React.FC<SecuritySettingsModalProps> = ({
 
   const handleRevokeSession = async (sessionId: string) => {
     try {
-      const res = await fetch(`/api/auth/sessions/${sessionId}`, { method: 'DELETE' });
-      const data = await res.json();
-      if (data.success) {
+      const res = await authApi.revokeSession(sessionId);
+      if (res.success) {
         setSessions(sessions.filter(s => s.id !== sessionId));
         setSuccessMessage('Session revoked successfully.');
       }
-    } catch {
-      setError('Failed to revoke session.');
+    } catch (err: unknown) {
+      const formatted = formatAuthError(err);
+      setError(formatted.message || 'Failed to revoke session.');
     }
   };
 
   const handleRevokeAllOther = async () => {
     try {
-      const res = await fetch('/api/auth/sessions/all-other', { method: 'POST' });
-      const data = await res.json();
-      if (data.success) {
-        fetchSessions();
+      const res = await authApi.revokeAllOtherSessions();
+      if (res.success) {
+        await fetchSessions();
         setSuccessMessage('Other sessions revoked.');
       }
-    } catch {
-      setError('Failed to revoke sessions.');
+    } catch (err: unknown) {
+      const formatted = formatAuthError(err);
+      setError(formatted.message || 'Failed to revoke sessions.');
     }
   };
 
@@ -102,15 +110,18 @@ export const SecuritySettingsModal: React.FC<SecuritySettingsModalProps> = ({
     setTwoFactorLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/auth/2fa/setup', { method: 'POST' });
-      const data = await res.json();
-      if (data.success) {
-        setTwoFactorData(data);
-      } else {
-        throw new Error(data.error || 'Failed to initialize 2FA');
+      const res = await authApi.setup2FA();
+      if (res.success) {
+        setTwoFactorData({
+          secret: res.secret,
+          otpauthUrl: res.otpauthUrl,
+          qrCodeDataUrl: '',
+          recoveryCodes: res.recoveryCodes
+        });
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : '2FA setup failed');
+      const formatted = formatAuthError(err);
+      setError(formatted.message || '2FA setup failed');
     } finally {
       setTwoFactorLoading(false);
     }
@@ -118,55 +129,41 @@ export const SecuritySettingsModal: React.FC<SecuritySettingsModalProps> = ({
 
   const handleEnable2FA = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!twoFactorData) return;
+    if (!twoFactorData || !verificationCode.trim()) return;
     setTwoFactorLoading(true);
     setError(null);
 
     try {
-      const res = await fetch('/api/auth/2fa/enable', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          secret: twoFactorData.secret,
-          code: verificationCode,
-          recoveryCodes: twoFactorData.recoveryCodes
-        })
-      });
-
-      const data = await res.json();
-      if (!data.success) {
-        throw new Error(data.error || 'Failed to enable 2FA');
+      const res = await authApi.enable2FA(verificationCode.trim(), twoFactorData.recoveryCodes);
+      if (res.success) {
+        setSuccessMessage('Two-Factor Authentication is enabled.');
+        setTwoFactorData(null);
+        setVerificationCode('');
+        await refreshData();
       }
-
-      setSuccessMessage('Two-Factor Authentication is enabled.');
-      setTwoFactorData(null);
-      setVerificationCode('');
-      await refreshData();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Invalid code.');
+      const formatted = formatAuthError(err);
+      setError(formatted.message || 'Invalid verification code.');
     } finally {
       setTwoFactorLoading(false);
     }
   };
 
   const handleDisable2FA = async () => {
-    const code = prompt('Enter a 6-digit code or recovery code to disable 2FA:');
-    if (!code) return;
+    const password = prompt('Enter your account password to confirm disabling 2FA:');
+    if (!password) return;
 
     setTwoFactorLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/auth/2fa/disable', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code })
-      });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error || 'Failed to disable 2FA');
-      setSuccessMessage('2FA disabled.');
-      await refreshData();
+      const res = await authApi.disable2FA(password);
+      if (res.success) {
+        setSuccessMessage('Two-Factor Authentication has been disabled.');
+        await refreshData();
+      }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to disable 2FA');
+      const formatted = formatAuthError(err);
+      setError(formatted.message || 'Failed to disable 2FA');
     } finally {
       setTwoFactorLoading(false);
     }
@@ -182,27 +179,16 @@ export const SecuritySettingsModal: React.FC<SecuritySettingsModalProps> = ({
     setPasswordLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/auth/change-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          currentPassword,
-          newPassword,
-          confirmPassword
-        })
-      });
-
-      const data = await res.json();
-      if (!data.success) {
-        throw new Error(data.error || 'Failed to change password');
+      const res = await authApi.changePassword(currentPassword, newPassword);
+      if (res.success) {
+        setSuccessMessage('Password changed successfully.');
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
       }
-
-      setSuccessMessage('Password changed successfully.');
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Password update failed');
+      const formatted = formatAuthError(err);
+      setError(formatted.message || 'Password update failed');
     } finally {
       setPasswordLoading(false);
     }

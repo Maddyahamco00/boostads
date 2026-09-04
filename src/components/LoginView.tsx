@@ -227,23 +227,15 @@ export const LoginView: React.FC<LoginViewProps> = ({
     setResendMessage(null);
 
     try {
-      const res = await fetch('/api/auth/resend-verification', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: targetEmail })
-      });
-
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Unable to send verification email.');
-      }
+      const res = await authApi.resendVerification(targetEmail);
 
       setResendStatus('sent');
-      setResendMessage('Verification email sent! Check your inbox.');
+      setResendMessage(res.message || 'Verification email sent! Check your inbox.');
       setCooldownSeconds(60);
     } catch (err: unknown) {
       setResendStatus('error');
-      setResendMessage(err instanceof Error ? err.message : 'Failed to send verification email.');
+      const formatted = formatAuthError(err);
+      setResendMessage(formatted.message);
     } finally {
       setIsResendingVerification(false);
     }
@@ -256,17 +248,13 @@ export const LoginView: React.FC<LoginViewProps> = ({
 
     setIsSubmitting(true);
     try {
-      const res = await fetch('/api/auth/forgot-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: forgotEmail.trim() })
-      });
+      const res = await authApi.forgotPassword(forgotEmail.trim());
 
-      const data = await res.json();
       setForgotSubmitted(true);
-      setSuccessNotice(data.message || 'If an account exists, a password reset link has been sent.');
+      setSuccessNotice(res.message || 'If an account exists, a password reset link has been sent.');
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to request password reset.');
+      const formatted = formatAuthError(err);
+      setError(formatted.message);
     } finally {
       setIsSubmitting(false);
     }

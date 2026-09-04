@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { ClientType } from '../types';
+import { authApi, formatAuthError } from '../lib/api';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -77,31 +78,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
     setLoading(true);
     try {
-      const res = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name,
-          email,
-          password,
-          confirmPassword,
-          phone,
-          clientType,
-          termsAccepted
-        })
-      });
+      const res = await authApi.register({
+        name: name.trim(),
+        email: email.trim(),
+        password,
+        confirmPassword,
+        phone,
+        clientType,
+        termsAccepted
+      } as any);
 
-      const data = await res.json();
-      if (!data.success) {
-        throw new Error(data.error || 'Registration failed');
-      }
-
-      setSuccessMessage(data.message || 'Account created! Verification link sent.');
-      if (data.emailLog?.token) {
-        setVerifyToken(data.emailLog.token);
+      setSuccessMessage(res.message || 'Account created! Verification link sent.');
+      if ((res as any).emailLog?.token) {
+        setVerifyToken((res as any).emailLog.token);
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Registration failed');
+      const formatted = formatAuthError(err);
+      setError(formatted.message || 'Registration failed');
     } finally {
       setLoading(false);
     }
@@ -115,40 +108,27 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setLoading(true);
 
     try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-        credentials: 'include',
-        body: JSON.stringify({
-          email,
-          password,
-          twoFactorCode: useRecoveryCode ? undefined : twoFactorCode,
-          recoveryCode: useRecoveryCode ? recoveryCode : undefined
-        })
-      });
+      const res = await authApi.login({
+        email: email.trim(),
+        password,
+        twoFactorCode: useRecoveryCode ? undefined : twoFactorCode,
+        recoveryCode: useRecoveryCode ? recoveryCode : undefined
+      } as any);
 
-      const data = await res.json();
-      if (!data.success) {
-        if (data.twoFactorRequired || data.requiresTwoFactor) {
-          setPreAuthToken(data.preAuthToken);
-          setTab('2fa');
-          return;
-        }
-        if (data.setupRequired) {
-          setTab('admin_setup');
-          setError('Admin setup required. Please use the Admin Setup flow.');
-          return;
-        }
-        throw new Error(data.error || 'Login failed');
+      if (res.twoFactorRequired) {
+        setPreAuthToken(res.preAuthToken || '');
+        setTab('2fa');
+        return;
       }
 
-      if (data.user) {
-        setCurrentUser(data.user);
+      if (res.user) {
+        setCurrentUser(res.user);
         await refreshData();
         onClose();
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Login failed');
+      const formatted = formatAuthError(err);
+      setError(formatted.message || 'Login failed');
     } finally {
       setLoading(false);
     }
@@ -161,28 +141,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setLoading(true);
 
     try {
-      const res = await fetch('/api/auth/2fa/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-        credentials: 'include',
-        body: JSON.stringify({
-          preAuthToken,
-          code: useRecoveryCode ? recoveryCode : twoFactorCode
-        })
-      });
+      const res = await authApi.verifyTwoFactor(
+        preAuthToken,
+        useRecoveryCode ? recoveryCode : twoFactorCode
+      );
 
-      const data = await res.json();
-      if (!data.success) {
-        throw new Error(data.error || 'Invalid 2FA code');
-      }
-
-      if (data.user) {
-        setCurrentUser(data.user);
+      if (res.user) {
+        setCurrentUser(res.user);
         await refreshData();
         onClose();
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : '2FA verification failed');
+      const formatted = formatAuthError(err);
+      setError(formatted.message || '2FA verification failed');
     } finally {
       setLoading(false);
     }
@@ -196,24 +167,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setLoading(true);
 
     try {
-      const res = await fetch('/api/auth/verify-email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: verifyToken })
-      });
+      const res = await authApi.verifyEmail(verifyToken);
 
-      const data = await res.json();
-      if (!data.success) {
-        throw new Error(data.error || 'Verification failed');
-      }
-
-      setSuccessMessage('Email verified successfully!');
-      if (data.user) {
-        setCurrentUser(data.user);
+      setSuccessMessage(res.message || 'Email verified successfully!');
+      if (res.user) {
+        setCurrentUser(res.user);
         await refreshData();
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Verification failed');
+      const formatted = formatAuthError(err);
+      setError(formatted.message || 'Verification failed');
     } finally {
       setLoading(false);
     }
@@ -227,16 +190,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setLoading(true);
 
     try {
-      const res = await fetch('/api/auth/forgot-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email })
-      });
-
-      const data = await res.json();
-      setSuccessMessage(data.message || 'Password reset link sent if account exists.');
+      const res = await authApi.forgotPassword(email.trim());
+      setSuccessMessage(res.message || 'Password reset link sent if account exists.');
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to send reset link');
+      const formatted = formatAuthError(err);
+      setError(formatted.message || 'Failed to send reset link');
     } finally {
       setLoading(false);
     }
@@ -255,27 +213,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
     setLoading(true);
     try {
-      const res = await fetch('/api/auth/admin/setup-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          token: adminToken,
-          newPassword: password,
-          confirmPassword
-        })
+      const res = await authApi.setupAdminPassword({
+        token: adminToken,
+        newPassword: password
       });
 
-      const data = await res.json();
-      if (!data.success) {
-        throw new Error(data.error || 'Admin setup failed');
-      }
-
-      setSuccessMessage('Admin password configured. You can now log in.');
+      setSuccessMessage(res.message || 'Admin password configured. You can now log in.');
       setTimeout(() => {
         setTab('login');
       }, 1200);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Admin setup failed');
+      const formatted = formatAuthError(err);
+      setError(formatted.message || 'Admin setup failed');
     } finally {
       setLoading(false);
     }
@@ -285,15 +234,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/auth/admin/init-setup', { method: 'POST' });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error);
-      setSuccessMessage(data.message);
-      if (data.emailLog?.token) {
-        setAdminToken(data.emailLog.token);
+      const res = await authApi.initAdminSetup();
+      setSuccessMessage(res.message);
+      if ((res as any).emailLog?.token) {
+        setAdminToken((res as any).emailLog.token);
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to dispatch setup link');
+      const formatted = formatAuthError(err);
+      setError(formatted.message || 'Failed to dispatch setup link');
     } finally {
       setLoading(false);
     }

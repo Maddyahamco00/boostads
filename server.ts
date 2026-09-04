@@ -813,11 +813,61 @@ async function startServer() {
 
   app.delete('/api/auth/sessions/:id', authenticate, (req: AuthenticatedRequest, res) => {
     const session = db.sessions.get(req.params.id);
-    if (session && session.userId === req.user!.id) {
-      authService.logout(session.id);
+    if (!session) {
+      return res.status(404).json({ success: false, error: 'Session not found' });
     }
+    if (session.userId !== req.user!.id && req.user!.role !== 'SUPER_ADMIN') {
+      authService.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+        userId: req.user!.id,
+        userEmail: req.user!.email,
+        role: req.user!.role,
+        ipAddress: req.ip || '127.0.0.1',
+        userAgent: req.headers['user-agent'],
+        severity: 'CRITICAL',
+        details: {
+          targetSessionId: req.params.id,
+          targetUserId: session.userId,
+          action: 'session_idor_delete'
+        }
+      });
+      return res.status(403).json({
+        success: false,
+        error: 'Access forbidden: You cannot revoke another user\'s session.'
+      });
+    }
+    authService.logout(session.id);
     res.json({ success: true, message: 'Session revoked' });
   });
+
+  // Revoke all other active sessions except the current one
+  const handleRevokeAllOtherSessions = (req: AuthenticatedRequest, res: any) => {
+    if (!req.user) {
+      return res.status(401).json({ success: false, error: 'Authentication required' });
+    }
+    const currentSessionId = req.sessionId;
+    const sessions = authService.getActiveSessions(req.user.id);
+    let revokedCount = 0;
+    for (const s of sessions) {
+      if (s.id !== currentSessionId) {
+        authService.logout(s.id);
+        revokedCount++;
+      }
+    }
+    authService.logSecurityEvent('LOGOUT', {
+      userId: req.user.id,
+      userEmail: req.user.email,
+      role: req.user.role,
+      ipAddress: req.ip || '127.0.0.1',
+      userAgent: req.headers['user-agent'],
+      severity: 'INFO',
+      details: { action: 'revoke_all_other_sessions', revokedCount }
+    });
+    res.json({ success: true, message: 'All other sessions have been revoked', revokedCount });
+  };
+
+  app.post('/api/auth/sessions/all-other', authenticate, handleRevokeAllOtherSessions);
+  app.delete('/api/auth/sessions/all-other', authenticate, handleRevokeAllOtherSessions);
+  app.post('/api/auth/sessions/revoke-others', authenticate, handleRevokeAllOtherSessions);
 
   // 16. Outbox / Email Inspector (For local testing & demo in preview)
   app.get('/api/auth/outbox', (req, res) => {
@@ -2164,7 +2214,8 @@ async function startServer() {
   });
 
   app.get('/api/admin/audit-logs', authenticate, requireSuperAdmin, (req, res) => {
-    res.json({ success: true, logs: db.auditLogs.slice(-100).reverse() });
+    const logs = db.auditLogs.slice(-100).reverse();
+    res.json({ success: true, logs, auditLogs: logs });
   });
 
   // ==========================================

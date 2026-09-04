@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { UserProfile } from '../types';
+import { authApi, formatAuthError, ApiError } from '../lib/api';
 import { Logo } from './Logo';
 
 interface RegisterViewProps {
@@ -121,26 +122,17 @@ export const RegisterView: React.FC<RegisterViewProps> = ({ onNavigateToLogin })
         termsAccepted: termsAccepted
       };
 
-      const res = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
+      const res = await authApi.register(payload);
 
-      const data = await res.json();
-
-      if (!res.ok || !data.success) {
-        if (data.errors && typeof data.errors === 'object') {
-          setFieldErrors(data.errors);
-        }
-        throw new Error(data.error || 'Registration failed. Please try again.');
-      }
-
-      setRegisteredUser(data.user);
+      setRegisteredUser(res.user);
       setPassword('');
       setConfirmPassword('');
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Something went wrong.');
+      if (err instanceof ApiError && err.details?.errors) {
+        setFieldErrors(err.details.errors);
+      }
+      const formatted = formatAuthError(err);
+      setError(formatted.message);
     } finally {
       setIsSubmitting(false);
     }
@@ -153,23 +145,15 @@ export const RegisterView: React.FC<RegisterViewProps> = ({ onNavigateToLogin })
     setResendMessage(null);
 
     try {
-      const res = await fetch('/api/auth/resend-verification', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: registeredUser.email })
-      });
-
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Unable to send verification email.');
-      }
+      const res = await authApi.resendVerification(registeredUser.email);
 
       setResendStatus('sent');
-      setResendMessage('Verification email sent! Please check your inbox.');
+      setResendMessage(res.message || 'Verification email sent! Please check your inbox.');
       setCooldownSeconds(60);
     } catch (err: unknown) {
       setResendStatus('error');
-      setResendMessage(err instanceof Error ? err.message : 'Failed to send verification email.');
+      const formatted = formatAuthError(err);
+      setResendMessage(formatted.message);
     }
   };
 

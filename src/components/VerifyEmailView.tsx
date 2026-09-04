@@ -5,6 +5,7 @@ import {
   RefreshCw 
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { authApi, formatAuthError, ApiError } from '../lib/api';
 import { Logo } from './Logo';
 
 export const VerifyEmailView: React.FC = () => {
@@ -46,21 +47,16 @@ export const VerifyEmailView: React.FC = () => {
       try {
         if (isMounted) setStatus('loading');
 
-        const response = await fetch(`/api/auth/verify-email?token=${encodeURIComponent(token.trim())}`, {
-          method: 'GET',
-          headers: { 'Accept': 'application/json' }
-        });
-
-        const data = await response.json();
+        const data = await authApi.verifyEmail(token.trim());
 
         if (!isMounted) return;
 
-        if (response.ok && data.success) {
+        if (data.success) {
           if (data.user?.email) {
             setUserEmail(data.user.email);
             setResendEmail(data.user.email);
           }
-          if (data.alreadyVerified) {
+          if ((data as any).alreadyVerified) {
             setStatus('already_verified');
           } else {
             setStatus('success');
@@ -69,21 +65,18 @@ export const VerifyEmailView: React.FC = () => {
           if (typeof window !== 'undefined' && window.history && window.history.replaceState) {
             window.history.replaceState({}, document.title, '/verify-email');
           }
-        } else {
-          setStatus('error');
-          const rawMsg = data.error || 'Could not verify your email.';
-          if (rawMsg.toLowerCase().includes('expired')) {
-            setErrorMessage('This link has expired. Please request a new one.');
-          } else if (rawMsg.toLowerCase().includes('already')) {
-            setStatus('already_verified');
-          } else {
-            setErrorMessage(rawMsg);
-          }
         }
-      } catch {
-        if (isMounted) {
-          setStatus('error');
-          setErrorMessage('Could not connect to the verification server.');
+      } catch (err: unknown) {
+        if (!isMounted) return;
+        setStatus('error');
+        const formatted = formatAuthError(err);
+        const rawMsg = err instanceof Error ? err.message : formatted.message;
+        if (rawMsg.toLowerCase().includes('expired')) {
+          setErrorMessage('This link has expired. Please request a new one.');
+        } else if (rawMsg.toLowerCase().includes('already')) {
+          setStatus('already_verified');
+        } else {
+          setErrorMessage(formatted.message || 'Could not verify your email.');
         }
       }
     }
@@ -104,33 +97,20 @@ export const VerifyEmailView: React.FC = () => {
     setResendStatus('idle');
 
     try {
-      const response = await fetch('/api/auth/resend-verification', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: resendEmail.trim() })
-      });
+      const res = await authApi.resendVerification(resendEmail.trim());
 
-      const data = await response.json();
-
-      if (response.status === 429 || data.code === 'RATE_LIMITED') {
-        setCooldownSeconds(data.remainingSeconds || 60);
-        setResendStatus('error');
+      setResendStatus('sent');
+      setResendFeedback(res.message || 'Verification email sent! Check your inbox.');
+      setCooldownSeconds(60);
+    } catch (err: unknown) {
+      setResendStatus('error');
+      if (err instanceof ApiError && err.status === 429) {
+        setCooldownSeconds((err.details as any)?.remainingSeconds || 60);
         setResendFeedback('Too many requests. Please wait a moment.');
         return;
       }
-
-      if (!response.ok || !data.success) {
-        setResendStatus('error');
-        setResendFeedback(data.error || 'Failed to send verification email.');
-        return;
-      }
-
-      setResendStatus('sent');
-      setResendFeedback('Verification email sent! Check your inbox.');
-      setCooldownSeconds(60);
-    } catch {
-      setResendStatus('error');
-      setResendFeedback('Failed to send verification email.');
+      const formatted = formatAuthError(err);
+      setResendFeedback(formatted.message);
     } finally {
       setIsResending(false);
     }
