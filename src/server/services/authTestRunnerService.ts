@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { authService, AuthService, passwordResetTokenService } from './authService';
 import { db, SUPER_ADMIN_EMAIL, SUPER_ADMIN_ID, DatabaseRoleConstraintError, DatabaseUniqueConstraintError, DatabaseValidationError, DatabaseConcurrencyError, DatabaseNotFoundError, isDesignatedSuperAdminEmail } from '../db';
 import { emailService } from './emailService';
@@ -5090,7 +5091,7 @@ export class AuthTestRunnerService {
 
         const testTokenId = `tok_audit_${Date.now()}`;
         const testRawToken = `raw_token_audit_${Date.now()}`;
-        const testHash = require('crypto').createHash('sha256').update(testRawToken).digest('hex');
+        const testHash = crypto.createHash('sha256').update(testRawToken).digest('hex');
 
         db.tokens.set(testTokenId, {
           id: testTokenId,

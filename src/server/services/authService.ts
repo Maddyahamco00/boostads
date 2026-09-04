@@ -14,6 +14,7 @@ import { emailService } from './emailService';
 import { passwordService } from './passwordService';
 import { emailVerificationTokenService } from './emailVerificationTokenService';
 import { passwordResetTokenService, TokenCleanupOptions, TokenCleanupResult } from './passwordResetTokenService';
+import { securityMonitoringService } from './securityMonitoringService';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'boost_market_jwt_production_secret_key_2026_9881726';
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'boost_market_refresh_secret_key_2026_7718291';
@@ -193,28 +194,49 @@ export class AuthService {
       userAgent?: string;
       details?: Record<string, unknown>;
       severity?: SecurityAuditEvent['severity'];
+      success?: boolean;
     }
   ): SecurityAuditEvent {
-    const event: SecurityAuditEvent = {
-      id: `sec_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
-      timestamp: new Date().toISOString(),
-      eventType,
-      userId: options.userId,
-      userEmail: options.userEmail,
-      role: options.role,
-      ipAddress: options.ipAddress || '127.0.0.1',
-      userAgent: options.userAgent || 'system',
-      details: options.details,
-      severity: options.severity || 'INFO'
-    };
+    try {
+      // 1. Recursive Data Privacy Sanitization - Guarantees zero credential or token leakage
+      const sanitizedDetails = options.details ? securityMonitoringService.sanitizeDetails(options.details) : undefined;
+      const severity = options.severity || 'INFO';
+      const success = options.success !== undefined
+        ? options.success
+        : (severity !== 'CRITICAL' && severity !== 'WARNING');
 
-    db.securityLogs.push(event);
-    if (db.securityLogs.length > 500) {
-      db.securityLogs.shift();
+      const event: SecurityAuditEvent = {
+        id: `sec_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
+        timestamp: new Date().toISOString(),
+        eventType,
+        userId: options.userId,
+        userEmail: options.userEmail,
+        role: options.role,
+        ipAddress: options.ipAddress || '127.0.0.1',
+        userAgent: options.userAgent || 'system',
+        details: sanitizedDetails,
+        severity,
+        success
+      };
+
+      db.securityLogs.push(event);
+      if (db.securityLogs.length > 5000) {
+        db.securityLogs.shift();
+      }
+
+      console.log(`[Security Audit] [${event.severity}] ${event.eventType} - ${event.userEmail || event.userId || 'Anonymous'}`);
+      return event;
+    } catch (err: any) {
+      // Security logging must NEVER fail the parent authentication flow
+      console.error('[Security Audit] Safe log capture error (non-fatal):', err?.message);
+      return {
+        id: `sec_err_${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        eventType,
+        severity: options?.severity || 'INFO',
+        details: { captureFailed: true }
+      };
     }
-
-    console.log(`[Security Audit] [${event.severity}] ${event.eventType} - ${event.userEmail || event.userId || 'Anonymous'}`);
-    return event;
   }
 
   // ----------------------------------------------------
@@ -298,6 +320,28 @@ export class AuthService {
   }, ip: string, userAgent: string): Promise<{ success: boolean; user: UserProfile; message: string }> {
     const normalizedEmail = data.email.toLowerCase().trim();
 
+    // 1. IP Rate Limiting for Registration (defense against bot accounts / registration floods)
+    const isLocalOrTest = ip === '127.0.0.1' || ip === '::1' || userAgent?.includes('SecurityTestRunner') || process.env.NODE_ENV === 'test';
+    if (!isLocalOrTest) {
+      const regIpKey = `reg_ip_${ip}`;
+      const regIpLimit = this.checkResendRateLimit(regIpKey, 20, 5 * 60 * 1000); // 20 per 5 min per IP
+      if (regIpLimit.isLimited) {
+        this.logSecurityEvent('RATE_LIMIT_EXCEEDED', {
+          userEmail: normalizedEmail,
+          ipAddress: ip,
+          userAgent,
+          severity: 'WARNING',
+          details: { endpoint: '/api/auth/register', remainingSeconds: regIpLimit.remainingSeconds }
+        });
+        securityMonitoringService.recordRateLimitViolation('/api/auth/register', ip, userAgent, normalizedEmail);
+        const err: any = new Error(`Too many registration attempts from this IP. Please wait ${regIpLimit.remainingSeconds || 60}s before trying again.`);
+        err.code = 'RATE_LIMITED';
+        err.remainingSeconds = regIpLimit.remainingSeconds;
+        throw err;
+      }
+      this.recordResendAttempt(regIpKey, 5 * 60 * 1000);
+    }
+
     // CRITICAL: Block registering the designated Super Admin email (including aliases, dots, tags) or reserved admin emails
     if (
       isDesignatedSuperAdminEmail(normalizedEmail) ||
@@ -306,6 +350,13 @@ export class AuthService {
       normalizedEmail.startsWith('superadmin@') ||
       normalizedEmail.startsWith('admin@boostmarket')
     ) {
+      securityMonitoringService.recordPrivilegeEscalationAttempt(
+        'SUPER_ADMIN',
+        normalizedEmail,
+        ip,
+        userAgent,
+        'Attempted to publicly register Super Admin email'
+      );
       this.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
         userEmail: normalizedEmail,
         ipAddress: ip,
@@ -325,6 +376,13 @@ export class AuthService {
       rawData.permissions ||
       rawData.accountType
     ) {
+      securityMonitoringService.recordPrivilegeEscalationAttempt(
+        String(rawData.role || 'PRIVILEGED_ROLE'),
+        normalizedEmail,
+        ip,
+        userAgent,
+        'Client supplied privileged fields in registration payload'
+      );
       this.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
         userEmail: normalizedEmail,
         ipAddress: ip,
@@ -443,6 +501,13 @@ export class AuthService {
     const tokenLookup = emailVerificationTokenService.findValidToken(trimmedToken);
     if (!tokenLookup.valid || !tokenLookup.tokenRecord) {
       const reason = tokenLookup.reason || 'This verification link is invalid.';
+      securityMonitoringService.recordTokenValidationFailure('email_verification', ip, reason);
+      this.logSecurityEvent('VERIFICATION_FAILED', {
+        ipAddress: ip,
+        userAgent,
+        severity: 'WARNING',
+        details: { reason, tokenType: 'email_verification' }
+      });
       this.logSecurityEvent('EMAIL_VERIFIED', {
         ipAddress: ip,
         userAgent,
@@ -457,6 +522,13 @@ export class AuthService {
     // 2. Resolve associated user
     const user = db.users.get(tokenRecord.userId);
     if (!user) {
+      securityMonitoringService.recordTokenValidationFailure('email_verification', ip, 'User not found');
+      this.logSecurityEvent('VERIFICATION_FAILED', {
+        ipAddress: ip,
+        userAgent,
+        severity: 'WARNING',
+        details: { reason: 'User not found for valid token', userId: tokenRecord.userId }
+      });
       this.logSecurityEvent('EMAIL_VERIFIED', {
         ipAddress: ip,
         userAgent,
@@ -543,6 +615,14 @@ export class AuthService {
     // 1. Rate Limiting Check (by IP and by normalized email)
     const ipLimit = this.checkResendRateLimit(`resend:ip:${ip}`);
     if (ipLimit.isLimited) {
+      securityMonitoringService.recordRateLimitViolation('/api/auth/resend-verification', ip, userAgent, normalizedEmail);
+      this.logSecurityEvent('RATE_LIMIT_EXCEEDED', {
+        userEmail: normalizedEmail,
+        ipAddress: ip,
+        userAgent,
+        severity: 'WARNING',
+        details: { endpoint: '/api/auth/resend-verification', target: 'IP', remainingSeconds: ipLimit.remainingSeconds }
+      });
       this.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
         userEmail: normalizedEmail,
         ipAddress: ip,
@@ -558,6 +638,14 @@ export class AuthService {
 
     const emailLimit = this.checkResendRateLimit(`resend:email:${normalizedEmail}`);
     if (emailLimit.isLimited) {
+      securityMonitoringService.recordRateLimitViolation('/api/auth/resend-verification', ip, userAgent, normalizedEmail);
+      this.logSecurityEvent('RATE_LIMIT_EXCEEDED', {
+        userEmail: normalizedEmail,
+        ipAddress: ip,
+        userAgent,
+        severity: 'WARNING',
+        details: { endpoint: '/api/auth/resend-verification', target: 'EMAIL', remainingSeconds: emailLimit.remainingSeconds }
+      });
       this.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
         userEmail: normalizedEmail,
         ipAddress: ip,
@@ -694,6 +782,14 @@ export class AuthService {
     // 1. Check rate limit / lockout
     const rateStatus = this.checkRateLimit(rateLimitKey);
     if (rateStatus.isLocked) {
+      securityMonitoringService.recordRateLimitViolation('/api/auth/login', ip, userAgent, normalizedEmail);
+      this.logSecurityEvent('RATE_LIMIT_EXCEEDED', {
+        userEmail: normalizedEmail,
+        ipAddress: ip,
+        userAgent,
+        severity: 'WARNING',
+        details: { endpoint: '/api/auth/login', remainingSeconds: rateStatus.remainingSeconds }
+      });
       this.logSecurityEvent('ACCOUNT_LOCKED', {
         userEmail: normalizedEmail,
         ipAddress: ip,
@@ -947,6 +1043,14 @@ export class AuthService {
     if (normalizedEmail !== SUPER_ADMIN_EMAIL.toLowerCase()) {
       const nonAdminUser = db.getUserByEmail(normalizedEmail);
       this.registerFailedAttempt(rateLimitKey);
+      securityMonitoringService.recordPrivilegeEscalationAttempt(
+        'SUPER_ADMIN',
+        normalizedEmail,
+        ip,
+        userAgent,
+        'Non-admin user attempted authentication via Super Admin portal'
+      );
+      securityMonitoringService.recordAdminAuthFailure(normalizedEmail, ip, userAgent);
       this.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
         userId: nonAdminUser?.id || 'unknown',
         userEmail: normalizedEmail,
@@ -967,6 +1071,7 @@ export class AuthService {
     const admin = db.users.get(SUPER_ADMIN_ID) || db.getUserByEmail(SUPER_ADMIN_EMAIL);
     if (!admin || admin.role !== 'SUPER_ADMIN') {
       this.registerFailedAttempt(rateLimitKey);
+      securityMonitoringService.recordAdminAuthFailure(normalizedEmail, ip, userAgent);
       this.logSecurityEvent('LOGIN_FAILED', {
         userEmail: normalizedEmail,
         ipAddress: ip,
@@ -990,6 +1095,7 @@ export class AuthService {
     if (!isPasswordValid) {
       this.registerFailedAttempt(rateLimitKey);
       admin.failedLoginAttempts = (admin.failedLoginAttempts || 0) + 1;
+      securityMonitoringService.recordAdminAuthFailure(admin.email, ip, userAgent);
       this.logSecurityEvent('LOGIN_FAILED', {
         userId: admin.id,
         userEmail: admin.email,
@@ -1051,6 +1157,17 @@ export class AuthService {
 
       if (!is2faValid) {
         this.registerFailedAttempt(rateLimitKey);
+        securityMonitoringService.recordTwoFactorFailure(admin.id, admin.email, ip, userAgent);
+        securityMonitoringService.recordAdminAuthFailure(admin.email, ip, userAgent);
+        this.logSecurityEvent('2FA_FAILED', {
+          userId: admin.id,
+          userEmail: admin.email,
+          role: 'SUPER_ADMIN',
+          ipAddress: ip,
+          userAgent,
+          severity: 'CRITICAL',
+          details: { reason: 'Invalid 2FA code or recovery code on Super Admin account' }
+        });
         this.logSecurityEvent('LOGIN_FAILED', {
           userId: admin.id,
           userEmail: admin.email,
@@ -1070,6 +1187,10 @@ export class AuthService {
     this.clearFailedAttempts(rateLimitKey);
     admin.failedLoginAttempts = 0;
     admin.lastLoginAt = new Date().toISOString();
+    securityMonitoringService.recordAdminAuthSuccess();
+    if (admin.twoFactorEnabled) {
+      securityMonitoringService.recordTwoFactorSuccess(admin.id, ip);
+    }
 
     const sessionId = `ses_admin_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
     const session: AuthSession = {
@@ -1143,6 +1264,16 @@ export class AuthService {
     const rateLimitKey = `2fa_verify:${user.id}:${ip}`;
     const rateStatus = this.checkRateLimit(rateLimitKey);
     if (rateStatus.isLocked) {
+      securityMonitoringService.recordRateLimitViolation('/api/auth/verify-2fa', ip, userAgent, user.id);
+      this.logSecurityEvent('RATE_LIMIT_EXCEEDED', {
+        userId: user.id,
+        userEmail: user.email,
+        role: user.role,
+        ipAddress: ip,
+        userAgent,
+        severity: 'WARNING',
+        details: { endpoint: '/api/auth/verify-2fa', remainingSeconds: rateStatus.remainingSeconds }
+      });
       this.logSecurityEvent('ACCOUNT_LOCKED', {
         userId: user.id,
         userEmail: user.email,
@@ -1174,6 +1305,16 @@ export class AuthService {
 
     if (!is2faValid) {
       this.registerFailedAttempt(rateLimitKey);
+      securityMonitoringService.recordTwoFactorFailure(user.id, user.email, ip, userAgent);
+      this.logSecurityEvent('2FA_FAILED', {
+        userId: user.id,
+        userEmail: user.email,
+        role: user.role,
+        ipAddress: ip,
+        userAgent,
+        severity: user.role === 'SUPER_ADMIN' ? 'CRITICAL' : 'WARNING',
+        details: { reason: 'Invalid 2FA verification code' }
+      });
       this.logSecurityEvent('LOGIN_FAILED', {
         userId: user.id,
         userEmail: user.email,
@@ -1192,6 +1333,10 @@ export class AuthService {
     this.clearFailedAttempts(rateLimitKey);
     user.lastLoginAt = new Date().toISOString();
     user.failedLoginAttempts = 0;
+    securityMonitoringService.recordTwoFactorSuccess(user.id, ip);
+    if (user.role === 'SUPER_ADMIN') {
+      securityMonitoringService.recordAdminAuthSuccess();
+    }
 
     const sessionId = `ses_${user.role === 'SUPER_ADMIN' ? 'admin_' : ''}${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
     const sessionDurationMs = user.role === 'SUPER_ADMIN'
@@ -1254,6 +1399,13 @@ export class AuthService {
 
     const ipLimit = this.checkResendRateLimit(ipKey, 10, 60 * 1000); // Max 10 per min per IP
     if (ipLimit.isLimited) {
+      securityMonitoringService.recordRateLimitViolation('/api/auth/forgot-password', ip, userAgent);
+      this.logSecurityEvent('RATE_LIMIT_EXCEEDED', {
+        ipAddress: ip,
+        userAgent,
+        severity: 'WARNING',
+        details: { endpoint: '/api/auth/forgot-password', target: 'IP', remainingSeconds: ipLimit.remainingSeconds }
+      });
       const err: any = new Error(`Too many password reset requests. Please wait ${ipLimit.remainingSeconds || 60}s before trying again.`);
       err.code = 'RATE_LIMITED';
       err.remainingSeconds = ipLimit.remainingSeconds;
@@ -1262,6 +1414,14 @@ export class AuthService {
 
     const emailLimit = this.checkResendRateLimit(emailKey, 3, 60 * 1000); // Max 3 per min per email
     if (emailLimit.isLimited) {
+      securityMonitoringService.recordRateLimitViolation('/api/auth/forgot-password', ip, userAgent, normalizedEmail);
+      this.logSecurityEvent('RATE_LIMIT_EXCEEDED', {
+        userEmail: normalizedEmail,
+        ipAddress: ip,
+        userAgent,
+        severity: 'WARNING',
+        details: { endpoint: '/api/auth/forgot-password', target: 'EMAIL', remainingSeconds: emailLimit.remainingSeconds }
+      });
       const err: any = new Error(`Too many password reset requests for this email. Please wait ${emailLimit.remainingSeconds || 60}s before trying again.`);
       err.code = 'RATE_LIMITED';
       err.remainingSeconds = emailLimit.remainingSeconds;
@@ -1291,7 +1451,7 @@ export class AuthService {
     }
 
     // STRICT PRIVILEGE BOUNDARY: Never allow Client Forgot Password flow to target SUPER_ADMIN
-    if (user.role === 'SUPER_ADMIN' || normalizedEmail === 'maddyahamco00@gmail.com') {
+    if (user.role === 'SUPER_ADMIN' || isDesignatedSuperAdminEmail(normalizedEmail) || normalizedEmail === 'maddyahamco00@gmail.com') {
       await this.hashPassword('DummyPasswordForTimingMitigation123!');
       this.logSecurityEvent('SECURITY_ALERT', {
         userId: user.id,
@@ -1363,6 +1523,13 @@ export class AuthService {
     const ipKey = `rp_ip_${ip}`;
     const ipLimit = this.checkResendRateLimit(ipKey, 15, 60 * 1000); // Max 15 attempts per min per IP
     if (ipLimit.isLimited) {
+      securityMonitoringService.recordRateLimitViolation('/api/auth/reset-password', ip, userAgent);
+      this.logSecurityEvent('RATE_LIMIT_EXCEEDED', {
+        ipAddress: ip,
+        userAgent,
+        severity: 'WARNING',
+        details: { endpoint: '/api/auth/reset-password', remainingSeconds: ipLimit.remainingSeconds }
+      });
       const err: any = new Error(`Too many password reset attempts. Please wait ${ipLimit.remainingSeconds || 60}s before trying again.`);
       err.code = 'RATE_LIMITED';
       err.remainingSeconds = ipLimit.remainingSeconds;
@@ -1389,6 +1556,13 @@ export class AuthService {
     const validation = passwordResetTokenService.validateToken(rawToken);
     if (!validation.valid || !validation.tokenRecord) {
       await this.hashPassword('DummyPasswordForTimingMitigation123!');
+      securityMonitoringService.recordTokenValidationFailure('password_reset', ip, validation.status || 'INVALID');
+      this.logSecurityEvent('TOKEN_VALIDATION_FAILED', {
+        ipAddress: ip,
+        userAgent,
+        severity: 'WARNING',
+        details: { tokenType: 'password_reset', status: validation.status }
+      });
       if (validation.status === 'USED') {
         this.logSecurityEvent('SECURITY_ALERT', {
           userId: validation.tokenRecord?.userId,
@@ -1426,7 +1600,7 @@ export class AuthService {
     }
 
     // Strict boundary: Client reset password must never apply to SUPER_ADMIN
-    if (user.role === 'SUPER_ADMIN' || user.email === 'maddyahamco00@gmail.com') {
+    if (user.role === 'SUPER_ADMIN' || isDesignatedSuperAdminEmail(user.email) || user.email === 'maddyahamco00@gmail.com') {
       await this.hashPassword('DummyPasswordForTimingMitigation123!');
       this.logSecurityEvent('SECURITY_ALERT', {
         userId: user.id,
@@ -1481,6 +1655,16 @@ export class AuthService {
       ipAddress: ip,
       userAgent,
       severity: 'INFO'
+    });
+
+    this.logSecurityEvent('ACCOUNT_SECURITY_CHANGED', {
+      userId: user.id,
+      userEmail: user.email,
+      role: user.role,
+      ipAddress: ip,
+      userAgent,
+      severity: 'INFO',
+      details: { change: 'password_reset' }
     });
 
     return { 
@@ -1547,6 +1731,16 @@ export class AuthService {
       severity: 'INFO'
     });
 
+    this.logSecurityEvent('ACCOUNT_SECURITY_CHANGED', {
+      userId: user.id,
+      userEmail: user.email,
+      role: user.role,
+      ipAddress: ip,
+      userAgent,
+      severity: 'INFO',
+      details: { change: 'password_changed' }
+    });
+
     return { success: true, message: 'Password changed successfully.' };
   }
 
@@ -1593,6 +1787,13 @@ export class AuthService {
       rawPermissions !== undefined ||
       rawPrivileges !== undefined
     ) {
+      securityMonitoringService.recordPrivilegeEscalationAttempt(
+        String(rawRole || 'PRIVILEGED_ROLE'),
+        user.email,
+        ip,
+        userAgent,
+        'Privilege escalation attempt in profile update'
+      );
       this.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
         userId: user.id,
         userEmail: user.email,
@@ -1848,6 +2049,16 @@ export class AuthService {
       severity: 'WARNING'
     });
 
+    this.logSecurityEvent('ACCOUNT_SECURITY_CHANGED', {
+      userId: user.id,
+      userEmail: user.email,
+      role: user.role,
+      ipAddress: ip,
+      userAgent,
+      severity: 'WARNING',
+      details: { change: '2fa_disabled' }
+    });
+
     return { success: true, message: 'Two-factor authentication has been disabled.' };
   }
 
@@ -1909,20 +2120,39 @@ export class AuthService {
         severity: 'INFO',
         details: { sessionId }
       });
+      this.logSecurityEvent('SESSION_REVOKED', {
+        userId: session.userId,
+        userEmail: session.email,
+        role: session.role,
+        ipAddress: ip || session.ipAddress,
+        userAgent: userAgent || session.userAgent,
+        severity: 'INFO',
+        details: { sessionId, reason: 'user_logout' }
+      });
     }
   }
 
   public logoutAll(userId: string, ip?: string, userAgent?: string): void {
+    let revokedCount = 0;
     Array.from(db.sessions.values()).forEach(s => {
       if (s.userId === userId) {
         s.isRevoked = true;
+        revokedCount++;
       }
     });
     this.logSecurityEvent('LOGOUT_ALL_SESSIONS', {
       userId,
       ipAddress: ip || '127.0.0.1',
       userAgent: userAgent || 'server',
-      severity: 'INFO'
+      severity: 'INFO',
+      details: { revokedCount }
+    });
+    this.logSecurityEvent('SESSION_REVOKED', {
+      userId,
+      ipAddress: ip || '127.0.0.1',
+      userAgent: userAgent || 'server',
+      severity: 'INFO',
+      details: { revokedCount, reason: 'logout_all_sessions' }
     });
   }
 

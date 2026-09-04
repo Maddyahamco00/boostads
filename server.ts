@@ -4,6 +4,7 @@ import cookieParser from 'cookie-parser';
 import { createServer as createViteServer } from 'vite';
 import { db } from './src/server/db';
 import { authService, passwordResetTokenService } from './src/server/services/authService';
+import { securityMonitoringService } from './src/server/services/securityMonitoringService';
 import { emailService } from './src/server/services/emailService';
 import { authTestRunnerService } from './src/server/services/authTestRunnerService';
 import { 
@@ -880,7 +881,7 @@ async function startServer() {
     res.json({ success: true, message: 'Email outbox cleared' });
   });
 
-  // Maintenance: Password Reset & Verification Token Cleanup
+  // Maintenance: Password Reset & Verification Token Cleanup & Security Retention
   app.post('/api/admin/maintenance/cleanup-tokens', authenticate, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
     try {
       const { removeExpired = true, removeUsed = true, usedRetentionMinutes = 0 } = req.body || {};
@@ -889,7 +890,8 @@ async function startServer() {
         removeUsed,
         usedRetentionMinutes
       });
-      res.json({ success: true, ...result });
+      const maintenance = await securityMonitoringService.runMaintenance();
+      res.json({ success: true, ...result, maintenance });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || 'Token cleanup failed' });
     }
@@ -897,7 +899,28 @@ async function startServer() {
 
   app.get('/api/admin/maintenance/token-stats', authenticate, requireSuperAdmin, (req: AuthenticatedRequest, res) => {
     const stats = passwordResetTokenService.getStats();
-    res.json({ success: true, stats });
+    const securityStats = securityMonitoringService.getSecurityStats();
+    res.json({ success: true, stats, securityStats });
+  });
+
+  // Dedicated Security Monitoring & Telemetry Endpoints
+  app.get('/api/admin/security-stats', authenticate, requireSuperAdmin, (req: AuthenticatedRequest, res) => {
+    try {
+      const stats = securityMonitoringService.getSecurityStats();
+      res.json({ success: true, stats });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed to fetch security stats' });
+    }
+  });
+
+  app.get('/api/admin/security-alerts', authenticate, requireSuperAdmin, (req: AuthenticatedRequest, res) => {
+    try {
+      const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 25));
+      const alerts = securityMonitoringService.getRecentAlerts(limit);
+      res.json({ success: true, alerts, count: alerts.length });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed to fetch security alerts' });
+    }
   });
 
   // 17. Super Admin Dedicated Me & Security Audit Logs & User Governance
@@ -915,8 +938,27 @@ async function startServer() {
   });
 
   app.get('/api/admin/security-logs', authenticate, requireSuperAdmin, (req, res) => {
-    const logs = [...db.securityLogs].reverse();
-    res.json({ success: true, logs });
+    const limit = req.query.limit ? Math.min(200, Math.max(1, parseInt(req.query.limit as string))) : 50;
+    const offset = req.query.offset ? Math.max(0, parseInt(req.query.offset as string)) : 0;
+    const severity = typeof req.query.severity === 'string' ? req.query.severity as any : undefined;
+    const eventType = typeof req.query.eventType === 'string' ? req.query.eventType as any : undefined;
+    const search = typeof req.query.search === 'string' ? req.query.search : undefined;
+
+    const result = securityMonitoringService.getAuditLogs({
+      limit,
+      offset,
+      severity,
+      eventType,
+      search
+    });
+
+    res.json({
+      success: true,
+      logs: result.events,
+      total: result.total,
+      hasMore: result.hasMore,
+      summary: result.summary
+    });
   });
 
   app.get('/api/admin/users', authenticate, requireSuperAdmin, (req, res) => {
@@ -928,16 +970,32 @@ async function startServer() {
   app.post('/api/admin/users', authenticate, requireSuperAdmin, (req: AuthenticatedRequest, res) => {
     try {
       const { role, email, isSuperAdmin, isAdmin } = req.body;
+      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = (req.headers['user-agent'] as string) || 'browser';
+
       if (role === 'SUPER_ADMIN' || isSuperAdmin || isAdmin) {
+        securityMonitoringService.recordPrivilegeEscalationAttempt(
+          'SUPER_ADMIN',
+          email || 'unknown',
+          clientIp,
+          userAgent,
+          'Attempt to create another Super Admin account via admin/users endpoint'
+        );
+        authService.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+          userId: req.user?.id,
+          userEmail: req.user?.email,
+          role: req.user?.role,
+          ipAddress: clientIp,
+          userAgent,
+          severity: 'CRITICAL',
+          details: { alert: 'Attempt to create another Super Admin account via admin/users endpoint' }
+        });
         return res.status(403).json({
           success: false,
           error: 'Creation of another Super Admin is prohibited. Only the designated executive account can be SUPER_ADMIN.',
           code: 'SUPER_ADMIN_CREATION_PROHIBITED'
         });
       }
-
-      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
-      const userAgent = req.headers['user-agent'] || 'browser';
 
       return res.status(400).json({
         success: false,
@@ -953,6 +1011,8 @@ async function startServer() {
   app.patch('/api/admin/users/:id/role', authenticate, requireSuperAdmin, (req: AuthenticatedRequest, res) => {
     const { id } = req.params;
     const { role } = req.body;
+    const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
+    const userAgent = (req.headers['user-agent'] as string) || 'admin_console';
 
     const user = db.users.get(id);
     if (!user) {
@@ -960,6 +1020,22 @@ async function startServer() {
     }
 
     if (role === 'SUPER_ADMIN') {
+      securityMonitoringService.recordPrivilegeEscalationAttempt(
+        'SUPER_ADMIN',
+        user.email,
+        clientIp,
+        userAgent,
+        `Attempt to promote user ${user.email} (${user.id}) to SUPER_ADMIN rejected`
+      );
+      authService.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+        userId: req.user?.id,
+        userEmail: req.user?.email,
+        role: req.user?.role,
+        ipAddress: clientIp,
+        userAgent,
+        severity: 'CRITICAL',
+        details: { alert: 'Attempted to promote user to SUPER_ADMIN', targetUserId: user.id, targetEmail: user.email }
+      });
       return res.status(403).json({
         success: false,
         error: 'Role escalation blocked: There can be only ONE Super Admin account. Promoting another user to SUPER_ADMIN is strictly prohibited.',
@@ -968,6 +1044,15 @@ async function startServer() {
     }
 
     if (user.role === 'SUPER_ADMIN' && role !== 'SUPER_ADMIN') {
+      authService.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+        userId: req.user?.id,
+        userEmail: req.user?.email,
+        role: req.user?.role,
+        ipAddress: clientIp,
+        userAgent,
+        severity: 'CRITICAL',
+        details: { alert: 'Attempted to demote primary Super Admin account' }
+      });
       return res.status(403).json({
         success: false,
         error: 'Primary Super Admin account role cannot be demoted or altered.',

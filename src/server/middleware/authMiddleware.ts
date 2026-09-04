@@ -1,7 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { authService } from '../services/authService';
-import { db, SUPER_ADMIN_EMAIL } from '../db';
+import { db, SUPER_ADMIN_EMAIL, isDesignatedSuperAdminEmail } from '../db';
 import { UserEntity, UserRole } from '../../types';
+import { securityMonitoringService } from '../services/securityMonitoringService';
 
 // Extend Express Request type
 export interface AuthenticatedRequest extends Request {
@@ -62,6 +63,15 @@ export const authenticate = (req: AuthenticatedRequest, res: Response, next: Nex
       const session = db.sessions.get(payload.sessionId);
       if (session) {
         if (session.isRevoked) {
+          authService.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+            userId: user.id,
+            userEmail: user.email,
+            role: user.role,
+            ipAddress: req.ip || '127.0.0.1',
+            userAgent: req.headers['user-agent'] as string,
+            severity: 'WARNING',
+            details: { reason: 'Attempted to use revoked session', sessionId: payload.sessionId, path: req.path }
+          });
           return res.status(401).json({
             success: false,
             error: 'Session has been revoked. Please sign in again.'
@@ -168,16 +178,23 @@ export const requireSuperAdmin = (req: AuthenticatedRequest, res: Response, next
   }
 
   // Strict role and designated email invariant verification
-  const isDesignatedEmail = req.user.email.toLowerCase().trim() === SUPER_ADMIN_EMAIL.toLowerCase().trim();
+  const isDesignatedEmail = isDesignatedSuperAdminEmail(req.user.email) || req.user.email.toLowerCase().trim() === SUPER_ADMIN_EMAIL.toLowerCase().trim();
   const hasSuperAdminRole = req.user.role === 'SUPER_ADMIN';
 
   if (!hasSuperAdminRole || !isDesignatedEmail) {
+    securityMonitoringService.recordPrivilegeEscalationAttempt(
+      'SUPER_ADMIN',
+      req.user.email,
+      req.ip || '127.0.0.1',
+      (req.headers['user-agent'] as string) || 'system',
+      `Unauthorized attempt to access Super Admin endpoint: ${req.method} ${req.path}`
+    );
     authService.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
       userId: req.user.id,
       userEmail: req.user.email,
       role: req.user.role,
       ipAddress: req.ip || '127.0.0.1',
-      userAgent: req.headers['user-agent'],
+      userAgent: req.headers['user-agent'] as string,
       severity: 'CRITICAL',
       details: {
         requiredRole: 'SUPER_ADMIN',

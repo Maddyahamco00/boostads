@@ -1,6 +1,8 @@
 import crypto from 'crypto';
 import { db } from '../db';
 import { VerificationToken } from '../../types';
+import { emailVerificationTokenService } from './emailVerificationTokenService';
+import { securityMonitoringService } from './securityMonitoringService';
 
 export interface CreatePasswordResetTokenResult {
   rawToken: string;
@@ -355,10 +357,14 @@ export class PasswordResetTokenService {
       clearInterval(this.periodicInterval);
     }
     const intervalMs = Math.max(1, intervalMinutes) * 60 * 1000;
-    this.periodicInterval = setInterval(() => {
-      this.cleanup().catch(err => {
-        console.error('[PasswordResetTokenService] Periodic cleanup error:', err);
-      });
+    this.periodicInterval = setInterval(async () => {
+      try {
+        await this.cleanup();
+        emailVerificationTokenService.cleanupExpiredTokens(7);
+        await securityMonitoringService.runMaintenance();
+      } catch (err: any) {
+        console.error('[Maintenance] Background maintenance cycle error (non-fatal):', err?.message || err);
+      }
     }, intervalMs);
     // Unref timer so it doesn't block Node.js process shutdown
     if (this.periodicInterval && typeof this.periodicInterval.unref === 'function') {

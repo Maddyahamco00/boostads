@@ -107,13 +107,21 @@ export interface SecurityAuditEvent {
     | '2FA_ENABLED'
     | '2FA_DISABLED'
     | '2FA_VERIFIED'
+    | '2FA_FAILED'
     | 'SUSPICIOUS_LOGIN'
     | 'ACCOUNT_LOCKED'
     | 'ACCOUNT_STATUS_CHANGED'
     | 'SUPER_ADMIN_INVARIANT_CHECK'
     | 'UNAUTHORIZED_ACCESS_ATTEMPT'
     | 'SECURITY_ALERT'
-    | 'ADMIN_ACTION';
+    | 'ADMIN_ACTION'
+    | 'RATE_LIMIT_EXCEEDED'
+    | 'VERIFICATION_FAILED'
+    | 'ACCOUNT_SECURITY_CHANGED'
+    | 'TOKEN_VALIDATION_FAILED'
+    | 'SESSION_REVOKED'
+    | 'TOKEN_CLEANUP'
+    | 'LOG_RETENTION_CLEANUP';
   userId?: string;
   userEmail?: string;
   role?: string;
@@ -121,6 +129,58 @@ export interface SecurityAuditEvent {
   userAgent?: string;
   details?: Record<string, unknown>;
   severity: 'INFO' | 'WARNING' | 'CRITICAL';
+  success?: boolean;
+}
+
+export interface SecurityAlertPayload {
+  id: string;
+  timestamp: string;
+  type:
+    | 'REPEATED_ADMIN_AUTH_FAILURE'
+    | 'REPEATED_2FA_FAILURE'
+    | 'PRIVILEGE_ESCALATION_ATTEMPT'
+    | 'ABNORMAL_AUTHENTICATION_ABUSE'
+    | 'SUSPICIOUS_ACCOUNT_ACTIVITY';
+  severity: 'WARNING' | 'CRITICAL';
+  targetEmail?: string;
+  targetUserId?: string;
+  ipAddress?: string;
+  userAgent?: string;
+  message: string;
+  details?: Record<string, unknown>;
+}
+
+export interface SecurityMonitoringStats {
+  sessions: {
+    total: number;
+    active: number;
+    expired: number;
+    revoked: number;
+  };
+  tokens: {
+    passwordReset: {
+      total: number;
+      active: number;
+      expired: number;
+      used: number;
+    };
+    emailVerification: {
+      total: number;
+      active: number;
+      expired: number;
+      used: number;
+    };
+  };
+  auditLogs: {
+    total: number;
+    criticalCount: number;
+    warningCount: number;
+    infoCount: number;
+  };
+  rateLimits: {
+    activeLockedKeys: number;
+    recentViolations: number;
+  };
 }
 
 export interface EmailLog {
