@@ -24,6 +24,7 @@ import { VerifyEmailView } from './components/VerifyEmailView';
 import { ForgotPasswordView } from './components/ForgotPasswordView';
 import { ResetPasswordView } from './components/ResetPasswordView';
 import { ClientProfileView } from './components/ClientProfileView';
+import { ClientSecuritySettingsView } from './components/ClientSecuritySettingsView';
 // TODO: Re-enable when Feature 3.x (Ad Posting Modal) is implemented.
 // import { CreateAdModal } from './components/CreateAdModal';
 // TODO: Re-enable when Feature 9.x (Push Notification Drawer) is implemented.
@@ -58,6 +59,7 @@ const MainLayout: React.FC = () => {
         {activeView === 'admin_login' && <AdminLoginView />}
         {activeView === 'admin_panel' && <AdminPanelView />}
         {activeView === 'profile' && <ClientProfileView />}
+        {activeView === 'settings' && <ClientSecuritySettingsView />}
       </main>
 
       {/* Minimal Footer */}

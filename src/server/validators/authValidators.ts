@@ -169,7 +169,7 @@ export const ChangePasswordSchema = z.object({
     .regex(/[A-Za-z]/, 'Password must contain at least one letter')
     .regex(/[0-9]/, 'Password must contain at least one number'),
   confirmPassword: z.string().optional()
-}).refine(data => !data.confirmPassword || data.newPassword === data.confirmPassword, {
+}).strict().refine(data => !data.confirmPassword || data.newPassword === data.confirmPassword, {
   message: 'Passwords do not match',
   path: ['confirmPassword']
 });
@@ -196,28 +196,67 @@ export const EnableTwoFactorSchema = z.object({
 
 // 10. Profile Update DTO
 export const UpdateProfileSchema = z.object({
-  name: z.string().min(2, 'Name must be at least 2 characters').max(100, 'Name cannot exceed 100 characters').optional(),
-  phone: z.string().max(30, 'Phone number cannot exceed 30 characters').optional(),
-  bio: z.string().max(500, 'Bio cannot exceed 500 characters').optional(),
-  avatarUrl: z.string().url('Avatar must be a valid URL').or(z.string().length(0)).optional(),
+  name: z
+    .string()
+    .trim()
+    .min(2, 'Name must be at least 2 characters')
+    .max(100, 'Name cannot exceed 100 characters')
+    .refine(val => !/[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(val), 'Name contains invalid control characters')
+    .optional(),
+  phone: z
+    .string()
+    .trim()
+    .max(30, 'Phone number cannot exceed 30 characters')
+    .refine(val => !val || /^[+]?[0-9\s().-]*$/.test(val), 'Phone number contains invalid characters')
+    .optional(),
+  bio: z
+    .string()
+    .max(500, 'Bio cannot exceed 500 characters')
+    .refine(val => !/\x00/.test(val), 'Bio cannot contain null bytes')
+    .optional(),
+  avatarUrl: z
+    .string()
+    .trim()
+    .max(500, 'Avatar URL cannot exceed 500 characters')
+    .refine(url => !url || /^https?:\/\//i.test(url), 'Avatar URL must use http or https protocol')
+    .or(z.string().length(0))
+    .optional(),
   clientType: z.enum(['customer', 'business', 'freelancer', 'advertiser', 'service_provider']).optional(),
   location: z.object({
-    city: z.string().max(100).optional(),
-    state: z.string().max(100).optional(),
-    country: z.string().max(100).optional(),
-    lat: z.number().optional(),
-    lng: z.number().optional(),
-    address: z.string().max(200).optional(),
-    serviceAreaKm: z.number().optional()
-  }).optional(),
-  // Disallowed / Immutable / Escalation fields explicitly defined as optional for server inspection
+    city: z.string().trim().max(100).optional(),
+    state: z.string().trim().max(100).optional(),
+    country: z.string().trim().max(100).optional(),
+    lat: z.number().min(-90).max(90).optional(),
+    lng: z.number().min(-180).max(180).optional(),
+    address: z.string().trim().max(200).optional(),
+    serviceAreaKm: z.number().min(0).max(1000).optional()
+  }).strict().optional(),
+  // Disallowed / Immutable / Escalation / Protected fields defined for explicit server rejection
   role: z.any().optional(),
   isAdmin: z.any().optional(),
   isSuperAdmin: z.any().optional(),
+  superAdmin: z.any().optional(),
+  isStaff: z.any().optional(),
   permissions: z.any().optional(),
   privileges: z.any().optional(),
+  accountStatus: z.any().optional(),
   email: z.any().optional(),
   status: z.any().optional(),
+  securityFlags: z.any().optional(),
   tier: z.any().optional(),
-  id: z.any().optional()
+  id: z.any().optional(),
+  userId: z.any().optional(),
+  password: z.any().optional(),
+  passwordHash: z.any().optional(),
+  emailVerifiedAt: z.any().optional(),
+  emailVerified: z.any().optional(),
+  twoFactorEnabled: z.any().optional(),
+  twoFactorSecret: z.any().optional(),
+  twoFactorRecoveryCodes: z.any().optional(),
+  failedLoginAttempts: z.any().optional(),
+  lockedUntil: z.any().optional(),
+  createdAt: z.any().optional(),
+  updatedAt: z.any().optional(),
+  internalAudit: z.any().optional(),
+  audit: z.any().optional()
 });

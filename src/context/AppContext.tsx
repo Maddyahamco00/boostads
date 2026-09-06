@@ -36,7 +36,8 @@ export type AppView =
   | 'verify_email'
   | 'forgot_password'
   | 'reset_password'
-  | 'profile';
+  | 'profile'
+  | 'settings';
 
 interface AppContextType {
   // Authentication State
@@ -69,6 +70,7 @@ interface AppContextType {
   notifications: PushNotification[];
   campaigns: MultiPlatformCampaign[];
   leads: Lead[];
+  reports: any[];
   platformStats: PlatformStats | null;
   isLoading: boolean;
 
@@ -95,6 +97,7 @@ interface AppContextType {
   openReportModal: (type: 'ad' | 'business' | 'user' | 'message', id: string, title: string) => void;
   closeReportModal: () => void;
   markNotificationRead: (notifId: string) => void;
+  markNotificationAsRead: (notifId: string) => void;
   refreshData: () => Promise<void>;
   updateLeadStatus: (leadId: string, status: Lead['status'], notes?: string) => Promise<void>;
 }
@@ -375,6 +378,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [notifications, setNotifications] = useState<PushNotification[]>([]);
   const [campaigns, setCampaigns] = useState<MultiPlatformCampaign[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
+  const [reports, setReports] = useState<any[]>([]);
   const [platformStats, setPlatformStats] = useState<PlatformStats | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
@@ -392,7 +396,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         statsRes,
         usersRes,
         campRes,
-        leadsRes
+        leadsRes,
+        reportsRes
       ] = await Promise.all([
         fetch('/api/businesses').then(r => r.json()),
         fetch('/api/ads').then(r => r.json()),
@@ -404,7 +409,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         fetch('/api/stats').then(r => r.json()),
         fetch('/api/users').then(r => r.json()),
         fetch('/api/campaigns').then(r => r.json()).catch(() => ({ success: false, campaigns: [] })),
-        fetch('/api/leads').then(r => r.json()).catch(() => ({ success: false, leads: [] }))
+        fetch('/api/leads').then(r => r.json()).catch(() => ({ success: false, leads: [] })),
+        fetch('/api/reports').then(r => r.json()).catch(() => ({ success: false, reports: [] }))
       ]);
 
       if (bizRes.success) setBusinesses(bizRes.businesses);
@@ -418,6 +424,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (usersRes.success) setAllUsers(usersRes.users);
       if (campRes.success) setCampaigns(campRes.campaigns);
       if (leadsRes.success) setLeads(leadsRes.leads);
+      if (reportsRes?.success && reportsRes?.reports) setReports(reportsRes.reports);
     } catch (err) {
       console.error('Failed to load Boost Market initial data:', err);
     } finally {
@@ -589,6 +596,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         notifications,
         campaigns,
         leads,
+        reports,
         platformStats,
         isLoading,
         login,
@@ -611,6 +619,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         openReportModal,
         closeReportModal,
         markNotificationRead,
+        markNotificationAsRead: markNotificationRead,
         refreshData,
         updateLeadStatus
       }}

@@ -192,14 +192,12 @@ export const ClientProfileView: React.FC = () => {
     setIsChangingPassword(true);
 
     try {
-      const res = await authApi.changePassword(currentPassword, newPassword);
+      const res = await authApi.changePassword(currentPassword, newPassword, confirmPassword);
       if (res.success) {
-        setPasswordSuccess('Password updated successfully. All active sessions have been secured.');
+        setPasswordSuccess('Password updated successfully. All active sessions have been revoked for your security. Please sign in with your new password.');
         setCurrentPassword('');
         setNewPassword('');
         setConfirmPassword('');
-        // Reload security state to reflect session rotation
-        loadProfile();
       }
     } catch (err: unknown) {
       const formatted = formatAuthError(err);

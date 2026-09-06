@@ -482,10 +482,17 @@ export const authApi = {
   /**
    * Change password for logged in user
    */
-  async changePassword(currentPassword: string, newPassword: string) {
-    return fetchWithAuth<{ success: boolean; message: string }>('/api/auth/change-password', {
+  async changePassword(currentPassword: string, newPassword: string, confirmPassword?: string) {
+    const payload: { currentPassword: string; newPassword: string; confirmPassword?: string } = {
+      currentPassword,
+      newPassword
+    };
+    if (confirmPassword !== undefined) {
+      payload.confirmPassword = confirmPassword;
+    }
+    return fetchWithAuth<{ success: boolean; message: string; requireLogin?: boolean }>('/api/auth/change-password', {
       method: 'POST',
-      body: JSON.stringify({ currentPassword, newPassword })
+      body: JSON.stringify(payload)
     });
   },
 

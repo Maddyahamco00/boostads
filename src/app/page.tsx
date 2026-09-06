@@ -1,3 +1,5 @@
+'use client';
+
 import { Header } from '../components/Header';
 import { DiscoverView } from '../components/DiscoverView';
 import { Footer } from '../components/Footer';

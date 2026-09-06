@@ -130,7 +130,7 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
           </div>
           <div className="flex justify-between text-gray-600">
             <span>Fee:</span>
-            <span className="text-gray-900">{payment.customerCurrency} {payment.fees.platformFee.toFixed(2)}</span>
+            <span className="text-gray-900">{payment.customerCurrency} {(typeof payment.fees === 'object' && payment.fees !== null ? (payment.fees as any).platformFee : (typeof payment.fees === 'number' ? payment.fees : 0)).toFixed(2)}</span>
           </div>
           <div className="flex justify-between text-gray-600">
             <span>Date:</span>

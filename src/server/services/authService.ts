@@ -102,8 +102,24 @@ export class AuthService {
 
   public getSafeUser(user: UserEntity): UserProfile {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { passwordHash, twoFactorSecret, twoFactorRecoveryCodes, failedLoginAttempts, lockedUntil, ...safeUser } = user;
-    return safeUser;
+    const { 
+      passwordHash, 
+      twoFactorSecret, 
+      twoFactorRecoveryCodes, 
+      failedLoginAttempts, 
+      lockedUntil, 
+      ...safeUser 
+    } = user as any;
+
+    delete safeUser.tempTotpSecret;
+    delete safeUser.tempPassword;
+    delete safeUser.resetToken;
+    delete safeUser.tokenHash;
+    delete safeUser.setupToken;
+    delete safeUser.verificationToken;
+    delete safeUser.sessionSecret;
+
+    return safeUser as UserProfile;
   }
 
   public getAccountSecurityState(user: UserEntity): AccountSecurityState {
@@ -1704,17 +1720,56 @@ export class AuthService {
     newPassword: string,
     ip: string,
     userAgent: string
-  ): Promise<{ success: boolean; message: string }> {
+  ): Promise<{ success: boolean; message: string; requireLogin?: boolean }> {
+    // 1. IP-level rate limiting (anti-abuse)
+    const ipKey = `cp_ip_${ip}`;
+    const ipLimit = this.checkResendRateLimit(ipKey, 10, 60 * 1000); // Max 10 attempts per min per IP
+    if (ipLimit.isLimited) {
+      securityMonitoringService.recordRateLimitViolation('/api/auth/change-password', ip, userAgent, userId);
+      this.logSecurityEvent('RATE_LIMIT_EXCEEDED', {
+        userId,
+        ipAddress: ip,
+        userAgent,
+        severity: 'WARNING',
+        details: { endpoint: '/api/auth/change-password', target: 'IP', remainingSeconds: ipLimit.remainingSeconds }
+      });
+      const err: any = new Error(`Too many password change attempts from this network. Please wait ${ipLimit.remainingSeconds || 60}s before trying again.`);
+      err.code = 'RATE_LIMITED';
+      err.remainingSeconds = ipLimit.remainingSeconds;
+      throw err;
+    }
+
+    // 2. User-level brute force protection against password guessing
+    const userRateKey = `cp_user_${userId}`;
+    const userRateStatus = this.checkRateLimit(userRateKey);
+    if (userRateStatus.isLocked) {
+      securityMonitoringService.recordRateLimitViolation('/api/auth/change-password', ip, userAgent, userId);
+      this.logSecurityEvent('RATE_LIMIT_EXCEEDED', {
+        userId,
+        ipAddress: ip,
+        userAgent,
+        severity: 'WARNING',
+        details: { endpoint: '/api/auth/change-password', target: 'USER', remainingSeconds: userRateStatus.remainingSeconds }
+      });
+      const err: any = new Error(`Too many failed password change attempts. Account password change is temporarily locked for ${userRateStatus.remainingSeconds} seconds.`);
+      err.code = 'RATE_LIMITED';
+      err.remainingSeconds = userRateStatus.remainingSeconds;
+      throw err;
+    }
+
     const user = db.users.get(userId);
     if (!user || !user.passwordHash) {
       throw new Error('User not found.');
     }
 
+    // 3. Secure Constant-Time Password Verification
     const isValid = await this.comparePassword(currentPassword, user.passwordHash);
     if (!isValid) {
+      this.registerFailedAttempt(userRateKey, 5, 15 * 60 * 1000); // 5 failed attempts -> 15 min lock
       this.logSecurityEvent('PASSWORD_CHANGED', {
         userId: user.id,
         userEmail: user.email,
+        role: user.role,
         ipAddress: ip,
         userAgent,
         severity: 'WARNING',
@@ -1723,14 +1778,18 @@ export class AuthService {
       throw new Error('Current password is incorrect.');
     }
 
+    // 4. Password Policy: Reject identical previous password
     if (currentPassword === newPassword) {
       throw new Error('New password cannot be the same as your current password.');
     }
 
+    // 5. Successful password verification: clear failed attempts
+    this.clearFailedAttempts(userRateKey);
+
     user.passwordHash = await this.hashPassword(newPassword);
     user.updatedAt = new Date().toISOString();
 
-    // Invalidate all active sessions for security
+    // 6. Security Invariant: Invalidate all active sessions across devices
     this.logoutAll(user.id, ip, userAgent);
 
     await emailService.sendEmail({
@@ -1759,7 +1818,11 @@ export class AuthService {
       details: { change: 'password_changed' }
     });
 
-    return { success: true, message: 'Password changed successfully.' };
+    return { 
+      success: true, 
+      message: 'Password changed successfully. All active sessions have been revoked for your security.',
+      requireLogin: true
+    };
   }
 
   // ----------------------------------------------------
@@ -1795,18 +1858,24 @@ export class AuthService {
     const rawRole = payload.role;
     const rawIsAdmin = payload.isAdmin;
     const rawIsSuperAdmin = payload.isSuperAdmin;
+    const rawSuperAdmin = payload.superAdmin;
+    const rawIsStaff = payload.isStaff;
     const rawPermissions = payload.permissions;
     const rawPrivileges = payload.privileges;
+    const rawAccountStatus = payload.accountStatus;
 
     if (
       rawRole !== undefined ||
       rawIsAdmin !== undefined ||
       rawIsSuperAdmin !== undefined ||
+      rawSuperAdmin !== undefined ||
+      rawIsStaff !== undefined ||
       rawPermissions !== undefined ||
-      rawPrivileges !== undefined
+      rawPrivileges !== undefined ||
+      rawAccountStatus !== undefined
     ) {
       securityMonitoringService.recordPrivilegeEscalationAttempt(
-        String(rawRole || 'PRIVILEGED_ROLE'),
+        String(rawRole || rawAccountStatus || 'PRIVILEGED_ROLE'),
         user.email,
         ip,
         userAgent,
@@ -1823,7 +1892,8 @@ export class AuthService {
           reason: 'Privilege escalation attempt in profile update. Request rejected.',
           attemptedRole: rawRole,
           attemptedIsAdmin: rawIsAdmin,
-          attemptedIsSuperAdmin: rawIsSuperAdmin
+          attemptedIsSuperAdmin: rawIsSuperAdmin,
+          attemptedAccountStatus: rawAccountStatus
         }
       });
       throw new Error('Unauthorized role modification attempt. Privilege escalation is strictly forbidden.');
@@ -1839,6 +1909,50 @@ export class AuthService {
         'Attempted to claim designated Super Admin email in profile update'
       );
       throw new Error('Unauthorized email modification attempt. Designated Super Admin email is strictly protected.');
+    }
+
+    // Defense: Email is immutable through ordinary profile updates
+    if (payload.email !== undefined && String(payload.email).toLowerCase().trim() !== user.email.toLowerCase().trim()) {
+      throw new Error('Email address is immutable and cannot be updated directly via profile update.');
+    }
+
+    // Defense: User identity IDs are immutable
+    if (payload.id !== undefined && payload.id !== userId) {
+      throw new Error('Forbidden: Modifying user ID is not permitted.');
+    }
+    if (payload.userId !== undefined && payload.userId !== userId) {
+      throw new Error('Forbidden: Modifying user ID is not permitted.');
+    }
+
+    // Defense: Protected account status and security flags cannot be modified
+    if (
+      payload.status !== undefined ||
+      payload.securityFlags !== undefined ||
+      payload.emailVerifiedAt !== undefined ||
+      payload.emailVerified !== undefined ||
+      payload.password !== undefined ||
+      payload.passwordHash !== undefined ||
+      payload.tier !== undefined ||
+      payload.twoFactorEnabled !== undefined ||
+      payload.twoFactorSecret !== undefined ||
+      payload.twoFactorRecoveryCodes !== undefined ||
+      payload.failedLoginAttempts !== undefined ||
+      payload.lockedUntil !== undefined ||
+      payload.createdAt !== undefined ||
+      payload.updatedAt !== undefined ||
+      payload.internalAudit !== undefined ||
+      payload.audit !== undefined
+    ) {
+      this.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+        userId: user.id,
+        userEmail: user.email,
+        role: user.role,
+        ipAddress: ip,
+        userAgent,
+        severity: 'WARNING',
+        details: { reason: 'Attempted modification of protected account security fields in profile update' }
+      });
+      throw new Error('Unauthorized modification of protected account security fields.');
     }
 
     // Strict Allowlist: only user-editable profile properties

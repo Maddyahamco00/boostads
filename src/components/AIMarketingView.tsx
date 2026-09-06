@@ -546,9 +546,11 @@ export const AIMarketingView: React.FC = () => {
                   <p className="text-gray-600 mb-3">{concept.layoutDescription}</p>
 
                   <div className="p-2.5 bg-gray-50 rounded-lg border border-gray-200 space-y-1 mb-3">
-                    <span className="font-semibold text-gray-900 block">{concept.overlayText.headline}</span>
+                    <span className="font-semibold text-gray-900 block">
+                      {typeof concept.overlayText === 'object' ? concept.overlayText?.headline : (concept.overlayText || concept.headline)}
+                    </span>
                     <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 font-medium text-[10px] inline-block">
-                      {concept.overlayText.badge}
+                      {typeof concept.overlayText === 'object' ? concept.overlayText?.badge : concept.badgeText}
                     </span>
                   </div>
                 </div>

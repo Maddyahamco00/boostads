@@ -2,7 +2,7 @@ import express from 'express';
 import path from 'path';
 import cookieParser from 'cookie-parser';
 import next from 'next';
-import { db } from './src/server/db';
+import { db, isDesignatedSuperAdminEmail } from './src/server/db';
 import { authService, passwordResetTokenService } from './src/server/services/authService';
 import { securityMonitoringService } from './src/server/services/securityMonitoringService';
 import { emailService } from './src/server/services/emailService';
@@ -565,8 +565,45 @@ async function startServer() {
   });
 
   // 10. Change Password (Authenticated)
-  app.post('/api/auth/change-password', authenticate, async (req: AuthenticatedRequest, res) => {
+  const handlePasswordChange = async (req: AuthenticatedRequest, res: any) => {
     try {
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = (req.headers['user-agent'] as string) || 'browser';
+
+      // 1. Explicit Mass-Assignment & Privilege Escalation Defense:
+      // Reject any malicious fields aimed at tampering with roles, privileges, status, or identity
+      const FORBIDDEN_PASSWORD_CHANGE_FIELDS = [
+        'role', 'roles', 'isAdmin', 'isSuperAdmin', 'accountStatus', 'status',
+        'emailVerified', 'emailVerifiedAt', 'userId', 'id', 'permissions',
+        'securityFlags', 'privileges', 'tier', 'email', 'failedLoginAttempts',
+        'lockedUntil', 'passwordHash', 'twoFactorEnabled', 'twoFactorSecret',
+        'twoFactorRecoveryCodes'
+      ];
+
+      for (const field of FORBIDDEN_PASSWORD_CHANGE_FIELDS) {
+        if (req.body && field in req.body) {
+          authService.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+            userId: req.user!.id,
+            userEmail: req.user!.email,
+            role: req.user!.role,
+            ipAddress: clientIp,
+            userAgent,
+            severity: 'CRITICAL',
+            details: {
+              endpoint: req.path,
+              action: 'MASS_ASSIGNMENT_PASSWORD_CHANGE_ATTEMPT',
+              forbiddenField: field
+            }
+          });
+          return res.status(400).json({
+            success: false,
+            error: `Mass-assignment rejected: Field '${field}' is not permitted in password change request.`,
+            code: 'FORBIDDEN_FIELD'
+          });
+        }
+      }
+
+      // 2. Strict Zod Schema Validation
       const validation = ChangePasswordSchema.safeParse(req.body);
       if (!validation.success) {
         return res.status(400).json({
@@ -575,9 +612,7 @@ async function startServer() {
         });
       }
 
-      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
-      const userAgent = req.headers['user-agent'] || 'browser';
-
+      // 3. Authenticated Identity: strictly from server-side session (req.user!.id)
       const result = await authService.changePassword(
         req.user!.id,
         validation.data.currentPassword,
@@ -589,38 +624,24 @@ async function startServer() {
       res.json(result);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to change password';
-      res.status(400).json({ success: false, error: message });
+      const isRateLimited = (err as any)?.code === 'RATE_LIMITED';
+      const isForbidden = message.toLowerCase().includes('unauthorized') ||
+                          message.toLowerCase().includes('escalation') ||
+                          message.toLowerCase().includes('forbidden');
+      
+      const statusCode = isRateLimited ? 429 : isForbidden ? 403 : 400;
+      res.status(statusCode).json({
+        success: false,
+        error: message,
+        code: isRateLimited ? 'RATE_LIMITED' : undefined,
+        remainingSeconds: (err as any)?.remainingSeconds
+      });
     }
-  });
+  };
 
-  // Client change-password alias
-  app.post('/api/client/change-password', authenticate, async (req: AuthenticatedRequest, res) => {
-    try {
-      const validation = ChangePasswordSchema.safeParse(req.body);
-      if (!validation.success) {
-        return res.status(400).json({
-          success: false,
-          error: formatZodError(validation.error)
-        });
-      }
-
-      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
-      const userAgent = req.headers['user-agent'] || 'browser';
-
-      const result = await authService.changePassword(
-        req.user!.id,
-        validation.data.currentPassword,
-        validation.data.newPassword,
-        clientIp,
-        userAgent
-      );
-
-      res.json(result);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to change password';
-      res.status(400).json({ success: false, error: message });
-    }
-  });
+  app.post('/api/auth/change-password', authenticate, handlePasswordChange);
+  app.post('/api/client/change-password', authenticate, handlePasswordChange);
+  app.post('/api/users/change-password', authenticate, handlePasswordChange);
 
   // 11. Current Session Profile (Me)
   app.get('/api/auth/me', (req: AuthenticatedRequest, res) => {
@@ -1157,6 +1178,28 @@ async function startServer() {
     }
   });
 
+  // Dedicated Client Profile & Security Settings Test Runner
+  app.post('/api/tests/profile', async (req, res) => {
+    try {
+      const result = await authTestRunnerService.runProfileTestOnly();
+      res.json({ success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  // Dedicated Client Password Change & Security Controls Test Runner
+  app.post('/api/tests/password-security', async (req, res) => {
+    try {
+      const result = await authTestRunnerService.runPasswordSecurityTestOnly();
+      res.json({ success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
   // ==========================================
   // 2. USERS & PROFILES
   // ==========================================
@@ -1225,6 +1268,45 @@ async function startServer() {
     try {
       const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || req.socket.remoteAddress || '127.0.0.1';
       const userAgent = (req.headers['user-agent'] as string) || 'browser';
+      const effectiveUserId = (targetUserId === 'me' || targetUserId === 'profile') ? req.user!.id : targetUserId;
+
+      // Query Parameter Tampering / Privilege Escalation Guard
+      const q = (req.query || {}) as Record<string, any>;
+      if (
+        q.role !== undefined ||
+        q.isAdmin !== undefined ||
+        q.isSuperAdmin !== undefined ||
+        q.superAdmin !== undefined ||
+        q.isStaff !== undefined ||
+        q.permissions !== undefined ||
+        q.privileges !== undefined ||
+        q.accountStatus !== undefined ||
+        q.status !== undefined ||
+        q.securityFlags !== undefined
+      ) {
+        authService.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+          userId: req.user!.id,
+          userEmail: req.user!.email,
+          role: req.user!.role,
+          ipAddress: clientIp,
+          userAgent,
+          severity: 'CRITICAL',
+          details: { reason: 'Attempted privilege escalation via query parameters in profile update.' }
+        });
+        return res.status(403).json({
+          success: false,
+          error: 'Unauthorized role modification attempt via query parameters. Privilege escalation is strictly forbidden.',
+          code: 'PRIVILEGE_ESCALATION_BLOCKED'
+        });
+      }
+
+      if ((q.userId !== undefined && q.userId !== effectiveUserId) || (q.id !== undefined && q.id !== effectiveUserId)) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: Modifying user ID via query parameters is not permitted.',
+          code: 'FORBIDDEN'
+        });
+      }
 
       // Schema Validation
       const validation = UpdateProfileSchema.safeParse(req.body);
@@ -1240,8 +1322,11 @@ async function startServer() {
         req.body.role !== undefined ||
         req.body.isAdmin !== undefined ||
         req.body.isSuperAdmin !== undefined ||
+        req.body.superAdmin !== undefined ||
+        req.body.isStaff !== undefined ||
         req.body.permissions !== undefined ||
-        req.body.privileges !== undefined
+        req.body.privileges !== undefined ||
+        req.body.accountStatus !== undefined
       ) {
         authService.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
           userId: req.user!.id,
@@ -1255,7 +1340,10 @@ async function startServer() {
             attemptedPayload: {
               role: req.body.role,
               isAdmin: req.body.isAdmin,
-              isSuperAdmin: req.body.isSuperAdmin
+              isSuperAdmin: req.body.isSuperAdmin,
+              superAdmin: req.body.superAdmin,
+              permissions: req.body.permissions,
+              accountStatus: req.body.accountStatus
             }
           }
         });
@@ -1267,8 +1355,87 @@ async function startServer() {
         });
       }
 
+      // Explicit Defense: Reject tampering with protected account state and security flags
+      if (
+        req.body.status !== undefined ||
+        req.body.securityFlags !== undefined ||
+        req.body.emailVerifiedAt !== undefined ||
+        req.body.emailVerified !== undefined ||
+        req.body.password !== undefined ||
+        req.body.passwordHash !== undefined ||
+        req.body.tier !== undefined ||
+        req.body.twoFactorEnabled !== undefined ||
+        req.body.twoFactorSecret !== undefined ||
+        req.body.twoFactorRecoveryCodes !== undefined ||
+        req.body.failedLoginAttempts !== undefined ||
+        req.body.lockedUntil !== undefined ||
+        req.body.createdAt !== undefined ||
+        req.body.updatedAt !== undefined ||
+        req.body.internalAudit !== undefined ||
+        req.body.audit !== undefined
+      ) {
+        authService.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+          userId: req.user!.id,
+          userEmail: req.user!.email,
+          role: req.user!.role,
+          ipAddress: clientIp,
+          userAgent,
+          severity: 'WARNING',
+          details: {
+            reason: 'Attempted modification of protected account security fields in profile update.'
+          }
+        });
+
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: Cannot modify protected account security flags or status via profile update.',
+          code: 'PROTECTED_FIELD_VIOLATION'
+        });
+      }
+
+      // Explicit Defense: Prevent claiming or hijacking the Super Admin email
+      if (req.body.email !== undefined && isDesignatedSuperAdminEmail(String(req.body.email))) {
+        securityMonitoringService.recordPrivilegeEscalationAttempt(
+          'SUPER_ADMIN_EMAIL_HIJACK',
+          req.user!.email,
+          clientIp,
+          userAgent,
+          'Attempted to claim designated Super Admin email in profile update'
+        );
+        return res.status(403).json({
+          success: false,
+          error: 'Unauthorized email modification attempt. Designated Super Admin email is strictly protected.',
+          code: 'FORBIDDEN'
+        });
+      }
+
+      // Explicit Defense: Email is immutable through ordinary profile updates
+      if (req.body.email !== undefined && String(req.body.email).toLowerCase().trim() !== req.user!.email.toLowerCase().trim()) {
+        return res.status(400).json({
+          success: false,
+          error: 'Email address is immutable and cannot be updated directly via profile update.',
+          code: 'EMAIL_IMMUTABLE'
+        });
+      }
+
+      // Explicit Defense: User ID mismatch / IDOR guard
+      if (req.body.id !== undefined && req.body.id !== effectiveUserId) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: Modifying user ID is not permitted.',
+          code: 'FORBIDDEN'
+        });
+      }
+      if (req.body.userId !== undefined && req.body.userId !== effectiveUserId) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: Modifying user ID is not permitted.',
+          code: 'FORBIDDEN'
+        });
+      }
+
       // Authorization guard: normal users can only update their own profile
-      if (req.user!.id !== targetUserId && req.user!.role !== 'SUPER_ADMIN') {
+      if (req.user!.id !== effectiveUserId && req.user!.role !== 'SUPER_ADMIN') {
         return res.status(403).json({
           success: false,
           error: 'Forbidden: You can only update your own account.',
@@ -1276,7 +1443,7 @@ async function startServer() {
         });
       }
 
-      const updatedUser = await authService.updateProfile(targetUserId, req.body, clientIp, userAgent);
+      const updatedUser = await authService.updateProfile(effectiveUserId, req.body, clientIp, userAgent);
       const securityState = authService.getAccountSecurityState(updatedUser);
       res.json({ 
         success: true, 
@@ -1288,6 +1455,7 @@ async function startServer() {
       const isForbidden = message.toLowerCase().includes('unauthorized') || 
                           message.toLowerCase().includes('escalation') ||
                           message.toLowerCase().includes('forbidden') ||
+                          message.toLowerCase().includes('protected') ||
                           message.toLowerCase().includes('role');
       res.status(isForbidden ? 403 : 400).json({ success: false, error: message });
     }
@@ -1299,6 +1467,10 @@ async function startServer() {
   });
 
   app.put('/api/client/profile', authenticate, (req: AuthenticatedRequest, res) => {
+    handleProfileUpdate(req, res, req.user!.id);
+  });
+
+  app.post('/api/client/profile', authenticate, (req: AuthenticatedRequest, res) => {
     handleProfileUpdate(req, res, req.user!.id);
   });
 

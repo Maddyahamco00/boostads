@@ -271,14 +271,15 @@ export const Header: React.FC = () => {
                       </button>
                     )}
                     <button
+                      id="header-security-settings-btn"
                       onClick={() => {
-                        setIsSecurityModalOpen(true);
+                        setActiveView('settings');
                         setIsUserDropdownOpen(false);
                       }}
                       className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-100 rounded-lg flex items-center gap-2 cursor-pointer"
                     >
                       <Key className="w-3.5 h-3.5 text-slate-400" />
-                      Security & 2FA
+                      Security Settings
                     </button>
                   </div>
 

@@ -251,6 +251,7 @@ export interface Business {
     totalRevenue: number;
   };
   featured: boolean;
+  portfolioItems?: PortfolioItem[];
   createdAt: string;
 }
 
@@ -377,6 +378,7 @@ export interface MultiPlatformCampaign {
   conversionsCount: number;
   costPerLeadNGN: number;
   paymentId?: string;
+  analytics?: any;
   createdAt: string;
   updatedAt: string;
 }
@@ -402,6 +404,8 @@ export interface Lead {
   source: 'direct' | 'boost_market' | 'facebook' | 'instagram' | 'youtube' | 'google' | 'tiktok';
   campaignId?: string;
   adId?: string;
+  interestItem?: string;
+  platformSource?: string;
   status: LeadStatus;
   estimatedValueNGN?: number;
   notes?: string;
@@ -419,10 +423,14 @@ export interface VideoSceneConcept {
   voiceoverScript: string;
   onScreenText: string;
   cameraMovement: string;
+  cameraAngle?: string;
 }
 
 export interface AIVideoConceptResponse {
   conceptTitle: string;
+  title?: string;
+  conceptOverview?: string;
+  estimatedDurationSeconds?: number;
   hook: string;
   scenes: VideoSceneConcept[];
   totalDurationSeconds: number;
@@ -444,9 +452,13 @@ export interface AIImageAdFormat {
 export interface ImageAdConcept {
   id?: string;
   format: 'square_1x1' | 'story_9x16' | 'landscape_16x9' | 'banner_4x3';
+  aspectRatio?: string;
   label: string;
   dimensions: string;
   headline: string;
+  title?: string;
+  layoutDescription?: string;
+  overlayText?: string | { headline?: string; badge?: string; };
   badgeText: string;
   overlayStyle: string;
   recommendedCta: string;
@@ -486,6 +498,7 @@ export interface Advertisement {
   viewsCount: number;
   clicksCount: number;
   enquiriesCount: number;
+  inquiriesCount?: number;
   contactPhone?: string;
   contactWhatsApp?: string;
   createdAt: string;
@@ -639,6 +652,9 @@ export interface SubscriptionPlan {
   priceUSD?: number;
   priceMonth?: number;
   priceYear?: number;
+  priceMonthly?: number;
+  priceYearly?: number;
+  description?: string;
   billingCycle?: 'monthly' | 'yearly';
   features: string[];
   adLimit?: number;
@@ -655,6 +671,7 @@ export interface SubscriptionPlan {
   recommended?: boolean;
   highlighted?: boolean;
   popular?: boolean;
+  isPopular?: boolean;
 }
 
 export interface AIMarketingRequest {
