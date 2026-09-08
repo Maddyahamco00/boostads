@@ -8,10 +8,10 @@ import type { NextRequest } from 'next/server';
  */
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const sessionToken = request.cookies.get('session_token')?.value;
+  const sessionToken = request.cookies.get('boost_access_token')?.value || request.cookies.get('session_token')?.value;
 
   // Protected Client Routes
-  if (pathname.startsWith('/profile') || pathname.startsWith('/dashboard')) {
+  if (pathname.startsWith('/profile') || pathname.startsWith('/dashboard') || pathname.startsWith('/settings')) {
     if (!sessionToken) {
       const loginUrl = new URL('/login', request.url);
       loginUrl.searchParams.set('redirect', pathname);
@@ -35,6 +35,7 @@ export const config = {
   matcher: [
     '/profile/:path*',
     '/dashboard/:path*',
+    '/settings/:path*',
     '/admin/:path*',
   ],
 };

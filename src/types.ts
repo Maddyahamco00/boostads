@@ -33,16 +33,43 @@ export interface LocationCoordinates {
   serviceAreaKm?: number;
 }
 
+export interface ClientProfile {
+  id: string; // 'prof_...'
+  userId: string; // 1-to-1 foreign key to UserEntity.id
+  name: string; // display/full name
+  username?: string; // unique username handle
+  bio?: string; // short bio / about
+  phone?: string;
+  contactEmail?: string; // optional personal contact email (distinct from login/auth email)
+  clientType?: ClientType;
+  avatarUrl?: string;
+  avatarKey?: string;
+  location?: LocationCoordinates;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface ClientContactInfo {
+  phone?: string;
+  contactEmail?: string;
+  authEmail: string;
+  phoneVerified: boolean;
+  updatedAt?: string;
+}
+
 export interface UserProfile {
   id: string;
   name: string;
+  username?: string;
   email: string;
   phone?: string;
+  contactEmail?: string;
   role: UserRole;
   status: AccountStatus;
   clientType?: ClientType;
   tier: SubscriptionTier;
   avatarUrl?: string;
+  avatarKey?: string;
   bio?: string;
   location?: LocationCoordinates;
   businessId?: string;
@@ -53,6 +80,8 @@ export interface UserProfile {
   lastLoginAt?: string | null;
   createdAt: string;
   updatedAt?: string;
+  hasProfile?: boolean;
+  profileId?: string;
 }
 
 export interface AccountSecurityState {

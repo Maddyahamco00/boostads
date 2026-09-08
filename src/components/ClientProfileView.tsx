@@ -21,12 +21,18 @@ import {
   Calendar,
   Check,
   Building,
-  UserCheck
+  UserCheck,
+  Camera,
+  Upload,
+  Trash2,
+  Image as ImageIcon,
+  Info
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { authApi, formatAuthError } from '../lib/api';
 import { UserProfile, AccountSecurityState, ClientType } from '../types';
 import { SecuritySettingsModal } from './SecuritySettingsModal';
+import { validatePhoneNumber, normalizePhoneNumber, formatPhoneDisplay } from '../lib/phoneUtils';
 
 export const ClientProfileView: React.FC = () => {
   const { currentUser, setCurrentUser, isAuthenticated, setActiveView } = useApp();
@@ -41,13 +47,25 @@ export const ClientProfileView: React.FC = () => {
 
   // Editable Form Fields
   const [name, setName] = useState<string>(currentUser.name || '');
+  const [username, setUsername] = useState<string>(currentUser.username || '');
   const [phone, setPhone] = useState<string>(currentUser.phone || '');
+  const [contactEmail, setContactEmail] = useState<string>(currentUser.contactEmail || '');
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [contactEmailError, setContactEmailError] = useState<string | null>(null);
+  const [isSavingContactOnly, setIsSavingContactOnly] = useState<boolean>(false);
+  const [contactSuccess, setContactSuccess] = useState<string | null>(null);
   const [clientType, setClientType] = useState<ClientType>(currentUser.clientType || 'customer');
   const [bio, setBio] = useState<string>(currentUser.bio || '');
   const [city, setCity] = useState<string>(currentUser.location?.city || '');
   const [state, setState] = useState<string>(currentUser.location?.state || '');
   const [country, setCountry] = useState<string>(currentUser.location?.country || 'Nigeria');
   const [avatarUrl, setAvatarUrl] = useState<string>(currentUser.avatarUrl || '');
+
+  // Avatar Management State (Epic 2 Task 2.1.3)
+  const avatarFileInputRef = React.useRef<HTMLInputElement>(null);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState<boolean>(false);
+  const [isRemovingAvatar, setIsRemovingAvatar] = useState<boolean>(false);
+  const [avatarMessage, setAvatarMessage] = useState<{ text: string; isError: boolean } | null>(null);
 
   // Password Change Form State
   const [currentPassword, setCurrentPassword] = useState<string>('');
@@ -76,7 +94,9 @@ export const ClientProfileView: React.FC = () => {
         setProfile(res.user);
         setCurrentUser(res.user);
         setName(res.user.name || '');
+        setUsername(res.user.username || '');
         setPhone(res.user.phone || '');
+        setContactEmail(res.user.contactEmail || '');
         setClientType(res.user.clientType || 'customer');
         setBio(res.user.bio || '');
         setCity(res.user.location?.city || '');
@@ -107,11 +127,78 @@ export const ClientProfileView: React.FC = () => {
     }
   }, [isAuthenticated]);
 
-  // Handle Profile Update
+  // Handle Contact-Only Save (Epic 2 Task 2.1.4)
+  const handleSaveContactInfo = async () => {
+    setPhoneError(null);
+    setContactEmailError(null);
+    setContactSuccess(null);
+    setProfileError(null);
+
+    // Validate phone if provided
+    let normalizedPhone: string | undefined = undefined;
+    if (phone.trim()) {
+      const pVal = validatePhoneNumber(phone);
+      if (!pVal.valid) {
+        setPhoneError(pVal.error || 'Invalid phone number format.');
+        return;
+      }
+      normalizedPhone = pVal.normalized;
+    }
+
+    // Validate contact email if provided
+    let cleanContactEmail: string | undefined = undefined;
+    if (contactEmail.trim()) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail.trim())) {
+        setContactEmailError('Please enter a valid contact email address.');
+        return;
+      }
+      cleanContactEmail = contactEmail.trim().toLowerCase();
+    }
+
+    setIsSavingContactOnly(true);
+    try {
+      const res = await authApi.updateContactInfo({
+        phone: normalizedPhone !== undefined ? normalizedPhone : '',
+        contactEmail: cleanContactEmail !== undefined ? cleanContactEmail : ''
+      });
+
+      if (res.success) {
+        setContactSuccess('Contact information updated successfully.');
+        if (res.user) {
+          setProfile(res.user);
+          setCurrentUser(res.user);
+        }
+        if (res.contact.phone) {
+          setPhone(res.contact.phone);
+        } else {
+          setPhone('');
+        }
+        if (res.contact.contactEmail) {
+          setContactEmail(res.contact.contactEmail);
+        } else {
+          setContactEmail('');
+        }
+      }
+    } catch (err: unknown) {
+      const formatted = formatAuthError(err);
+      if (formatted.isSessionExpired || formatted.status === 401) {
+        setIsSessionExpired(true);
+      } else {
+        setProfileError(formatted.message);
+      }
+    } finally {
+      setIsSavingContactOnly(false);
+    }
+  };
+
+  // Handle Profile Create / Update
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     setProfileError(null);
     setProfileSuccess(null);
+    setContactSuccess(null);
+    setPhoneError(null);
+    setContactEmailError(null);
 
     // Basic client-side validation
     if (!name.trim() || name.trim().length < 2) {
@@ -119,31 +206,105 @@ export const ClientProfileView: React.FC = () => {
       return;
     }
 
+    if (username.trim()) {
+      if (username.trim().length < 3) {
+        setProfileError('Username must be at least 3 characters.');
+        return;
+      }
+      if (!/^[a-zA-Z0-9_]+$/.test(username.trim())) {
+        setProfileError('Username can only contain alphanumeric characters and underscores.');
+        return;
+      }
+    }
+
+    // Phone format validation
+    let normalizedPhone: string | undefined = undefined;
+    if (phone.trim()) {
+      const pVal = validatePhoneNumber(phone);
+      if (!pVal.valid) {
+        setPhoneError(pVal.error || 'Invalid phone number format.');
+        setProfileError(pVal.error || 'Invalid phone number format.');
+        return;
+      }
+      normalizedPhone = pVal.normalized;
+    }
+
+    // Contact email format validation
+    let cleanContactEmail: string | undefined = undefined;
+    if (contactEmail.trim()) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail.trim())) {
+        setContactEmailError('Please enter a valid contact email address.');
+        setProfileError('Please enter a valid contact email address.');
+        return;
+      }
+      cleanContactEmail = contactEmail.trim().toLowerCase();
+    }
+
     setIsSavingProfile(true);
 
     try {
-      const updates: Partial<UserProfile> = {
-        name: name.trim(),
-        phone: phone.trim(),
-        clientType,
-        bio: bio.trim(),
-        avatarUrl: avatarUrl.trim(),
-        location: {
-          city: city.trim(),
-          state: state.trim(),
-          country: country.trim(),
-          lat: profile.location?.lat || 9.0820,
-          lng: profile.location?.lng || 8.6753
-        }
-      };
+      if (!profile.hasProfile) {
+        // Epic 2 Task 2.1.1: Client Profile Creation Flow
+        const createPayload = {
+          name: name.trim(),
+          username: username.trim() || undefined,
+          phone: normalizedPhone || undefined,
+          contactEmail: cleanContactEmail || undefined,
+          clientType,
+          bio: bio.trim() || undefined,
+          avatarUrl: avatarUrl.trim() || undefined,
+          location: {
+            city: city.trim() || undefined,
+            state: state.trim() || undefined,
+            country: country.trim() || undefined,
+            lat: profile.location?.lat || 9.0820,
+            lng: profile.location?.lng || 8.6753
+          }
+        };
 
-      const res = await authApi.updateProfile(updates);
-      if (res.success && res.user) {
-        setProfile(res.user);
-        setCurrentUser(res.user);
-        setProfileSuccess('Profile information updated successfully.');
-        if (res.securityState) {
-          setSecurityState(res.securityState);
+        const res = await authApi.createProfile(createPayload);
+        if (res.success && res.user) {
+          setProfile(res.user);
+          setCurrentUser(res.user);
+          setProfileSuccess('Application profile created successfully! Welcome to Boost Market.');
+          if (res.profile?.username) {
+            setUsername(res.profile.username);
+          } else if (res.user.username) {
+            setUsername(res.user.username);
+          }
+        }
+      } else {
+        // Epic 2 Task 2.1.2: Client Profile Update Flow
+        const updates: Partial<UserProfile> & { username?: string } = {
+          name: name.trim(),
+          username: username.trim() || undefined,
+          phone: normalizedPhone !== undefined ? normalizedPhone : '',
+          contactEmail: cleanContactEmail !== undefined ? cleanContactEmail : '',
+          clientType,
+          bio: bio.trim(),
+          avatarUrl: avatarUrl.trim(),
+          location: {
+            city: city.trim(),
+            state: state.trim(),
+            country: country.trim(),
+            lat: profile.location?.lat || 9.0820,
+            lng: profile.location?.lng || 8.6753
+          }
+        };
+
+        const res = await authApi.updateProfile(updates);
+        if (res.success && res.user) {
+          setProfile(res.user);
+          setCurrentUser(res.user);
+          setProfileSuccess('Profile information updated successfully.');
+          if (res.profile?.username) {
+            setUsername(res.profile.username);
+          } else if (res.user.username) {
+            setUsername(res.user.username);
+          }
+          if (res.securityState) {
+            setSecurityState(res.securityState);
+          }
         }
       }
     } catch (err: unknown) {
@@ -155,6 +316,125 @@ export const ClientProfileView: React.FC = () => {
       }
     } finally {
       setIsSavingProfile(false);
+    }
+  };
+
+  // Handle Avatar File Upload (Epic 2 Task 2.1.3)
+  const handleAvatarFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setAvatarMessage(null);
+
+    // Client-side validation: format check
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      setAvatarMessage({
+        text: 'Invalid file format. Only JPEG, PNG, and WebP images are permitted.',
+        isError: true
+      });
+      if (avatarFileInputRef.current) avatarFileInputRef.current.value = '';
+      return;
+    }
+
+    // Client-side validation: size check (5MB)
+    const MAX_SIZE = 5 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      setAvatarMessage({
+        text: `File is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). Maximum allowed size is 5MB.`,
+        isError: true
+      });
+      if (avatarFileInputRef.current) avatarFileInputRef.current.value = '';
+      return;
+    }
+
+    setIsUploadingAvatar(true);
+
+    try {
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve, reject) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(new Error('Failed to read image file'));
+      });
+      reader.readAsDataURL(file);
+      const base64Data = await base64Promise;
+
+      const res = await authApi.uploadAvatar({
+        image: base64Data,
+        filename: file.name
+      });
+
+      if (res.success && res.avatarUrl) {
+        setAvatarUrl(res.avatarUrl);
+        setProfile(prev => ({
+          ...prev,
+          avatarUrl: res.avatarUrl,
+          avatarKey: res.avatarKey
+        }));
+        setCurrentUser({
+          ...currentUser,
+          avatarUrl: res.avatarUrl,
+          avatarKey: res.avatarKey
+        });
+        setAvatarMessage({
+          text: 'Profile picture updated successfully.',
+          isError: false
+        });
+      }
+    } catch (err: unknown) {
+      const formatted = formatAuthError(err);
+      if (formatted.isSessionExpired || formatted.status === 401) {
+        setIsSessionExpired(true);
+      } else {
+        setAvatarMessage({
+          text: formatted.message,
+          isError: true
+        });
+      }
+    } finally {
+      setIsUploadingAvatar(false);
+      if (avatarFileInputRef.current) avatarFileInputRef.current.value = '';
+    }
+  };
+
+  // Handle Avatar Removal (Epic 2 Task 2.1.3)
+  const handleRemoveAvatar = async () => {
+    if (!avatarUrl && !profile.avatarUrl) return;
+
+    setAvatarMessage(null);
+    setIsRemovingAvatar(true);
+
+    try {
+      const res = await authApi.removeAvatar();
+      if (res.success) {
+        setAvatarUrl('');
+        setProfile(prev => ({
+          ...prev,
+          avatarUrl: undefined,
+          avatarKey: undefined
+        }));
+        setCurrentUser({
+          ...currentUser,
+          avatarUrl: undefined,
+          avatarKey: undefined
+        });
+        setAvatarMessage({
+          text: 'Profile picture removed successfully.',
+          isError: false
+        });
+      }
+    } catch (err: unknown) {
+      const formatted = formatAuthError(err);
+      if (formatted.isSessionExpired || formatted.status === 401) {
+        setIsSessionExpired(true);
+      } else {
+        setAvatarMessage({
+          text: formatted.message,
+          isError: true
+        });
+      }
+    } finally {
+      setIsRemovingAvatar(false);
     }
   };
 
@@ -279,8 +559,21 @@ export const ClientProfileView: React.FC = () => {
         <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-center gap-4">
-              <div className="w-14 h-14 rounded-2xl bg-[#16C784]/15 border border-[#16C784]/30 text-[#071A17] font-bold text-xl flex items-center justify-center shrink-0">
-                {profile.name ? profile.name.charAt(0).toUpperCase() : 'U'}
+              <div className="relative w-16 h-16 rounded-2xl overflow-hidden bg-[#16C784]/15 border border-[#16C784]/30 text-[#071A17] font-bold text-2xl flex items-center justify-center shrink-0 shadow-sm">
+                {avatarUrl || profile.avatarUrl ? (
+                  <img
+                    id="header-profile-avatar-img"
+                    src={avatarUrl || profile.avatarUrl}
+                    alt={profile.name || 'User Avatar'}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      (e.currentTarget as HTMLElement).style.display = 'none';
+                    }}
+                  />
+                ) : null}
+                {(!avatarUrl && !profile.avatarUrl) && (
+                  <span>{profile.name ? profile.name.charAt(0).toUpperCase() : 'U'}</span>
+                )}
               </div>
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
@@ -295,12 +588,38 @@ export const ClientProfileView: React.FC = () => {
                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200 capitalize">
                     {profile.clientType || 'Customer'}
                   </span>
+                  {profile.hasProfile ? (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-teal-50 text-teal-700 border border-teal-200">
+                      Profile Active
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                      Profile Setup Needed
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-4 text-xs text-slate-500 mt-1 flex-wrap">
+                  {profile.username && (
+                    <span className="font-semibold text-slate-700 flex items-center gap-1">
+                      @{profile.username}
+                    </span>
+                  )}
                   <span className="flex items-center gap-1">
                     <Mail className="w-3.5 h-3.5 text-slate-400" />
                     {profile.email}
                   </span>
+                  {profile.phone && (
+                    <span className="flex items-center gap-1 text-slate-600">
+                      <Phone className="w-3.5 h-3.5 text-slate-400" />
+                      {profile.phone}
+                    </span>
+                  )}
+                  {profile.contactEmail && profile.contactEmail !== profile.email && (
+                    <span className="flex items-center gap-1 text-slate-600" title="Personal Contact Email">
+                      <Mail className="w-3.5 h-3.5 text-[#16C784]" />
+                      {profile.contactEmail}
+                    </span>
+                  )}
                   {profile.location?.city && (
                     <span className="flex items-center gap-1">
                       <MapPin className="w-3.5 h-3.5 text-slate-400" />
@@ -350,6 +669,18 @@ export const ClientProfileView: React.FC = () => {
                 </div>
               )}
 
+              {contactSuccess && (
+                <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                    {contactSuccess}
+                  </span>
+                  <button onClick={() => setContactSuccess(null)} className="text-emerald-700 hover:text-emerald-900 text-xs cursor-pointer">
+                    Dismiss
+                  </button>
+                </div>
+              )}
+
               {profileError && (
                 <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-800 text-xs rounded-xl flex items-center justify-between">
                   <span className="flex items-center gap-2">
@@ -359,6 +690,21 @@ export const ClientProfileView: React.FC = () => {
                   <button onClick={() => setProfileError(null)} className="text-red-700 hover:text-red-900 text-xs cursor-pointer">
                     Dismiss
                   </button>
+                </div>
+              )}
+
+              {/* Epic 2 Task 2.1.1: Profile Setup Callout Banner */}
+              {!profile.hasProfile && (
+                <div className="mb-5 p-4 bg-amber-50/80 border border-amber-200 rounded-xl flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="text-xs font-bold text-amber-900 uppercase tracking-wide">
+                      Application Profile Not Yet Created
+                    </h4>
+                    <p className="text-xs text-amber-800 mt-0.5">
+                      Your authentication account is active, but your public client profile has not been created yet. Complete the form below and click <strong>Create Application Profile</strong> to set up your marketplace identity.
+                    </p>
+                  </div>
                 </div>
               )}
 
@@ -372,88 +718,217 @@ export const ClientProfileView: React.FC = () => {
                     id="profile-name-input"
                     type="text"
                     required
+                    disabled={isSavingProfile}
                     value={name}
                     onChange={(e) => {
                       setName(e.target.value);
                       if (profileError) setProfileError(null);
                     }}
                     placeholder="Your legal or display name"
-                    className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#16C784] focus:bg-white text-slate-900 transition-all"
+                    className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#16C784] focus:bg-white text-slate-900 disabled:opacity-50 transition-all"
                   />
                 </div>
 
-                {/* Account Email (Read-Only) */}
+                {/* Unique Username Handle */}
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="block text-xs font-semibold text-slate-700">
-                      Email Address
+                      Unique Username / Handle
                     </label>
-                    <span className="text-[11px] text-slate-400 flex items-center gap-1">
-                      <Lock className="w-3 h-3 text-slate-400" />
-                      Immutable account identity
+                    <span className="text-[11px] text-slate-400">
+                      Unique handle (3-30 chars, a-z, 0-9, _)
                     </span>
                   </div>
                   <div className="relative">
+                    <span className="absolute left-3 top-2.5 text-slate-400 font-medium text-sm">@</span>
                     <input
-                      id="profile-email-readonly"
-                      type="email"
-                      readOnly
-                      disabled
-                      value={profile.email}
-                      className="w-full px-3 py-2 text-sm bg-slate-100 border border-slate-200 rounded-xl text-slate-500 cursor-not-allowed select-none"
+                      id="profile-username-input"
+                      type="text"
+                      value={username}
+                      onChange={(e) => {
+                        setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''));
+                        if (profileError) setProfileError(null);
+                      }}
+                      placeholder="e.g. johndoe"
+                      maxLength={30}
+                      disabled={isSavingProfile}
+                      className="w-full pl-8 pr-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#16C784] focus:bg-white disabled:opacity-50 transition-all"
                     />
-                    <div className="absolute right-3 top-2.5">
-                      {profile.emailVerifiedAt ? (
-                        <span className="inline-flex items-center text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                          Verified
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center text-[10px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
-                          Pending Verification
-                        </span>
-                      )}
-                    </div>
                   </div>
                 </div>
 
-                {/* Phone & Client Type */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Account Classification */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Account Classification
+                  </label>
+                  <div className="relative">
+                    <Building className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                    <select
+                      id="profile-client-type-select"
+                      disabled={isSavingProfile}
+                      value={clientType}
+                      onChange={(e) => setClientType(e.target.value as ClientType)}
+                      className="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#16C784] focus:bg-white text-slate-900 disabled:opacity-50 transition-all"
+                    >
+                      <option value="customer">Customer / Buyer</option>
+                      <option value="business">Business / Merchant</option>
+                      <option value="freelancer">Freelancer / Professional</option>
+                      <option value="advertiser">Brand / Advertiser</option>
+                      <option value="service_provider">Service Provider</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Personal Contact Information Section (Epic 2 Task 2.1.4) */}
+                <div className="p-4 bg-slate-50/90 border border-slate-200 rounded-2xl space-y-4">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-200/70">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Phone className="w-4 h-4 text-[#16C784]" />
+                        <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                          Personal Contact Information
+                        </h4>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Manage your phone number and alternative communication email address.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      id="profile-contact-save-quick-btn"
+                      onClick={handleSaveContactInfo}
+                      disabled={isSavingContactOnly || isSavingProfile}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#16C784] bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      {isSavingContactOnly ? (
+                        <RefreshCw className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Save className="w-3 h-3" />
+                      )}
+                      {isSavingContactOnly ? 'Saving...' : 'Save Contact'}
+                    </button>
+                  </div>
+
+                  {/* Primary Account Authentication Email (Immutable) */}
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Phone Number
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-semibold text-slate-700">
+                        Primary Account Email (Sign-in Identity)
+                      </label>
+                      <span className="text-[11px] text-slate-400 flex items-center gap-1">
+                        <Lock className="w-3 h-3 text-slate-400" />
+                        Immutable login identity
+                      </span>
+                    </div>
+                    <div className="relative">
+                      <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                      <input
+                        id="profile-email-readonly"
+                        type="email"
+                        readOnly
+                        disabled
+                        value={profile.email}
+                        className="w-full pl-9 pr-24 py-2 text-sm bg-slate-100/90 border border-slate-200 rounded-xl text-slate-500 cursor-not-allowed select-none"
+                      />
+                      <div className="absolute right-3 top-2.5">
+                        {profile.emailVerifiedAt ? (
+                          <span className="inline-flex items-center text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                            Verified Login Email
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center text-[10px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                            Verification Pending
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      This address is tied directly to your sign-in credentials and security notices.
+                    </p>
+                  </div>
+
+                  {/* Contact Email (Alternative / Communications) */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-semibold text-slate-700">
+                        Personal Contact Email <span className="text-slate-400 font-normal">(Optional)</span>
+                      </label>
+                      <span className="text-[11px] text-slate-400">
+                        For personal inquiries & notifications
+                      </span>
+                    </div>
+                    <div className="relative">
+                      <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                      <input
+                        id="profile-contact-email-input"
+                        type="email"
+                        disabled={isSavingProfile || isSavingContactOnly}
+                        value={contactEmail}
+                        onChange={(e) => {
+                          setContactEmail(e.target.value);
+                          if (contactEmailError) setContactEmailError(null);
+                          if (profileError) setProfileError(null);
+                        }}
+                        placeholder="e.g. personal.contact@example.com"
+                        className="w-full pl-9 pr-3 py-2 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#16C784] text-slate-900 disabled:opacity-50 transition-all"
+                      />
+                    </div>
+                    {contactEmailError && (
+                      <p className="text-[11px] text-red-600 mt-1 flex items-center gap-1">
+                        <AlertTriangle className="w-3 h-3 shrink-0" />
+                        {contactEmailError}
+                      </p>
+                    )}
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Leave blank to use your primary account email for marketplace communications.
+                    </p>
+                  </div>
+
+                  {/* Phone Number Field */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-semibold text-slate-700">
+                        Phone Number
+                      </label>
+                      <span className="inline-flex items-center text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">
+                        Unverified (For contact only)
+                      </span>
+                    </div>
                     <div className="relative">
                       <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                       <input
                         id="profile-phone-input"
                         type="tel"
+                        disabled={isSavingProfile || isSavingContactOnly}
                         value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        placeholder="+234 800 000 0000"
-                        className="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#16C784] focus:bg-white text-slate-900 transition-all"
+                        onChange={(e) => {
+                          setPhone(e.target.value);
+                          if (phoneError) setPhoneError(null);
+                          if (profileError) setProfileError(null);
+                        }}
+                        onBlur={() => {
+                          if (phone.trim()) {
+                            const val = validatePhoneNumber(phone);
+                            if (val.valid && val.normalized) {
+                              setPhone(val.normalized);
+                            }
+                          }
+                        }}
+                        placeholder="+234 800 000 0000 or 0803 123 4567"
+                        className="w-full pl-9 pr-3 py-2 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#16C784] text-slate-900 disabled:opacity-50 transition-all"
                       />
                     </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Account Classification
-                    </label>
-                    <div className="relative">
-                      <Building className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                      <select
-                        id="profile-client-type-select"
-                        value={clientType}
-                        onChange={(e) => setClientType(e.target.value as ClientType)}
-                        className="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#16C784] focus:bg-white text-slate-900 transition-all"
-                      >
-                        <option value="customer">Customer / Buyer</option>
-                        <option value="business">Business / Merchant</option>
-                        <option value="freelancer">Freelancer / Professional</option>
-                        <option value="advertiser">Brand / Advertiser</option>
-                        <option value="service_provider">Service Provider</option>
-                      </select>
-                    </div>
+                    {phoneError ? (
+                      <p className="text-[11px] text-red-600 mt-1 flex items-center gap-1">
+                        <AlertTriangle className="w-3 h-3 shrink-0" />
+                        {phoneError}
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        Accepts Nigerian formats (e.g. 0803... or +234...) and international numbers (E.164).
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -464,10 +939,11 @@ export const ClientProfileView: React.FC = () => {
                     <input
                       id="profile-city-input"
                       type="text"
+                      disabled={isSavingProfile}
                       value={city}
                       onChange={(e) => setCity(e.target.value)}
                       placeholder="e.g. Lagos"
-                      className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#16C784] focus:bg-white text-slate-900 transition-all"
+                      className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#16C784] focus:bg-white text-slate-900 disabled:opacity-50 transition-all"
                     />
                   </div>
                   <div>
@@ -475,10 +951,11 @@ export const ClientProfileView: React.FC = () => {
                     <input
                       id="profile-state-input"
                       type="text"
+                      disabled={isSavingProfile}
                       value={state}
                       onChange={(e) => setState(e.target.value)}
                       placeholder="e.g. Lagos State"
-                      className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#16C784] focus:bg-white text-slate-900 transition-all"
+                      className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#16C784] focus:bg-white text-slate-900 disabled:opacity-50 transition-all"
                     />
                   </div>
                   <div>
@@ -486,10 +963,11 @@ export const ClientProfileView: React.FC = () => {
                     <input
                       id="profile-country-input"
                       type="text"
+                      disabled={isSavingProfile}
                       value={country}
                       onChange={(e) => setCountry(e.target.value)}
                       placeholder="e.g. Nigeria"
-                      className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#16C784] focus:bg-white text-slate-900 transition-all"
+                      className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#16C784] focus:bg-white text-slate-900 disabled:opacity-50 transition-all"
                     />
                   </div>
                 </div>
@@ -506,26 +984,125 @@ export const ClientProfileView: React.FC = () => {
                     id="profile-bio-textarea"
                     rows={3}
                     maxLength={500}
+                    disabled={isSavingProfile}
                     value={bio}
                     onChange={(e) => setBio(e.target.value)}
                     placeholder="Brief description about yourself or your business activity..."
-                    className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#16C784] focus:bg-white text-slate-900 transition-all resize-none"
+                    className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#16C784] focus:bg-white text-slate-900 disabled:opacity-50 transition-all resize-none"
                   />
                 </div>
 
-                {/* Avatar URL */}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Avatar Image URL
-                  </label>
-                  <input
-                    id="profile-avatar-url-input"
-                    type="url"
-                    value={avatarUrl}
-                    onChange={(e) => setAvatarUrl(e.target.value)}
-                    placeholder="https://example.com/avatar.jpg"
-                    className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#16C784] focus:bg-white text-slate-900 transition-all"
-                  />
+                {/* Profile Picture / Avatar Management (Epic 2 Task 2.1.3) */}
+                <div className="p-4 bg-slate-50/80 border border-slate-200/80 rounded-2xl">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                        Profile Picture
+                      </h4>
+                      <p className="text-[11px] text-slate-500">
+                        Upload a professional JPEG, PNG, or WebP photo up to 5MB.
+                      </p>
+                    </div>
+                    <span className="text-[11px] font-medium text-slate-400 bg-white px-2 py-0.5 rounded-full border border-slate-200">
+                      Max 5 MB
+                    </span>
+                  </div>
+
+                  {avatarMessage && (
+                    <div
+                      className={`mb-3 p-2.5 rounded-xl text-xs flex items-center gap-2 ${
+                        avatarMessage.isError
+                          ? 'bg-rose-50 border border-rose-200 text-rose-800'
+                          : 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+                      }`}
+                    >
+                      {avatarMessage.isError ? (
+                        <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                      ) : (
+                        <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                      )}
+                      <span>{avatarMessage.text}</span>
+                    </div>
+                  )}
+
+                  <div className="flex flex-col sm:flex-row items-center gap-4">
+                    {/* Avatar Preview Thumbnail */}
+                    <div className="relative group w-20 h-20 rounded-2xl overflow-hidden bg-white border-2 border-slate-200 flex items-center justify-center shrink-0 shadow-sm">
+                      {avatarUrl || profile.avatarUrl ? (
+                        <img
+                          id="profile-avatar-preview-img"
+                          src={avatarUrl || profile.avatarUrl}
+                          alt={profile.name || 'User Avatar'}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-[#16C784]/15 flex items-center justify-center text-[#071A17] font-bold text-2xl">
+                          {profile.name ? profile.name.charAt(0).toUpperCase() : 'U'}
+                        </div>
+                      )}
+                      {(isUploadingAvatar || isRemovingAvatar) && (
+                        <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-[1px] flex items-center justify-center text-white text-xs">
+                          <RefreshCw className="w-5 h-5 animate-spin" />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex-1 w-full space-y-2">
+                      <input
+                        ref={avatarFileInputRef}
+                        id="profile-avatar-file-input"
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        className="hidden"
+                        onChange={handleAvatarFileSelect}
+                        disabled={isUploadingAvatar || isRemovingAvatar || isSavingProfile}
+                      />
+
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                          id="profile-avatar-upload-btn"
+                          type="button"
+                          onClick={() => avatarFileInputRef.current?.click()}
+                          disabled={isUploadingAvatar || isRemovingAvatar || isSavingProfile}
+                          className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold bg-[#16C784] hover:bg-[#14b376] text-white rounded-xl transition-colors cursor-pointer disabled:opacity-50 shadow-sm"
+                        >
+                          <Upload className="w-3.5 h-3.5" />
+                          {isUploadingAvatar ? 'Uploading Image...' : 'Upload New Photo'}
+                        </button>
+
+                        {(avatarUrl || profile.avatarUrl) && (
+                          <button
+                            id="profile-avatar-remove-btn"
+                            type="button"
+                            onClick={handleRemoveAvatar}
+                            disabled={isUploadingAvatar || isRemovingAvatar || isSavingProfile}
+                            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            {isRemovingAvatar ? 'Removing...' : 'Remove Photo'}
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="pt-1">
+                        <details className="text-[11px] text-slate-500 cursor-pointer">
+                          <summary className="hover:text-slate-700 select-none">Or specify an image URL directly</summary>
+                          <div className="mt-2">
+                            <input
+                              id="profile-avatar-url-input"
+                              type="url"
+                              disabled={isSavingProfile || isUploadingAvatar}
+                              value={avatarUrl}
+                              onChange={(e) => setAvatarUrl(e.target.value)}
+                              placeholder="https://example.com/avatar.jpg"
+                              className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#16C784] text-slate-900"
+                            />
+                          </div>
+                        </details>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Submit Action */}
@@ -537,7 +1114,11 @@ export const ClientProfileView: React.FC = () => {
                     className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#16C784] hover:bg-[#14b376] text-white font-medium text-sm rounded-xl transition-colors cursor-pointer disabled:opacity-50 shadow-sm"
                   >
                     <Save className="w-4 h-4" />
-                    {isSavingProfile ? 'Saving Changes...' : 'Save Profile Changes'}
+                    {isSavingProfile 
+                      ? 'Saving...' 
+                      : profile.hasProfile 
+                        ? 'Save Profile Changes' 
+                        : 'Create Application Profile'}
                   </button>
                 </div>
               </form>

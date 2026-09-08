@@ -18,6 +18,7 @@ import {
   NigerianBank,
   UserProfile,
   UserEntity,
+  ClientProfile,
   AuthSession,
   VerificationToken,
   SecurityAuditEvent,
@@ -581,14 +582,131 @@ export class SessionCollection extends Map<string, AuthSession> {
   }
 }
 
+/**
+ * Storage-Level Indexed Collection for Client User Profiles.
+ * Enforces:
+ * 1. 1-to-1 Uniqueness Constraint: Exactly one profile per authenticated user account (userId).
+ * 2. Case-Insensitive Unique Username Constraint.
+ * 3. Validation of non-empty identifiers and display name.
+ */
+export class ProfileCollection extends Map<string, ClientProfile> {
+  private userIndex: Map<string, string> = new Map(); // userId -> profileId (1-to-1)
+  private usernameIndex: Map<string, string> = new Map(); // normalizedUsername -> profileId
+
+  override set(key: string, value: ClientProfile): this {
+    if (!value || typeof value !== 'object') {
+      return super.set(key, value);
+    }
+
+    if (!value.id || typeof value.id !== 'string' || !value.id.trim()) {
+      throw new DatabaseValidationError('Profile requires a valid non-empty "id".');
+    }
+
+    if (!value.userId || typeof value.userId !== 'string' || !value.userId.trim()) {
+      throw new DatabaseValidationError('Profile requires a valid non-empty "userId".');
+    }
+
+    if (!value.name || typeof value.name !== 'string' || !value.name.trim()) {
+      throw new DatabaseValidationError('Profile requires a valid non-empty "name".');
+    }
+
+    // 1-to-1 Uniqueness Constraint on userId
+    const existingForUser = this.userIndex.get(value.userId);
+    if (existingForUser && existingForUser !== key) {
+      throw new DatabaseUniqueConstraintError(
+        `User "${value.userId}" already has an active profile (${existingForUser}). Duplicate profiles are forbidden.`
+      );
+    }
+
+    // Uniqueness constraint on username (if provided)
+    if (value.username && typeof value.username === 'string') {
+      const normalizedUsername = value.username.toLowerCase().trim();
+      const existingForUsername = this.usernameIndex.get(normalizedUsername);
+      if (existingForUsername && existingForUsername !== key) {
+        throw new DatabaseUniqueConstraintError(
+          `Username "${value.username}" is already claimed by profile "${existingForUsername}".`
+        );
+      }
+    }
+
+    // Cleanup old indices if updating existing profile
+    const existing = super.get(key);
+    if (existing) {
+      if (existing.userId && existing.userId !== value.userId) {
+        this.userIndex.delete(existing.userId);
+      }
+      if (existing.username) {
+        this.usernameIndex.delete(existing.username.toLowerCase().trim());
+      }
+    }
+
+    // Record indices
+    this.userIndex.set(value.userId, key);
+    if (value.username) {
+      this.usernameIndex.set(value.username.toLowerCase().trim(), key);
+    }
+
+    return super.set(key, value);
+  }
+
+  override delete(key: string): boolean {
+    const existing = super.get(key);
+    if (existing) {
+      if (existing.userId) {
+        this.userIndex.delete(existing.userId);
+      }
+      if (existing.username) {
+        this.usernameIndex.delete(existing.username.toLowerCase().trim());
+      }
+    }
+    return super.delete(key);
+  }
+
+  override clear(): void {
+    this.userIndex.clear();
+    this.usernameIndex.clear();
+    super.clear();
+  }
+
+  public getByUserId(userId: string): ClientProfile | undefined {
+    if (!userId) return undefined;
+    const profileId = this.userIndex.get(userId);
+    if (profileId) {
+      return super.get(profileId);
+    }
+    // Fallback search
+    for (const p of this.values()) {
+      if (p.userId === userId) {
+        return p;
+      }
+    }
+    return undefined;
+  }
+
+  public getByUsername(username: string): ClientProfile | undefined {
+    if (!username) return undefined;
+    const profileId = this.usernameIndex.get(username.toLowerCase().trim());
+    if (profileId) {
+      return super.get(profileId);
+    }
+    return undefined;
+  }
+
+  public hasProfileForUser(userId: string): boolean {
+    return this.userIndex.has(userId) || !!this.getByUserId(userId);
+  }
+}
+
 export interface DatabaseTransactionContext {
   users: UserCollection;
   sessions: SessionCollection;
   tokens: TokenCollection;
+  profiles: ProfileCollection;
   createUser(user: UserEntity): UserEntity;
   updateUser(userId: string, updates: Partial<UserEntity>): UserEntity;
   deleteUser(userId: string): boolean;
   deactivateUser(userId: string, status?: 'SUSPENDED' | 'DISABLED' | 'DELETED'): UserEntity;
+  updateProfile?(userId: string, updates: Partial<ClientProfile>): ClientProfile;
   consumeToken(tokenHash: string, type?: VerificationToken['type']): VerificationToken;
   revokeAllUserSessions(userId: string): number;
 }
@@ -598,6 +716,7 @@ export class DatabaseStore {
   public users: UserCollection = new UserCollection();
   public sessions: SessionCollection = new SessionCollection();
   public tokens: TokenCollection = new TokenCollection();
+  public profiles: ProfileCollection = new ProfileCollection();
   public securityLogs: SecurityAuditEvent[] = [];
   public businesses: Map<string, Business> = new Map();
   public products: Map<string, Product> = new Map();
@@ -1073,6 +1192,29 @@ export class DatabaseStore {
       updatedAt: new Date().toISOString()
     };
     this.users.set(customerUser.id, customerUser);
+
+    // Seed initial client profiles for seeded clients
+    const seededClients = [bizUser1, bizUser2, bizUser3, bizUser4, customerUser];
+    for (const client of seededClients) {
+      const profile: ClientProfile = {
+        id: `prof_${client.id}`,
+        userId: client.id,
+        name: client.name,
+        username: client.email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '_'),
+        bio: client.bio,
+        phone: client.phone,
+        clientType: client.clientType,
+        avatarUrl: client.avatarUrl,
+        location: client.location,
+        createdAt: client.createdAt,
+        updatedAt: client.updatedAt
+      };
+      this.profiles.set(profile.id, profile);
+      client.hasProfile = true;
+      client.profileId = profile.id;
+      client.username = profile.username;
+      this.users.set(client.id, client);
+    }
 
     // Enforce Super Admin Invariant check at startup
     this.enforceSuperAdminInvariant();
@@ -2217,6 +2359,9 @@ export class DatabaseStore {
     if (updates.name !== undefined) user.name = updates.name.trim();
     if (updates.phone !== undefined) user.phone = updates.phone;
     if (updates.bio !== undefined) user.bio = updates.bio;
+    if (updates.username !== undefined) user.username = updates.username ? updates.username.trim() : undefined;
+    if (updates.hasProfile !== undefined) user.hasProfile = updates.hasProfile;
+    if (updates.profileId !== undefined) user.profileId = updates.profileId;
     if (updates.avatarUrl !== undefined) user.avatarUrl = updates.avatarUrl;
     if (updates.location !== undefined) user.location = updates.location;
     if (updates.clientType !== undefined) user.clientType = updates.clientType;
@@ -2234,6 +2379,219 @@ export class DatabaseStore {
     user.updatedAt = new Date().toISOString();
     this.users.set(user.id, user);
     return user;
+  }
+
+  /**
+   * Database-Level Profile Creation with 1-to-1 and Username Uniqueness Constraints.
+   */
+  public createProfile(profile: ClientProfile): ClientProfile {
+    if (!profile || !profile.userId) {
+      throw new DatabaseValidationError('Profile requires a valid "userId".');
+    }
+
+    const user = this.users.get(profile.userId);
+    if (!user) {
+      throw new DatabaseNotFoundError(`User with ID "${profile.userId}" not found.`);
+    }
+
+    if (user.role !== 'CLIENT') {
+      throw new DatabaseRoleConstraintError('Only CLIENT accounts can create user profiles.');
+    }
+
+    // 1-to-1 Uniqueness Check
+    if (this.profiles.hasProfileForUser(profile.userId)) {
+      throw new DatabaseUniqueConstraintError(
+        `User "${profile.userId}" already has a registered profile. Duplicate profiles are forbidden.`
+      );
+    }
+
+    // Username Uniqueness Check (if provided)
+    if (profile.username) {
+      const normalized = profile.username.toLowerCase().trim();
+      const existingUsername = this.profiles.getByUsername(normalized);
+      if (existingUsername && existingUsername.userId !== profile.userId) {
+        throw new DatabaseUniqueConstraintError(
+          `Username "${profile.username}" is already claimed by another user.`
+        );
+      }
+    }
+
+    this.profiles.set(profile.id, profile);
+    user.hasProfile = true;
+    user.profileId = profile.id;
+    if (profile.name) user.name = profile.name.trim();
+    if (profile.username) user.username = profile.username.trim();
+    if (profile.bio) user.bio = profile.bio.trim();
+    if (profile.phone) user.phone = profile.phone.trim();
+    if (profile.contactEmail) user.contactEmail = profile.contactEmail.trim().toLowerCase();
+    if (profile.clientType) user.clientType = profile.clientType;
+    if (profile.location) user.location = profile.location;
+    user.updatedAt = new Date().toISOString();
+    this.users.set(user.id, user);
+
+    return profile;
+  }
+
+  /**
+   * Database-Level Profile Editing with Safe Partial Updates and Username Uniqueness (Epic 2 Task 2.1.2).
+   */
+  public updateProfile(userId: string, updates: Partial<ClientProfile>): ClientProfile {
+    if (!userId) {
+      throw new DatabaseValidationError('Profile update requires a valid "userId".');
+    }
+
+    const user = this.users.get(userId);
+    if (!user) {
+      throw new DatabaseNotFoundError(`User with ID "${userId}" not found.`);
+    }
+
+    let profile = this.profiles.getByUserId(userId);
+
+    // If user does not have a profile yet, auto-provision one using base user details
+    if (!profile) {
+      const newProfile: ClientProfile = {
+        id: `prof_${crypto.randomBytes(8).toString('hex')}`,
+        userId,
+        name: (updates.name && updates.name.trim()) || user.name,
+        username: updates.username ? updates.username.trim() : user.username,
+        phone: updates.phone !== undefined ? updates.phone : user.phone,
+        contactEmail: updates.contactEmail !== undefined ? updates.contactEmail : user.contactEmail,
+        clientType: updates.clientType || user.clientType || 'customer',
+        bio: updates.bio !== undefined ? updates.bio : user.bio,
+        avatarUrl: updates.avatarUrl !== undefined ? (updates.avatarUrl || undefined) : user.avatarUrl,
+        avatarKey: updates.avatarKey !== undefined ? (updates.avatarKey || undefined) : user.avatarKey,
+        location: updates.location || user.location,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      return this.createProfile(newProfile);
+    }
+
+    // Check username uniqueness if username is being updated or changed
+    if (updates.username !== undefined) {
+      const trimmedUsername = updates.username ? updates.username.trim() : undefined;
+      if (trimmedUsername) {
+        const normalized = trimmedUsername.toLowerCase();
+        const existingWithUsername = this.profiles.getByUsername(normalized);
+        if (existingWithUsername && existingWithUsername.userId !== userId) {
+          throw new DatabaseUniqueConstraintError(
+            `Username "${trimmedUsername}" is already claimed by another user.`
+          );
+        }
+        profile.username = trimmedUsername;
+      } else {
+        delete profile.username;
+      }
+    }
+
+    // Safe partial updates without overwriting unprovided fields
+    if (updates.name !== undefined && typeof updates.name === 'string' && updates.name.trim()) {
+      profile.name = updates.name.trim();
+    }
+    if (updates.bio !== undefined && typeof updates.bio === 'string') {
+      profile.bio = updates.bio.trim();
+    }
+    if (updates.phone !== undefined) {
+      if (updates.phone === null || updates.phone === '') {
+        delete profile.phone;
+        delete user.phone;
+      } else if (typeof updates.phone === 'string') {
+        profile.phone = updates.phone.trim();
+      }
+    }
+    if (updates.contactEmail !== undefined) {
+      if (updates.contactEmail === null || updates.contactEmail === '') {
+        delete profile.contactEmail;
+        delete user.contactEmail;
+      } else if (typeof updates.contactEmail === 'string') {
+        profile.contactEmail = updates.contactEmail.trim().toLowerCase();
+      }
+    }
+    if (updates.clientType !== undefined) {
+      profile.clientType = updates.clientType;
+    }
+    if (updates.avatarUrl !== undefined) {
+      if (updates.avatarUrl === null || updates.avatarUrl === '') {
+        delete profile.avatarUrl;
+        delete profile.avatarKey;
+      } else if (typeof updates.avatarUrl === 'string') {
+        profile.avatarUrl = updates.avatarUrl.trim();
+      }
+    }
+    if (updates.avatarKey !== undefined) {
+      if (updates.avatarKey === null || updates.avatarKey === '') {
+        delete profile.avatarKey;
+      } else if (typeof updates.avatarKey === 'string') {
+        profile.avatarKey = updates.avatarKey.trim();
+      }
+    }
+    if (updates.location !== undefined && typeof updates.location === 'object') {
+      profile.location = {
+        ...(profile.location || { city: '', state: '', country: 'Nigeria', lat: 9.0820, lng: 8.6753 }),
+        ...updates.location
+      };
+    }
+
+    profile.updatedAt = new Date().toISOString();
+    this.profiles.set(profile.id, profile);
+
+    // Synchronize user entity
+    if (profile.name) user.name = profile.name;
+    if (profile.username !== undefined) user.username = profile.username;
+    if (profile.bio !== undefined) user.bio = profile.bio;
+    if (profile.phone !== undefined) user.phone = profile.phone;
+    if (profile.contactEmail !== undefined) {
+      user.contactEmail = profile.contactEmail;
+    } else {
+      delete user.contactEmail;
+    }
+    if (profile.clientType) user.clientType = profile.clientType;
+    if (updates.avatarUrl !== undefined) {
+      if (profile.avatarUrl) {
+        user.avatarUrl = profile.avatarUrl;
+      } else {
+        delete user.avatarUrl;
+        delete user.avatarKey;
+      }
+    }
+    if (updates.avatarKey !== undefined) {
+      if (profile.avatarKey) {
+        user.avatarKey = profile.avatarKey;
+      } else {
+        delete user.avatarKey;
+      }
+    }
+    if (profile.location) user.location = profile.location;
+    user.hasProfile = true;
+    user.profileId = profile.id;
+    user.updatedAt = new Date().toISOString();
+    this.users.set(user.id, user);
+
+    return profile;
+  }
+
+  public getUserById(id: string): UserEntity | undefined {
+    return this.users.get(id);
+  }
+
+  public getProfileByUserId(userId: string): ClientProfile | undefined {
+    return this.profiles.getByUserId(userId);
+  }
+
+  public getProfileByUsername(username: string): ClientProfile | undefined {
+    return this.profiles.getByUsername(username);
+  }
+
+  public deleteProfile(id: string): boolean {
+    const profile = this.profiles.get(id);
+    if (profile) {
+      const user = this.users.get(profile.userId);
+      if (user) {
+        user.hasProfile = false;
+        delete user.profileId;
+      }
+    }
+    return this.profiles.delete(id);
   }
 
   public countSuperAdmins(): number {
@@ -2382,16 +2740,19 @@ export class DatabaseStore {
     const userSnapshot = new Map(Array.from(this.users.entries()).map(([k, v]) => [k, { ...v }]));
     const sessionSnapshot = new Map(Array.from(this.sessions.entries()).map(([k, v]) => [k, { ...v }]));
     const tokenSnapshot = new Map(Array.from(this.tokens.entries()).map(([k, v]) => [k, { ...v }]));
+    const profileSnapshot = new Map(Array.from(this.profiles.entries()).map(([k, v]) => [k, { ...v }]));
 
     try {
       const txContext: DatabaseTransactionContext = {
         users: this.users,
         sessions: this.sessions,
         tokens: this.tokens,
+        profiles: this.profiles,
         createUser: (user) => this.createUser(user),
         updateUser: (userId, updates) => this.updateUser(userId, updates),
         deleteUser: (userId) => this.deleteUser(userId),
         deactivateUser: (userId, status) => this.deactivateUser(userId, status),
+        updateProfile: (userId, updates) => this.updateProfile(userId, updates),
         consumeToken: (tokenHash, type) => {
           const res = this.tokens.consumeToken(tokenHash, type);
           if (!res.success || !res.token) {
@@ -2417,6 +2778,10 @@ export class DatabaseStore {
       this.tokens.clear();
       for (const [k, v] of tokenSnapshot) {
         this.tokens.set(k, v);
+      }
+      this.profiles.clear();
+      for (const [k, v] of profileSnapshot) {
+        this.profiles.set(k, v);
       }
       throw err;
     } finally {
@@ -2471,6 +2836,27 @@ export class DatabaseStore {
       applied.push(m2);
     } else {
       skipped.push(m2);
+    }
+
+    // Migration 003: 003_client_profile_uniqueness_and_indexing
+    const m3 = '003_client_profile_uniqueness_and_indexing';
+    if (!this.appliedMigrations.has(m3)) {
+      for (const user of this.users.values()) {
+        if (user.role === 'CLIENT') {
+          const existingProfile = this.profiles.getByUserId(user.id);
+          if (existingProfile) {
+            user.hasProfile = true;
+            user.profileId = existingProfile.id;
+            if (existingProfile.username) {
+              user.username = existingProfile.username;
+            }
+          }
+        }
+      }
+      this.appliedMigrations.add(m3);
+      applied.push(m3);
+    } else {
+      skipped.push(m3);
     }
 
     return { applied, skipped };

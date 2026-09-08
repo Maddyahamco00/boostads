@@ -203,11 +203,26 @@ export const UpdateProfileSchema = z.object({
     .max(100, 'Name cannot exceed 100 characters')
     .refine(val => !/[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(val), 'Name contains invalid control characters')
     .optional(),
+  username: z
+    .string()
+    .trim()
+    .min(3, 'Username must be at least 3 characters')
+    .max(30, 'Username cannot exceed 30 characters')
+    .regex(/^[a-zA-Z0-9_]+$/, 'Username can only contain alphanumeric characters and underscores')
+    .optional(),
   phone: z
     .string()
     .trim()
     .max(30, 'Phone number cannot exceed 30 characters')
     .refine(val => !val || /^[+]?[0-9\s().-]*$/.test(val), 'Phone number contains invalid characters')
+    .optional(),
+  contactEmail: z
+    .string()
+    .trim()
+    .max(100, 'Contact email cannot exceed 100 characters')
+    .email('Please provide a valid contact email address')
+    .or(z.string().length(0))
+    .nullable()
     .optional(),
   bio: z
     .string()
@@ -218,9 +233,14 @@ export const UpdateProfileSchema = z.object({
     .string()
     .trim()
     .max(500, 'Avatar URL cannot exceed 500 characters')
-    .refine(url => !url || /^https?:\/\//i.test(url), 'Avatar URL must use http or https protocol')
+    .refine(
+      url => !url || /^https?:\/\//i.test(url) || /^\/(api\/media\/avatar|uploads\/avatars)\//i.test(url),
+      'Avatar URL must use http, https, or valid application media path'
+    )
     .or(z.string().length(0))
+    .nullable()
     .optional(),
+  avatarKey: z.string().trim().max(255).nullable().optional(),
   clientType: z.enum(['customer', 'business', 'freelancer', 'advertiser', 'service_provider']).optional(),
   location: z.object({
     city: z.string().trim().max(100).optional(),
@@ -260,3 +280,150 @@ export const UpdateProfileSchema = z.object({
   internalAudit: z.any().optional(),
   audit: z.any().optional()
 });
+
+// 11. Profile Creation DTO (Epic 2 Feature 2.1 Task 2.1.1)
+export const CreateProfileSchema = z.object({
+  name: z
+    .string({ message: 'Full name or display name is required' })
+    .trim()
+    .min(1, 'Full name or display name is required')
+    .min(2, 'Name must be at least 2 characters')
+    .max(100, 'Name cannot exceed 100 characters')
+    .refine(val => !/[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(val), 'Name contains invalid control characters'),
+  username: z
+    .string()
+    .trim()
+    .min(3, 'Username must be at least 3 characters')
+    .max(30, 'Username cannot exceed 30 characters')
+    .regex(/^[a-zA-Z0-9_]+$/, 'Username can only contain alphanumeric characters and underscores')
+    .optional(),
+  phone: z
+    .string()
+    .trim()
+    .max(30, 'Phone number cannot exceed 30 characters')
+    .refine(val => !val || /^[+]?[0-9\s().-]*$/.test(val), 'Phone number contains invalid characters')
+    .optional(),
+  contactEmail: z
+    .string()
+    .trim()
+    .max(100, 'Contact email cannot exceed 100 characters')
+    .email('Please provide a valid contact email address')
+    .or(z.string().length(0))
+    .nullable()
+    .optional(),
+  bio: z
+    .string()
+    .max(500, 'Bio cannot exceed 500 characters')
+    .refine(val => !/\x00/.test(val), 'Bio cannot contain null bytes')
+    .optional(),
+  avatarUrl: z
+    .string()
+    .trim()
+    .max(500, 'Avatar URL cannot exceed 500 characters')
+    .refine(
+      url => !url || /^https?:\/\//i.test(url) || /^\/(api\/media\/avatar|uploads\/avatars)\//i.test(url),
+      'Avatar URL must use http, https, or valid application media path'
+    )
+    .or(z.string().length(0))
+    .nullable()
+    .optional(),
+  avatarKey: z.string().trim().max(255).nullable().optional(),
+  clientType: z.enum(['customer', 'business', 'freelancer', 'advertiser', 'service_provider']).optional(),
+  location: z.object({
+    city: z.string().trim().max(100).optional(),
+    state: z.string().trim().max(100).optional(),
+    country: z.string().trim().max(100).optional(),
+    lat: z.number().min(-90).max(90).optional(),
+    lng: z.number().min(-180).max(180).optional(),
+    address: z.string().trim().max(200).optional(),
+    serviceAreaKm: z.number().min(0).max(1000).optional()
+  }).strict().optional(),
+  // Disallowed / Immutable / Escalation / Protected fields defined for explicit server rejection
+  role: z.any().optional(),
+  isAdmin: z.any().optional(),
+  isSuperAdmin: z.any().optional(),
+  superAdmin: z.any().optional(),
+  isStaff: z.any().optional(),
+  permissions: z.any().optional(),
+  privileges: z.any().optional(),
+  accountStatus: z.any().optional(),
+  email: z.any().optional(),
+  status: z.any().optional(),
+  securityFlags: z.any().optional(),
+  tier: z.any().optional(),
+  id: z.any().optional(),
+  userId: z.any().optional(),
+  password: z.any().optional(),
+  passwordHash: z.any().optional(),
+  emailVerifiedAt: z.any().optional(),
+  emailVerified: z.any().optional(),
+  twoFactorEnabled: z.any().optional(),
+  twoFactorSecret: z.any().optional(),
+  twoFactorRecoveryCodes: z.any().optional(),
+  failedLoginAttempts: z.any().optional(),
+  lockedUntil: z.any().optional(),
+  createdAt: z.any().optional(),
+  updatedAt: z.any().optional(),
+  internalAudit: z.any().optional(),
+  audit: z.any().optional()
+});
+
+// 12. Profile Avatar Upload DTO (Epic 2 Feature 2.1 Task 2.1.3)
+export const AvatarUploadSchema = z.object({
+  image: z
+    .string({ message: 'Image data is required' })
+    .min(20, 'Image data is invalid or too short')
+    .max(10 * 1024 * 1024, 'Image data payload exceeds size limit'),
+  filename: z
+    .string()
+    .max(255)
+    .optional(),
+  // Explicitly disallow mass-assignment & privilege escalation fields
+  role: z.any().optional(),
+  isAdmin: z.any().optional(),
+  isSuperAdmin: z.any().optional(),
+  superAdmin: z.any().optional(),
+  isStaff: z.any().optional(),
+  permissions: z.any().optional(),
+  privileges: z.any().optional(),
+  accountStatus: z.any().optional(),
+  email: z.any().optional(),
+  status: z.any().optional(),
+  securityFlags: z.any().optional(),
+  tier: z.any().optional(),
+  id: z.any().optional(),
+  userId: z.any().optional(),
+  password: z.any().optional(),
+  passwordHash: z.any().optional(),
+  emailVerifiedAt: z.any().optional(),
+  emailVerified: z.any().optional(),
+  twoFactorEnabled: z.any().optional(),
+  twoFactorSecret: z.any().optional(),
+  twoFactorRecoveryCodes: z.any().optional(),
+  failedLoginAttempts: z.any().optional(),
+  lockedUntil: z.any().optional(),
+  createdAt: z.any().optional(),
+  updatedAt: z.any().optional(),
+  internalAudit: z.any().optional(),
+  audit: z.any().optional()
+});
+
+// 13. Client Contact Information DTO (Epic 2 Feature 2.1 Task 2.1.4)
+export const ContactInfoSchema = z.object({
+  phone: z
+    .string()
+    .trim()
+    .max(30, 'Phone number cannot exceed 30 characters')
+    .refine(val => !val || /^[+]?[0-9\s().-]*$/.test(val), 'Phone number contains invalid characters')
+    .nullable()
+    .optional(),
+  contactEmail: z
+    .string()
+    .trim()
+    .max(100, 'Contact email cannot exceed 100 characters')
+    .email('Please provide a valid contact email address')
+    .or(z.string().length(0))
+    .nullable()
+    .optional()
+});
+

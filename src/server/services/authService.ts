@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { 
   UserEntity, 
   UserProfile, 
+  ClientProfile,
   UserRole, 
   AccountStatus, 
   AuthSession, 
@@ -10,12 +11,14 @@ import {
   SecurityAuditEvent,
   AccountSecurityState
 } from '../../types';
-import { db, SUPER_ADMIN_EMAIL, SUPER_ADMIN_ID, isDesignatedSuperAdminEmail } from '../db';
+import { db, SUPER_ADMIN_EMAIL, SUPER_ADMIN_ID, isDesignatedSuperAdminEmail, DatabaseUniqueConstraintError } from '../db';
 import { emailService } from './emailService';
 import { passwordService } from './passwordService';
 import { emailVerificationTokenService } from './emailVerificationTokenService';
 import { passwordResetTokenService, TokenCleanupOptions, TokenCleanupResult } from './passwordResetTokenService';
 import { securityMonitoringService } from './securityMonitoringService';
+import { storageService } from './storageService';
+import { validatePhoneNumber, normalizePhoneNumber } from '../../lib/phoneUtils';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'boost_market_jwt_production_secret_key_2026_9881726';
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'boost_market_refresh_secret_key_2026_7718291';
@@ -1829,6 +1832,23 @@ export class AuthService {
   // 7.5. PROFILE UPDATE WITH STRICT PRIVILEGE GUARDS
   // ----------------------------------------------------
   private static superAdminLockChain: Promise<void> = Promise.resolve();
+  private static userLocks = new Map<string, Promise<void>>();
+
+  private async acquireUserLock(userId: string): Promise<() => void> {
+    const currentLock = AuthService.userLocks.get(userId) || Promise.resolve();
+    let release: () => void;
+    const nextLock = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    AuthService.userLocks.set(userId, currentLock.then(() => nextLock));
+    await currentLock;
+    return () => {
+      release!();
+      if (AuthService.userLocks.get(userId) === nextLock) {
+        AuthService.userLocks.delete(userId);
+      }
+    };
+  }
 
   public static async withSuperAdminLock<T>(fn: () => Promise<T>): Promise<T> {
     const prev = AuthService.superAdminLockChain;
@@ -1955,19 +1975,78 @@ export class AuthService {
       throw new Error('Unauthorized modification of protected account security fields.');
     }
 
-    // Strict Allowlist: only user-editable profile properties
-    const safeUpdates: Partial<UserEntity> = {};
+    // Strict Allowlist: only user-editable profile properties with sanitization
+    const safeUpdates: Partial<ClientProfile> & Partial<UserEntity> = {};
     if (typeof payload.name === 'string' && payload.name.trim().length > 0) {
-      safeUpdates.name = payload.name.trim();
+      safeUpdates.name = payload.name.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '').trim();
     }
-    if (typeof payload.phone === 'string') {
-      safeUpdates.phone = payload.phone.trim();
+    if (payload.username !== undefined) {
+      if (typeof payload.username === 'string' && payload.username.trim().length > 0) {
+        const cleanUsername = payload.username.trim();
+        if (cleanUsername.length < 3) {
+          throw new Error('Username must be at least 3 characters.');
+        }
+        if (cleanUsername.length > 30) {
+          throw new Error('Username cannot exceed 30 characters.');
+        }
+        if (!/^[a-zA-Z0-9_]+$/.test(cleanUsername)) {
+          throw new Error('Username can only contain alphanumeric characters and underscores.');
+        }
+        const normalized = cleanUsername.toLowerCase();
+        const existingWithUsername = db.profiles.getByUsername(normalized);
+        if (existingWithUsername && existingWithUsername.userId !== userId) {
+          throw new DatabaseUniqueConstraintError(`Username "${cleanUsername}" is already claimed by another user.`);
+        }
+        safeUpdates.username = cleanUsername;
+      } else {
+        safeUpdates.username = undefined;
+      }
+    }
+    if (payload.phone !== undefined) {
+      if (payload.phone === null || payload.phone === '') {
+        safeUpdates.phone = undefined;
+      } else if (typeof payload.phone === 'string') {
+        const phoneValidation = validatePhoneNumber(payload.phone);
+        if (!phoneValidation.valid) {
+          throw new Error(phoneValidation.error || 'Invalid phone number format.');
+        }
+        safeUpdates.phone = phoneValidation.normalized;
+      }
+    }
+    if (payload.contactEmail !== undefined) {
+      if (payload.contactEmail === null || payload.contactEmail === '') {
+        safeUpdates.contactEmail = undefined;
+      } else if (typeof payload.contactEmail === 'string') {
+        const cleanEmail = payload.contactEmail.trim().toLowerCase();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+          throw new Error('Please provide a valid contact email address.');
+        }
+        if (cleanEmail.length > 100) {
+          throw new Error('Contact email cannot exceed 100 characters.');
+        }
+        if (isDesignatedSuperAdminEmail(cleanEmail)) {
+          throw new Error('Designated executive email cannot be used as contact email.');
+        }
+        safeUpdates.contactEmail = cleanEmail;
+      }
     }
     if (typeof payload.bio === 'string') {
-      safeUpdates.bio = payload.bio.trim();
+      safeUpdates.bio = payload.bio.replace(/\x00/g, '').trim();
     }
-    if (typeof payload.avatarUrl === 'string') {
-      safeUpdates.avatarUrl = payload.avatarUrl.trim();
+    if (payload.avatarUrl !== undefined) {
+      if (payload.avatarUrl === null || payload.avatarUrl === '') {
+        safeUpdates.avatarUrl = '';
+        safeUpdates.avatarKey = '';
+      } else if (typeof payload.avatarUrl === 'string') {
+        safeUpdates.avatarUrl = payload.avatarUrl.trim();
+      }
+    }
+    if (payload.avatarKey !== undefined) {
+      if (payload.avatarKey === null || payload.avatarKey === '') {
+        safeUpdates.avatarKey = '';
+      } else if (typeof payload.avatarKey === 'string') {
+        safeUpdates.avatarKey = payload.avatarKey.trim();
+      }
     }
     if (payload.clientType && typeof payload.clientType === 'string') {
       safeUpdates.clientType = payload.clientType;
@@ -1976,7 +2055,535 @@ export class AuthService {
       safeUpdates.location = payload.location;
     }
 
-    return db.updateUser(userId, safeUpdates);
+    const updatedProfile = db.updateProfile(userId, safeUpdates);
+    const updatedUser = db.getUserById(userId) || user;
+
+    this.logSecurityEvent('ACCOUNT_SECURITY_CHANGED', {
+      userId: user.id,
+      userEmail: user.email,
+      role: user.role,
+      ipAddress: ip,
+      userAgent,
+      severity: 'INFO',
+      details: {
+        reason: 'Client profile information updated',
+        updatedFields: Object.keys(safeUpdates)
+      }
+    });
+
+    (updatedUser as any).profile = updatedProfile;
+    return updatedUser;
+  }
+
+  /**
+   * 11b. CLIENT PROFILE PICTURE UPLOAD (Epic 2 Feature 2.1 Task 2.1.3)
+   * Uploads, validates, normalizes, and safely stores a CLIENT profile picture.
+   */
+  public async uploadProfileAvatar(
+    userId: string,
+    imageInput: {
+      buffer: Buffer;
+      originalFilename?: string;
+      mimeType?: string;
+    },
+    ip: string = '127.0.0.1',
+    userAgent: string = 'browser'
+  ): Promise<{
+    avatarUrl: string;
+    avatarKey: string;
+    user: UserProfile;
+    profile: ClientProfile;
+  }> {
+    const user = db.users.get(userId);
+    if (!user) {
+      throw new Error('User not found.');
+    }
+
+    if (user.role !== 'CLIENT') {
+      throw new Error('Forbidden: Profile picture management is only available for CLIENT accounts.');
+    }
+
+    // Rate limiting: max 15 avatar uploads per 60 seconds per user
+    const rateLimitKey = `avatar_upload_${userId}`;
+    const now = Date.now();
+    const existing = this.resendAttempts.get(rateLimitKey);
+    if (existing) {
+      if (now - existing.windowStart < 60000) {
+        if (existing.count >= 15) {
+          throw new Error('Rate limit exceeded: Too many profile picture updates. Please wait a minute and try again.');
+        }
+        existing.count++;
+      } else {
+        this.resendAttempts.set(rateLimitKey, { count: 1, windowStart: now });
+      }
+    } else {
+      this.resendAttempts.set(rateLimitKey, { count: 1, windowStart: now });
+    }
+
+    const { buffer } = imageInput;
+    if (!buffer || !Buffer.isBuffer(buffer) || buffer.length === 0) {
+      throw new Error('No image file provided or file is empty.');
+    }
+
+    // Server-side validation of file signature (magic bytes), dimensions, and size
+    const validation = storageService.validateImageBuffer(buffer);
+    if (!validation.isValid || !validation.format) {
+      throw new Error(validation.error || 'Invalid image file.');
+    }
+
+    // Capture previous avatar key for cleanup after successful persistence
+    const existingProfile = db.getProfileByUserId(userId);
+    const oldAvatarKey = existingProfile?.avatarKey || (user as any).avatarKey;
+    const oldAvatarUrl = existingProfile?.avatarUrl || user.avatarUrl;
+
+    // Securely write file to storage with server-controlled random key
+    const stored = await storageService.saveAvatar(userId, buffer, validation.format);
+
+    try {
+      // Update database profile and user entity atomically
+      const updatedProfile = db.updateProfile(userId, {
+        avatarUrl: stored.avatarUrl,
+        avatarKey: stored.avatarKey
+      });
+
+      const updatedUser = db.getUserById(userId) || user;
+
+      // Asynchronously clean up old obsolete avatar file if it was a locally stored avatar
+      if (oldAvatarKey && oldAvatarKey !== stored.avatarKey) {
+        storageService.deleteAvatar(oldAvatarKey).catch(err => {
+          console.warn(`[AuthService] Obsolete avatar cleanup failed:`, err);
+        });
+      } else if (oldAvatarUrl && oldAvatarUrl !== stored.avatarUrl && oldAvatarUrl.includes('/api/media/avatar/')) {
+        storageService.deleteAvatar(oldAvatarUrl).catch(err => {
+          console.warn(`[AuthService] Obsolete avatar cleanup failed:`, err);
+        });
+      }
+
+      this.logSecurityEvent('ACCOUNT_SECURITY_CHANGED', {
+        userId: user.id,
+        userEmail: user.email,
+        role: user.role,
+        ipAddress: ip,
+        userAgent,
+        severity: 'INFO',
+        details: {
+          action: 'PROFILE_PICTURE_UPDATED',
+          format: stored.format,
+          sizeBytes: stored.sizeBytes,
+          avatarKey: stored.avatarKey
+        }
+      });
+
+      return {
+        avatarUrl: stored.avatarUrl,
+        avatarKey: stored.avatarKey,
+        user: this.getSafeUser(updatedUser),
+        profile: updatedProfile
+      };
+    } catch (dbErr) {
+      // If DB update failed, delete the newly written file so orphaned files don't accumulate
+      await storageService.deleteAvatar(stored.avatarKey).catch(() => {});
+      throw dbErr;
+    }
+  }
+
+  /**
+   * 11c. CLIENT PROFILE PICTURE REMOVAL (Epic 2 Feature 2.1 Task 2.1.3)
+   * Removes the CLIENT profile picture, cleans up storage, and synchronizes profile/user records.
+   */
+  public async removeProfileAvatar(
+    userId: string,
+    ip: string = '127.0.0.1',
+    userAgent: string = 'browser'
+  ): Promise<{
+    user: UserProfile;
+    profile: ClientProfile;
+  }> {
+    const user = db.users.get(userId);
+    if (!user) {
+      throw new Error('User not found.');
+    }
+
+    if (user.role !== 'CLIENT') {
+      throw new Error('Forbidden: Profile picture management is only available for CLIENT accounts.');
+    }
+
+    const existingProfile = db.getProfileByUserId(userId);
+    const oldAvatarKey = existingProfile?.avatarKey || (user as any).avatarKey;
+    const oldAvatarUrl = existingProfile?.avatarUrl || user.avatarUrl;
+
+    // Update database to clear avatar
+    const updatedProfile = db.updateProfile(userId, {
+      avatarUrl: '',
+      avatarKey: ''
+    });
+
+    const updatedUser = db.getUserById(userId) || user;
+
+    // Clean up stored file
+    if (oldAvatarKey) {
+      await storageService.deleteAvatar(oldAvatarKey).catch(() => {});
+    } else if (oldAvatarUrl && oldAvatarUrl.includes('/api/media/avatar/')) {
+      await storageService.deleteAvatar(oldAvatarUrl).catch(() => {});
+    }
+
+    this.logSecurityEvent('ACCOUNT_SECURITY_CHANGED', {
+      userId: user.id,
+      userEmail: user.email,
+      role: user.role,
+      ipAddress: ip,
+      userAgent,
+      severity: 'INFO',
+      details: {
+        action: 'PROFILE_PICTURE_REMOVED'
+      }
+    });
+
+    return {
+      user: this.getSafeUser(updatedUser),
+      profile: updatedProfile
+    };
+  }
+
+  /**
+   * 12. CLIENT PROFILE CREATION (Epic 2 Feature 2.1 Task 2.1.1)
+   * Creates a dedicated application profile for an authenticated CLIENT.
+   * Guarantees:
+   * - Must be authenticated CLIENT role (not Super Admin or other)
+   * - Strict per-user lock prevents race conditions
+   * - 1-to-1 Profile Uniqueness: Exactly 1 profile per account (returns 409 if already created)
+   * - Username Uniqueness: Case-insensitive unique handle (returns 409 if already taken)
+   * - Explicit defense against privilege escalation (role, isAdmin, status, permissions)
+   * - IDOR Defense: user cannot assign profile to any other user ID
+   * - Audit logging and safe entity returned (no passwordHash or secrets)
+   */
+  public async createProfile(
+    userId: string,
+    payload: any,
+    ip: string = '127.0.0.1',
+    userAgent: string = 'browser'
+  ): Promise<{ profile: ClientProfile; user: UserProfile }> {
+    // Acquire per-user lock to prevent concurrent double-creation race conditions
+    const release = await this.acquireUserLock(userId);
+    try {
+      const user = db.users.get(userId);
+      if (!user) {
+        const err: any = new Error('User not found.');
+        err.code = 'USER_NOT_FOUND';
+        err.status = 404;
+        throw err;
+      }
+
+      if (user.role !== 'CLIENT') {
+        const err: any = new Error('Only CLIENT accounts can create user profiles.');
+        err.code = 'FORBIDDEN';
+        err.status = 403;
+        throw err;
+      }
+
+      // Check if user already has an active profile (1-to-1 constraint)
+      if (db.profiles.hasProfileForUser(userId)) {
+        const existingProfile = db.profiles.getByUserId(userId);
+        const err: any = new Error('A profile already exists for this account.');
+        err.code = 'PROFILE_ALREADY_EXISTS';
+        err.status = 409;
+        err.statusCode = 409;
+        err.profile = existingProfile;
+        throw err;
+      }
+
+      // Privilege Escalation Defense:
+      // Reject any payload attempting to alter role/admin/permissions/status
+      const rawRole = payload.role;
+      const rawIsAdmin = payload.isAdmin;
+      const rawIsSuperAdmin = payload.isSuperAdmin;
+      const rawSuperAdmin = payload.superAdmin;
+      const rawIsStaff = payload.isStaff;
+      const rawPermissions = payload.permissions;
+      const rawPrivileges = payload.privileges;
+      const rawAccountStatus = payload.accountStatus;
+
+      if (
+        rawRole !== undefined ||
+        rawIsAdmin !== undefined ||
+        rawIsSuperAdmin !== undefined ||
+        rawSuperAdmin !== undefined ||
+        rawIsStaff !== undefined ||
+        rawPermissions !== undefined ||
+        rawPrivileges !== undefined ||
+        rawAccountStatus !== undefined
+      ) {
+        securityMonitoringService.recordPrivilegeEscalationAttempt(
+          String(rawRole || rawAccountStatus || 'PRIVILEGED_ROLE'),
+          user.email,
+          ip,
+          userAgent,
+          'Privilege escalation attempt in profile creation'
+        );
+        this.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+          userId: user.id,
+          userEmail: user.email,
+          role: user.role,
+          ipAddress: ip,
+          userAgent,
+          severity: 'CRITICAL',
+          details: {
+            reason: 'Privilege escalation attempt in profile creation. Request rejected.',
+            attemptedRole: rawRole,
+            attemptedIsAdmin: rawIsAdmin,
+            attemptedIsSuperAdmin: rawIsSuperAdmin,
+            attemptedAccountStatus: rawAccountStatus
+          }
+        });
+        const err: any = new Error('Unauthorized role modification attempt. Privilege escalation is strictly forbidden.');
+        err.code = 'PRIVILEGE_ESCALATION_BLOCKED';
+        err.status = 403;
+        throw err;
+      }
+
+      // Defense: IDOR check - user cannot submit another user's ID
+      if (payload.id !== undefined && payload.id !== userId) {
+        const err: any = new Error('Forbidden: Modifying user ID is not permitted.');
+        err.code = 'FORBIDDEN';
+        err.status = 403;
+        throw err;
+      }
+      if (payload.userId !== undefined && payload.userId !== userId) {
+        const err: any = new Error('Forbidden: Modifying user ID is not permitted.');
+        err.code = 'FORBIDDEN';
+        err.status = 403;
+        throw err;
+      }
+
+      // Defense: Protected account status and security flags cannot be modified
+      if (
+        payload.status !== undefined ||
+        payload.securityFlags !== undefined ||
+        payload.emailVerifiedAt !== undefined ||
+        payload.emailVerified !== undefined ||
+        payload.password !== undefined ||
+        payload.passwordHash !== undefined ||
+        payload.tier !== undefined ||
+        payload.twoFactorEnabled !== undefined ||
+        payload.twoFactorSecret !== undefined ||
+        payload.twoFactorRecoveryCodes !== undefined ||
+        payload.failedLoginAttempts !== undefined ||
+        payload.lockedUntil !== undefined ||
+        payload.createdAt !== undefined ||
+        payload.updatedAt !== undefined ||
+        payload.internalAudit !== undefined ||
+        payload.audit !== undefined
+      ) {
+        this.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+          userId: user.id,
+          userEmail: user.email,
+          role: user.role,
+          ipAddress: ip,
+          userAgent,
+          severity: 'WARNING',
+          details: { reason: 'Attempted modification of protected account security fields in profile creation' }
+        });
+        const err: any = new Error('Forbidden: Cannot modify protected account security flags or status via profile creation.');
+        err.code = 'PROTECTED_FIELD_VIOLATION';
+        err.status = 403;
+        throw err;
+      }
+
+      // Validate name
+      const name = String(payload.name || '').trim();
+      if (!name || name.length < 2) {
+        const err: any = new Error('Full name or display name must be at least 2 characters.');
+        err.code = 'VALIDATION_ERROR';
+        err.status = 400;
+        throw err;
+      }
+
+      // Check username uniqueness if provided
+      let normalizedUsername: string | undefined;
+      if (payload.username && typeof payload.username === 'string' && payload.username.trim().length > 0) {
+        normalizedUsername = payload.username.trim().toLowerCase();
+        const existingWithUsername = db.profiles.getByUsername(normalizedUsername);
+        if (existingWithUsername && existingWithUsername.userId !== userId) {
+          const err: any = new Error(`Username "${payload.username}" is already taken.`);
+          err.code = 'USERNAME_TAKEN';
+          err.status = 409;
+          err.statusCode = 409;
+          throw err;
+        }
+      }
+
+      const profileId = `prof_${userId.replace(/^usr_/, '')}_${Date.now()}`;
+      const now = new Date().toISOString();
+
+      const newProfile: ClientProfile = {
+        id: profileId,
+        userId: user.id,
+        name: name,
+        username: normalizedUsername,
+        bio: typeof payload.bio === 'string' ? payload.bio.trim() : undefined,
+        phone: typeof payload.phone === 'string' ? payload.phone.trim() : user.phone,
+        clientType: payload.clientType || user.clientType || 'customer',
+        avatarUrl: typeof payload.avatarUrl === 'string' ? payload.avatarUrl.trim() : user.avatarUrl,
+        location: payload.location && typeof payload.location === 'object' ? payload.location : user.location,
+        createdAt: now,
+        updatedAt: now
+      };
+
+      // Save to database
+      db.createProfile(newProfile);
+
+      this.logSecurityEvent('ACCOUNT_SECURITY_CHANGED', {
+        userId: user.id,
+        userEmail: user.email,
+        role: user.role,
+        ipAddress: ip,
+        userAgent,
+        severity: 'INFO',
+        details: { action: 'profile_created', profileId: newProfile.id }
+      });
+
+      const updatedUser = db.users.get(userId)!;
+      return {
+        profile: newProfile,
+        user: this.getSafeUser(updatedUser)
+      };
+    } finally {
+      release();
+    }
+  }
+
+  /**
+   * 13. CLIENT PERSONAL CONTACT INFORMATION (Epic 2 Feature 2.1 Task 2.1.4)
+   * Manages authenticated CLIENT personal contact information (phone, contactEmail).
+   * Guarantees:
+   * - Client role enforced (Super Admin or other roles restricted)
+   * - Strict IDOR prevention: only authenticated user can modify own contact information
+   * - Distinguishes mutable contactEmail from immutable login email (user.email)
+   * - Normalizes and validates phone numbers (E.164 and domestic formats)
+   * - Stored phone number is marked unverified (no fake verification claims)
+   * - Protected account security flags (role, accountStatus, emailVerified, 2FA) are strictly guarded
+   */
+  public async getContactInfo(userId: string): Promise<{
+    phone?: string;
+    contactEmail?: string;
+    authEmail: string;
+    phoneVerified: boolean;
+  }> {
+    const user = db.users.get(userId);
+    if (!user) {
+      throw new Error('User not found.');
+    }
+    const profile = db.profiles.getByUserId(userId);
+    return {
+      phone: profile?.phone || user.phone,
+      contactEmail: profile?.contactEmail || user.contactEmail,
+      authEmail: user.email,
+      phoneVerified: false
+    };
+  }
+
+  public async updateContactInfo(
+    userId: string,
+    payload: {
+      phone?: string | null;
+      contactEmail?: string | null;
+    },
+    ip: string = '127.0.0.1',
+    userAgent: string = 'browser'
+  ): Promise<{
+    contact: {
+      phone?: string;
+      contactEmail?: string;
+      authEmail: string;
+      phoneVerified: boolean;
+    };
+    user: UserProfile;
+    profile: ClientProfile;
+  }> {
+    const user = db.users.get(userId);
+    if (!user) {
+      throw new Error('User not found.');
+    }
+    if (user.role !== 'CLIENT') {
+      throw new Error('Forbidden: Personal contact information management is only available for CLIENT accounts.');
+    }
+
+    const safeUpdates: Partial<ClientProfile> = {};
+
+    // Validate and normalize phone
+    if (payload.phone !== undefined) {
+      if (payload.phone === null || payload.phone === '') {
+        safeUpdates.phone = '';
+      } else if (typeof payload.phone === 'string') {
+        const phoneValidation = validatePhoneNumber(payload.phone);
+        if (!phoneValidation.valid) {
+          throw new Error(phoneValidation.error || 'Invalid phone number format.');
+        }
+        safeUpdates.phone = phoneValidation.normalized;
+      }
+    }
+
+    // Validate and normalize contact email
+    if (payload.contactEmail !== undefined) {
+      if (payload.contactEmail === null || payload.contactEmail === '') {
+        safeUpdates.contactEmail = '';
+      } else if (typeof payload.contactEmail === 'string') {
+        const cleanEmail = payload.contactEmail.trim().toLowerCase();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+          throw new Error('Please provide a valid contact email address.');
+        }
+        if (cleanEmail.length > 100) {
+          throw new Error('Contact email cannot exceed 100 characters.');
+        }
+        if (isDesignatedSuperAdminEmail(cleanEmail)) {
+          throw new Error('Designated executive email cannot be used as contact email.');
+        }
+        safeUpdates.contactEmail = cleanEmail;
+      }
+    }
+
+    const updatedProfile = db.updateProfile(userId, safeUpdates);
+    if (safeUpdates.phone !== undefined) {
+      if (!safeUpdates.phone) {
+        delete user.phone;
+      } else {
+        user.phone = safeUpdates.phone;
+      }
+    }
+    if (safeUpdates.contactEmail !== undefined) {
+      if (!safeUpdates.contactEmail) {
+        delete user.contactEmail;
+      } else {
+        user.contactEmail = safeUpdates.contactEmail;
+      }
+    }
+    db.users.set(userId, user);
+    const updatedUser = db.getUserById(userId) || user;
+
+    this.logSecurityEvent('ACCOUNT_SECURITY_CHANGED', {
+      userId: user.id,
+      userEmail: user.email,
+      role: user.role,
+      ipAddress: ip,
+      userAgent,
+      severity: 'INFO',
+      details: {
+        action: 'CONTACT_INFO_UPDATED',
+        phoneUpdated: payload.phone !== undefined,
+        contactEmailUpdated: payload.contactEmail !== undefined
+      }
+    });
+
+    return {
+      contact: {
+        phone: updatedProfile.phone,
+        contactEmail: updatedProfile.contactEmail,
+        authEmail: updatedUser.email,
+        phoneVerified: false
+      },
+      user: this.getSafeUser(updatedUser),
+      profile: updatedProfile
+    };
   }
 
   // ----------------------------------------------------

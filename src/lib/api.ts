@@ -8,7 +8,7 @@
  * - Type-safe endpoint wrappers
  */
 
-import { UserProfile, AccountSecurityState } from '../types';
+import { UserProfile, AccountSecurityState, ClientProfile, ClientContactInfo } from '../types';
 
 export class ApiError extends Error {
   public status: number;
@@ -510,16 +510,106 @@ export const authApi = {
   },
 
   /**
-   * Update authenticated client's permitted profile fields
+   * Create dedicated application profile for authenticated client (Epic 2 Task 2.1.1)
    */
-  async updateProfile(updates: Partial<UserProfile>) {
+  async createProfile(data: {
+    name: string;
+    username?: string;
+    phone?: string;
+    bio?: string;
+    avatarUrl?: string;
+    clientType?: string;
+    location?: {
+      city?: string;
+      state?: string;
+      country?: string;
+      lat?: number;
+      lng?: number;
+      address?: string;
+      serviceAreaKm?: number;
+    };
+  }) {
+    return fetchWithAuth<{
+      success: boolean;
+      message: string;
+      profile: ClientProfile;
+      user: UserProfile;
+    }>('/api/client/profile', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  /**
+   * Update authenticated client's permitted profile fields (Epic 2 Task 2.1.2)
+   */
+  async updateProfile(updates: Partial<UserProfile> & { username?: string }) {
     return fetchWithAuth<{
       success: boolean;
       user: UserProfile;
+      profile?: ClientProfile;
       securityState?: AccountSecurityState;
     }>('/api/client/profile', {
       method: 'PATCH',
       body: JSON.stringify(updates)
+    });
+  },
+
+  /**
+   * Upload or replace client profile avatar (Epic 2 Task 2.1.3)
+   */
+  async uploadAvatar(data: { image: string; filename?: string }) {
+    return fetchWithAuth<{
+      success: boolean;
+      message: string;
+      avatarUrl: string;
+      avatarKey: string;
+      user: UserProfile;
+      profile: ClientProfile;
+    }>('/api/client/profile/avatar', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  /**
+   * Remove client profile avatar (Epic 2 Task 2.1.3)
+   */
+  async removeAvatar() {
+    return fetchWithAuth<{
+      success: boolean;
+      message: string;
+      user: UserProfile;
+      profile: ClientProfile;
+    }>('/api/client/profile/avatar', {
+      method: 'DELETE'
+    });
+  },
+
+  /**
+   * Get authenticated client's contact information (Epic 2 Task 2.1.4)
+   */
+  async getContactInfo() {
+    return fetchWithAuth<{
+      success: boolean;
+      contact: ClientContactInfo;
+    }>('/api/client/profile/contact', {
+      method: 'GET'
+    });
+  },
+
+  /**
+   * Update authenticated client's personal contact information (Epic 2 Task 2.1.4)
+   */
+  async updateContactInfo(data: { phone?: string | null; contactEmail?: string | null }) {
+    return fetchWithAuth<{
+      success: boolean;
+      contact: ClientContactInfo;
+      user: UserProfile;
+      profile: ClientProfile;
+    }>('/api/client/profile/contact', {
+      method: 'PATCH',
+      body: JSON.stringify(data)
     });
   },
 

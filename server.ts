@@ -25,9 +25,13 @@ import {
   AdminPasswordSetupSchema, 
   EnableTwoFactorSchema, 
   UpdateProfileSchema,
+  CreateProfileSchema,
+  AvatarUploadSchema,
+  ContactInfoSchema,
   formatZodError,
   extractValidationErrors 
 } from './src/server/validators/authValidators';
+import { storageService } from './src/server/services/storageService';
 import { aiService } from './src/server/services/aiService';
 import { fxService } from './src/server/services/fxService';
 import { paymentService } from './src/server/services/paymentService';
@@ -1189,11 +1193,96 @@ async function startServer() {
     }
   });
 
+  // Dedicated Epic 2 Task 2.1.1 Client Profile Creation Test Runner
+  app.post('/api/tests/profile-creation', async (req, res) => {
+    try {
+      const result = await authTestRunnerService.runProfileCreationTestOnly();
+      res.json({ success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  // Dedicated Epic 2 Task 2.1.2 Client Profile Editing Test Runner
+  app.post('/api/tests/profile-editing', async (req, res) => {
+    try {
+      const result = await authTestRunnerService.runProfileEditingTestOnly();
+      res.json({ success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  app.get('/api/tests/profile-editing', async (req, res) => {
+    try {
+      const result = await authTestRunnerService.runProfileEditingTestOnly();
+      res.json({ success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  // Dedicated Epic 2 Task 2.1.3 Client Profile Picture Test Runner
+  app.post('/api/tests/profile-avatar', async (req, res) => {
+    try {
+      const result = await authTestRunnerService.runProfileAvatarTestOnly();
+      res.json({ success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  app.get('/api/tests/profile-avatar', async (req, res) => {
+    try {
+      const result = await authTestRunnerService.runProfileAvatarTestOnly();
+      res.json({ success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  // Dedicated Epic 2 Task 2.1.4 Client Personal Contact Information Test Runner
+  app.post('/api/tests/profile-contact', async (req, res) => {
+    try {
+      const result = await authTestRunnerService.runContactInfoTestOnly();
+      res.json({ success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  app.get('/api/tests/profile-contact', async (req, res) => {
+    try {
+      const result = await authTestRunnerService.runContactInfoTestOnly();
+      res.json({ success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
   // Dedicated Client Password Change & Security Controls Test Runner
   app.post('/api/tests/password-security', async (req, res) => {
     try {
       const result = await authTestRunnerService.runPasswordSecurityTestOnly();
       res.json({ success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  // Dedicated 18 Security Regression Attacks Runner
+  app.post('/api/tests/security-regression-attacks', async (req, res) => {
+    try {
+      const result = await authTestRunnerService.run18SecurityAttacks();
+      res.json({ success: true, ...result });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       res.status(500).json({ success: false, error: message });
@@ -1210,9 +1299,11 @@ async function startServer() {
     }
     const safeUser = authService.getSafeUser(user);
     const securityState = authService.getAccountSecurityState(user);
+    const profile = db.profiles.getByUserId(user.id) || null;
     res.json({
       success: true,
       user: safeUser,
+      profile,
       securityState
     });
   };
@@ -1444,14 +1535,26 @@ async function startServer() {
       }
 
       const updatedUser = await authService.updateProfile(effectiveUserId, req.body, clientIp, userAgent);
+      const updatedProfile = db.getProfileByUserId(effectiveUserId) || (updatedUser as any).profile || null;
       const securityState = authService.getAccountSecurityState(updatedUser);
       res.json({ 
         success: true, 
         user: authService.getSafeUser(updatedUser),
+        profile: updatedProfile,
         securityState
       });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Profile update failed';
+      if (
+        message.toLowerCase().includes('already claimed') ||
+        message.toLowerCase().includes('already taken')
+      ) {
+        return res.status(409).json({
+          success: false,
+          error: message,
+          code: 'USERNAME_TAKEN'
+        });
+      }
       const isForbidden = message.toLowerCase().includes('unauthorized') || 
                           message.toLowerCase().includes('escalation') ||
                           message.toLowerCase().includes('forbidden') ||
@@ -1461,20 +1564,224 @@ async function startServer() {
     }
   };
 
-  // Client own-profile update endpoints
+  /**
+   * Epic 2 Feature 2.1 Task 2.1.1: Client Profile Creation Handler
+   * - Enforces authenticated CLIENT role
+   * - Blocks privilege escalation (role, isAdmin, status, permissions)
+   * - Prevents IDOR (userId mismatch)
+   * - Validates payload via CreateProfileSchema
+   * - Enforces 1-to-1 uniqueness (409 PROFILE_ALREADY_EXISTS)
+   * - Enforces unique username handles (409 USERNAME_TAKEN)
+   */
+  const handleProfileCreate = async (req: AuthenticatedRequest, res: any) => {
+    try {
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = (req.headers['user-agent'] as string) || 'browser';
+
+      // 1. Authenticated CLIENT check: Only CLIENT role can create client profile
+      if (!req.user || req.user.role !== 'CLIENT') {
+        return res.status(403).json({
+          success: false,
+          error: 'Only CLIENT accounts can create user profiles.',
+          code: 'FORBIDDEN'
+        });
+      }
+
+      // 2. Query param privilege escalation rejection
+      const q = (req.query || {}) as Record<string, any>;
+      if (
+        q.role !== undefined ||
+        q.isAdmin !== undefined ||
+        q.isSuperAdmin !== undefined ||
+        q.superAdmin !== undefined ||
+        q.permissions !== undefined ||
+        q.privileges !== undefined ||
+        q.accountStatus !== undefined ||
+        q.status !== undefined ||
+        q.securityFlags !== undefined
+      ) {
+        authService.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+          userId: req.user.id,
+          userEmail: req.user.email,
+          role: req.user.role,
+          ipAddress: clientIp,
+          userAgent,
+          severity: 'CRITICAL',
+          details: {
+            reason: 'Privilege escalation injection in query params during profile creation.',
+            query: req.query
+          }
+        });
+        return res.status(403).json({
+          success: false,
+          error: 'Unauthorized role modification attempt via query parameters. Privilege escalation is strictly forbidden.',
+          code: 'PRIVILEGE_ESCALATION_BLOCKED'
+        });
+      }
+
+      // 3. Body privilege escalation rejection
+      if (
+        req.body.role !== undefined ||
+        req.body.isAdmin !== undefined ||
+        req.body.isSuperAdmin !== undefined ||
+        req.body.superAdmin !== undefined ||
+        req.body.isStaff !== undefined ||
+        req.body.permissions !== undefined ||
+        req.body.privileges !== undefined ||
+        req.body.accountStatus !== undefined
+      ) {
+        authService.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+          userId: req.user.id,
+          userEmail: req.user.email,
+          role: req.user.role,
+          ipAddress: clientIp,
+          userAgent,
+          severity: 'CRITICAL',
+          details: {
+            reason: 'Attempted privilege escalation in profile creation endpoint.',
+            attemptedPayload: {
+              role: req.body.role,
+              isAdmin: req.body.isAdmin,
+              isSuperAdmin: req.body.isSuperAdmin,
+              superAdmin: req.body.superAdmin,
+              permissions: req.body.permissions,
+              accountStatus: req.body.accountStatus
+            }
+          }
+        });
+        return res.status(403).json({
+          success: false,
+          error: 'Unauthorized role modification attempt. Privilege escalation is strictly forbidden.',
+          code: 'PRIVILEGE_ESCALATION_BLOCKED'
+        });
+      }
+
+      // 4. Reject tampering with protected account state and security flags
+      if (
+        req.body.status !== undefined ||
+        req.body.securityFlags !== undefined ||
+        req.body.emailVerifiedAt !== undefined ||
+        req.body.emailVerified !== undefined ||
+        req.body.password !== undefined ||
+        req.body.passwordHash !== undefined ||
+        req.body.tier !== undefined ||
+        req.body.twoFactorEnabled !== undefined ||
+        req.body.twoFactorSecret !== undefined ||
+        req.body.twoFactorRecoveryCodes !== undefined ||
+        req.body.failedLoginAttempts !== undefined ||
+        req.body.lockedUntil !== undefined ||
+        req.body.createdAt !== undefined ||
+        req.body.updatedAt !== undefined ||
+        req.body.internalAudit !== undefined ||
+        req.body.audit !== undefined
+      ) {
+        authService.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+          userId: req.user.id,
+          userEmail: req.user.email,
+          role: req.user.role,
+          ipAddress: clientIp,
+          userAgent,
+          severity: 'WARNING',
+          details: {
+            reason: 'Attempted modification of protected account security fields in profile creation.'
+          }
+        });
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: Cannot modify protected account security flags or status via profile creation.',
+          code: 'PROTECTED_FIELD_VIOLATION'
+        });
+      }
+
+      // 5. Explicit Defense: User ID mismatch / IDOR guard
+      if (req.body.id !== undefined && req.body.id !== req.user.id) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: Specifying or modifying user ID is not permitted.',
+          code: 'FORBIDDEN'
+        });
+      }
+      if (req.body.userId !== undefined && req.body.userId !== req.user.id) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: Specifying or modifying user ID is not permitted.',
+          code: 'FORBIDDEN'
+        });
+      }
+
+      // 6. Check 1-to-1 Uniqueness before schema validation: If profile already exists -> 409
+      if (db.profiles.hasProfileForUser(req.user.id)) {
+        const existingProfile = db.profiles.getByUserId(req.user.id);
+        return res.status(409).json({
+          success: false,
+          error: 'A profile has already been created for this account.',
+          code: 'PROFILE_ALREADY_EXISTS',
+          profile: existingProfile
+        });
+      }
+
+      // 7. Schema Validation using CreateProfileSchema
+      const parseResult = CreateProfileSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        const validation = extractValidationErrors(parseResult.error);
+        return res.status(400).json({
+          success: false,
+          error: validation.error,
+          errors: validation.errors,
+          details: validation.details
+        });
+      }
+
+      // 8. Create profile via authService
+      const result = await authService.createProfile(req.user.id, parseResult.data, clientIp, userAgent);
+      return res.status(201).json({
+        success: true,
+        message: 'Profile created successfully.',
+        profile: result.profile,
+        user: result.user
+      });
+    } catch (err: any) {
+      if (err.code === 'PROFILE_ALREADY_EXISTS') {
+        return res.status(409).json({
+          success: false,
+          error: err.message || 'A profile has already been created for this account.',
+          code: 'PROFILE_ALREADY_EXISTS',
+          profile: err.profile
+        });
+      }
+      if (err.code === 'USERNAME_TAKEN') {
+        return res.status(409).json({
+          success: false,
+          error: err.message,
+          code: 'USERNAME_TAKEN'
+        });
+      }
+      if (err.code === 'PRIVILEGE_ESCALATION_BLOCKED' || err.code === 'PROTECTED_FIELD_VIOLATION' || err.status === 403) {
+        return res.status(403).json({
+          success: false,
+          error: err.message,
+          code: err.code || 'FORBIDDEN'
+        });
+      }
+      const message = err instanceof Error ? err.message : 'Profile creation failed';
+      return res.status(400).json({
+        success: false,
+        error: message
+      });
+    }
+  };
+
+  // Client own-profile creation endpoints (Epic 2 Task 2.1.1)
+  app.post('/api/client/profile', authenticate, handleProfileCreate);
+  app.post('/api/profile', authenticate, handleProfileCreate);
+  app.post('/api/users/profile', authenticate, handleProfileCreate);
+
+  // Client own-profile update endpoints (Epic 1 / Epic 2 Task 2.1.2)
   app.patch('/api/client/profile', authenticate, (req: AuthenticatedRequest, res) => {
     handleProfileUpdate(req, res, req.user!.id);
   });
 
   app.put('/api/client/profile', authenticate, (req: AuthenticatedRequest, res) => {
-    handleProfileUpdate(req, res, req.user!.id);
-  });
-
-  app.post('/api/client/profile', authenticate, (req: AuthenticatedRequest, res) => {
-    handleProfileUpdate(req, res, req.user!.id);
-  });
-
-  app.post('/api/users/profile', authenticate, (req: AuthenticatedRequest, res) => {
     handleProfileUpdate(req, res, req.user!.id);
   });
 
@@ -1497,6 +1804,407 @@ async function startServer() {
   app.put('/api/users/:id', authenticate, (req: AuthenticatedRequest, res) => {
     handleProfileUpdate(req, res, req.params.id);
   });
+
+  // ==========================================
+  // 2.3. CLIENT PROFILE PICTURE (Epic 2 Feature 2.1 Task 2.1.3)
+  // ==========================================
+  const handleProfileAvatarUpload = async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'browser';
+      const currentUser = req.user;
+
+      if (!currentUser) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      // Check session validity & revocation
+      if (req.sessionId) {
+        const session = db.sessions.get(req.sessionId);
+        if (!session || session.isRevoked || new Date(session.expiresAt).getTime() < Date.now()) {
+          return res.status(401).json({ success: false, error: 'Session is expired or revoked. Please log in again.' });
+        }
+      }
+
+      if (currentUser.role !== 'CLIENT') {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: Profile picture management is only available for CLIENT accounts.'
+        });
+      }
+
+      // Explicit Mass-Assignment & Privilege Escalation Defense:
+      // Reject any attempts to inject role, admin status, status, or other security fields
+      const combinedPayload = { ...req.query, ...req.body };
+      const forbiddenFields = [
+        'role', 'isAdmin', 'isSuperAdmin', 'superAdmin', 'isStaff',
+        'permissions', 'privileges', 'accountStatus', 'securityFlags',
+        'tier', 'emailVerified', 'emailVerifiedAt', 'passwordHash', 'password'
+      ];
+
+      for (const field of forbiddenFields) {
+        if (combinedPayload[field] !== undefined) {
+          securityMonitoringService.recordPrivilegeEscalationAttempt(
+            String(combinedPayload[field]),
+            currentUser.email,
+            clientIp,
+            userAgent,
+            `Privilege escalation attempt on avatar upload via field: ${field}`
+          );
+          return res.status(403).json({
+            success: false,
+            error: `Privilege escalation blocked: Field "${field}" cannot be modified via profile endpoints.`,
+            code: 'PRIVILEGE_ESCALATION_BLOCKED'
+          });
+        }
+      }
+
+      // IDOR Defense: Users cannot upload or replace avatar for any other account
+      const targetedUserId = req.params?.id || req.body?.userId || req.body?.id || req.query?.userId || req.query?.id;
+      if (targetedUserId && targetedUserId !== currentUser.id) {
+        authService.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+          userId: currentUser.id,
+          userEmail: currentUser.email,
+          role: currentUser.role,
+          ipAddress: clientIp,
+          userAgent,
+          severity: 'CRITICAL',
+          details: {
+            reason: 'IDOR attempt on avatar upload',
+            targetedUserId,
+            currentUserId: currentUser.id
+          }
+        });
+        return res.status(403).json({
+          success: false,
+          error: "Forbidden: You do not have permission to modify another user's profile picture.",
+          code: 'FORBIDDEN'
+        });
+      }
+
+      // Extract image data
+      let imageBuffer: Buffer | null = null;
+      let originalFilename = req.body?.filename || 'avatar.jpg';
+
+      if (req.body?.image && typeof req.body.image === 'string') {
+        let rawStr = req.body.image.trim();
+        // Handle data URL prefix (e.g. data:image/png;base64,...)
+        if (rawStr.startsWith('data:')) {
+          const commaIdx = rawStr.indexOf(',');
+          if (commaIdx !== -1) {
+            rawStr = rawStr.substring(commaIdx + 1);
+          }
+        }
+        try {
+          imageBuffer = Buffer.from(rawStr, 'base64');
+        } catch {
+          return res.status(400).json({ success: false, error: 'Invalid base64 image data' });
+        }
+      } else if (Buffer.isBuffer(req.body)) {
+        imageBuffer = req.body;
+      }
+
+      if (!imageBuffer || imageBuffer.length === 0) {
+        return res.status(400).json({ success: false, error: 'No image file provided or file is empty' });
+      }
+
+      // File size limit check: 5MB
+      if (imageBuffer.length > storageService.MAX_AVATAR_SIZE_BYTES) {
+        return res.status(413).json({
+          success: false,
+          error: `File size (${(imageBuffer.length / (1024 * 1024)).toFixed(2)}MB) exceeds the 5MB maximum limit.`,
+          code: 'FILE_TOO_LARGE'
+        });
+      }
+
+      // File signature / content validation
+      const validation = storageService.validateImageBuffer(imageBuffer);
+      if (!validation.isValid || !validation.format) {
+        return res.status(400).json({
+          success: false,
+          error: validation.error || 'Invalid or unsupported image file.',
+          code: validation.code || 'UNSUPPORTED_FILE_TYPE'
+        });
+      }
+
+      const result = await authService.uploadProfileAvatar(
+        currentUser.id,
+        {
+          buffer: imageBuffer,
+          originalFilename,
+          mimeType: validation.mimeType
+        },
+        clientIp,
+        userAgent
+      );
+
+      return res.json({
+        success: true,
+        message: 'Profile picture updated successfully',
+        avatarUrl: result.avatarUrl,
+        avatarKey: result.avatarKey,
+        user: result.user,
+        profile: result.profile
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to update profile picture';
+      const statusCode = message.includes('Rate limit') ? 429 : 400;
+      return res.status(statusCode).json({ success: false, error: message });
+    }
+  };
+
+  const handleProfileAvatarRemove = async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'browser';
+      const currentUser = req.user;
+
+      if (!currentUser) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      // Check session validity & revocation
+      if (req.sessionId) {
+        const session = db.sessions.get(req.sessionId);
+        if (!session || session.isRevoked || new Date(session.expiresAt).getTime() < Date.now()) {
+          return res.status(401).json({ success: false, error: 'Session is expired or revoked. Please log in again.' });
+        }
+      }
+
+      if (currentUser.role !== 'CLIENT') {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: Profile picture management is only available for CLIENT accounts.'
+        });
+      }
+
+      // Explicit Mass-Assignment & Privilege Escalation Defense:
+      const combinedPayload = { ...req.query, ...req.body };
+      const forbiddenFields = [
+        'role', 'isAdmin', 'isSuperAdmin', 'superAdmin', 'isStaff',
+        'permissions', 'privileges', 'accountStatus', 'securityFlags',
+        'tier', 'emailVerified', 'emailVerifiedAt', 'passwordHash', 'password'
+      ];
+
+      for (const field of forbiddenFields) {
+        if (combinedPayload[field] !== undefined) {
+          securityMonitoringService.recordPrivilegeEscalationAttempt(
+            String(combinedPayload[field]),
+            currentUser.email,
+            clientIp,
+            userAgent,
+            `Privilege escalation attempt on avatar remove via field: ${field}`
+          );
+          return res.status(403).json({
+            success: false,
+            error: `Privilege escalation blocked: Field "${field}" cannot be modified via profile endpoints.`,
+            code: 'PRIVILEGE_ESCALATION_BLOCKED'
+          });
+        }
+      }
+
+      // IDOR Defense
+      const targetedUserId = req.params?.id || req.body?.userId || req.body?.id || req.query?.userId || req.query?.id;
+      if (targetedUserId && targetedUserId !== currentUser.id) {
+        return res.status(403).json({
+          success: false,
+          error: "Forbidden: You do not have permission to modify another user's profile picture.",
+          code: 'FORBIDDEN'
+        });
+      }
+
+      const result = await authService.removeProfileAvatar(currentUser.id, clientIp, userAgent);
+
+      return res.json({
+        success: true,
+        message: 'Profile picture removed successfully',
+        user: result.user,
+        profile: result.profile
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to remove profile picture';
+      return res.status(400).json({ success: false, error: message });
+    }
+  };
+
+  // Upload/replace avatar endpoints
+  app.post('/api/client/profile/avatar', authenticate, handleProfileAvatarUpload);
+  app.post('/api/users/profile/avatar', authenticate, handleProfileAvatarUpload);
+  app.post('/api/users/me/avatar', authenticate, handleProfileAvatarUpload);
+  app.put('/api/client/profile/avatar', authenticate, handleProfileAvatarUpload);
+  app.post('/api/users/:id/avatar', authenticate, (req: AuthenticatedRequest, res) => {
+    handleProfileAvatarUpload(req, res);
+  });
+
+  // Remove avatar endpoints
+  app.delete('/api/client/profile/avatar', authenticate, handleProfileAvatarRemove);
+  app.delete('/api/users/profile/avatar', authenticate, handleProfileAvatarRemove);
+  app.delete('/api/users/me/avatar', authenticate, handleProfileAvatarRemove);
+  app.delete('/api/users/:id/avatar', authenticate, (req: AuthenticatedRequest, res) => {
+    handleProfileAvatarRemove(req, res);
+  });
+
+  // Secure Media Serving Route
+  app.get('/api/media/avatar/:filename', (req, res) => {
+    const filename = req.params.filename;
+    const resolvedPath = storageService.resolveAvatarPath(filename);
+
+    if (!resolvedPath) {
+      return res.status(404).json({ success: false, error: 'Avatar not found or invalid filename' });
+    }
+
+    const ext = path.extname(resolvedPath).toLowerCase();
+    let contentType = 'image/jpeg';
+    if (ext === '.png') contentType = 'image/png';
+    else if (ext === '.webp') contentType = 'image/webp';
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+
+    res.sendFile(resolvedPath);
+  });
+
+  // ==========================================
+  // 2.4. CLIENT CONTACT INFORMATION (Epic 2 Feature 2.1 Task 2.1.4)
+  // ==========================================
+  const handleGetContactInfo = async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const currentUser = req.user;
+      if (!currentUser) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      // Check session validity & revocation
+      if (req.sessionId) {
+        const session = db.sessions.get(req.sessionId);
+        if (!session || session.isRevoked || new Date(session.expiresAt).getTime() < Date.now()) {
+          return res.status(401).json({ success: false, error: 'Session is expired or revoked. Please log in again.' });
+        }
+      }
+
+      if (currentUser.role !== 'CLIENT') {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: Personal contact information is only available for CLIENT accounts.'
+        });
+      }
+
+      const contact = await authService.getContactInfo(currentUser.id);
+      res.json({
+        success: true,
+        contact
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to retrieve contact information';
+      res.status(400).json({ success: false, error: message });
+    }
+  };
+
+  const handleUpdateContactInfo = async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = (req.headers['user-agent'] as string) || 'browser';
+      const currentUser = req.user;
+
+      if (!currentUser) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      // Check session validity & revocation
+      if (req.sessionId) {
+        const session = db.sessions.get(req.sessionId);
+        if (!session || session.isRevoked || new Date(session.expiresAt).getTime() < Date.now()) {
+          return res.status(401).json({ success: false, error: 'Session is expired or revoked. Please log in again.' });
+        }
+      }
+
+      if (currentUser.role !== 'CLIENT') {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: Personal contact information management is only available for CLIENT accounts.'
+        });
+      }
+
+      // Explicit Mass-Assignment & Privilege Escalation Defense
+      const combinedPayload = { ...req.query, ...req.body };
+      const forbiddenFields = [
+        'role', 'isAdmin', 'isSuperAdmin', 'superAdmin', 'isStaff',
+        'permissions', 'privileges', 'accountStatus', 'securityFlags',
+        'tier', 'emailVerified', 'emailVerifiedAt', 'passwordHash', 'password',
+        'id', 'userId', 'status', 'twoFactorEnabled', 'twoFactorSecret'
+      ];
+
+      for (const field of forbiddenFields) {
+        if (combinedPayload[field] !== undefined) {
+          securityMonitoringService.recordPrivilegeEscalationAttempt(
+            String(combinedPayload[field]),
+            currentUser.email,
+            clientIp,
+            userAgent,
+            `Privilege escalation attempt on contact info update via field: ${field}`
+          );
+          return res.status(403).json({
+            success: false,
+            error: `Privilege escalation blocked: Field "${field}" cannot be modified via contact info endpoints.`,
+            code: 'PRIVILEGE_ESCALATION_BLOCKED'
+          });
+        }
+      }
+
+      // Reject attempting to modify primary login email (user.email) via contact info
+      if (req.body.email !== undefined && String(req.body.email).toLowerCase().trim() !== currentUser.email.toLowerCase().trim()) {
+        return res.status(400).json({
+          success: false,
+          error: 'Primary account authentication email is immutable via contact endpoints.',
+          code: 'EMAIL_IMMUTABLE'
+        });
+      }
+
+      // Schema Validation
+      const validation = ContactInfoSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({
+          success: false,
+          error: formatZodError(validation.error)
+        });
+      }
+
+      const result = await authService.updateContactInfo(
+        currentUser.id,
+        {
+          phone: validation.data.phone,
+          contactEmail: validation.data.contactEmail
+        },
+        clientIp,
+        userAgent
+      );
+
+      res.json({
+        success: true,
+        contact: result.contact,
+        user: result.user,
+        profile: result.profile
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to update contact information';
+      const isForbidden = message.toLowerCase().includes('forbidden') || message.toLowerCase().includes('unauthorized');
+      res.status(isForbidden ? 403 : 400).json({
+        success: false,
+        error: message
+      });
+    }
+  };
+
+  // Contact Info Endpoints (Epic 2 Task 2.1.4)
+  app.get('/api/client/profile/contact', authenticate, handleGetContactInfo);
+  app.put('/api/client/profile/contact', authenticate, handleUpdateContactInfo);
+  app.patch('/api/client/profile/contact', authenticate, handleUpdateContactInfo);
+  app.get('/api/users/profile/contact', authenticate, handleGetContactInfo);
+  app.put('/api/users/profile/contact', authenticate, handleUpdateContactInfo);
+  app.patch('/api/users/profile/contact', authenticate, handleUpdateContactInfo);
 
   // ==========================================
   // 3. CATEGORIES & TAXONOMY
