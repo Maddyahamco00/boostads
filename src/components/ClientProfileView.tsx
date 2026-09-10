@@ -21,6 +21,7 @@ import {
   Calendar,
   Check,
   Building,
+  Building2,
   UserCheck,
   Camera,
   Upload,
@@ -35,7 +36,7 @@ import { SecuritySettingsModal } from './SecuritySettingsModal';
 import { validatePhoneNumber, normalizePhoneNumber, formatPhoneDisplay } from '../lib/phoneUtils';
 
 export const ClientProfileView: React.FC = () => {
-  const { currentUser, setCurrentUser, isAuthenticated, setActiveView } = useApp();
+  const { currentUser, setCurrentUser, isAuthenticated, setActiveView, businesses } = useApp();
 
   // Profile data state
   const [profile, setProfile] = useState<UserProfile>(currentUser);
@@ -1296,6 +1297,49 @@ export const ClientProfileView: React.FC = () => {
 
           {/* Right Column: Account Security State & Controls */}
           <div className="space-y-6">
+
+            {/* Business Profile Card (Epic 2 Feature 2.2 Task 2.2.1) */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
+              <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
+                <Building2 className="w-5 h-5 text-[#16C784]" />
+                <h3 className="text-base font-bold text-slate-900">Business Profile</h3>
+              </div>
+
+              {profile.businessId ? (
+                <div className="space-y-3">
+                  <div className="p-3.5 bg-emerald-50/70 border border-emerald-200 rounded-xl">
+                    <div className="text-xs font-semibold text-emerald-900">
+                      {businesses.find(b => b.id === profile.businessId)?.name || 'Registered Business'}
+                    </div>
+                    <div className="text-[11px] text-emerald-700 mt-0.5">
+                      Business profile established and linked to your account.
+                    </div>
+                  </div>
+                  <button
+                    id="profile-view-merchant-hub-btn"
+                    onClick={() => setActiveView('merchant_dashboard')}
+                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-medium text-xs rounded-xl transition-colors cursor-pointer"
+                  >
+                    <Building2 className="w-3.5 h-3.5" />
+                    Open Merchant Business Hub
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    You haven't established a business profile on Boost Market yet. Create one now to start listing and showcasing your business.
+                  </p>
+                  <button
+                    id="profile-create-business-btn"
+                    onClick={() => setActiveView('create_business')}
+                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-[#16C784] hover:bg-[#14b376] text-white font-semibold text-xs rounded-xl shadow-sm transition-colors cursor-pointer"
+                  >
+                    <Building2 className="w-3.5 h-3.5" />
+                    Create Business
+                  </button>
+                </div>
+              )}
+            </div>
 
             {/* Security Health Summary Card */}
             <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">

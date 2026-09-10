@@ -28,6 +28,9 @@ import {
   CreateProfileSchema,
   AvatarUploadSchema,
   ContactInfoSchema,
+  CreateBusinessSchema,
+  PROTECTED_BUSINESS_FIELDS,
+  generateBusinessSlug,
   formatZodError,
   extractValidationErrors 
 } from './src/server/validators/authValidators';
@@ -43,6 +46,7 @@ import { refundService } from './src/server/services/refundService';
 import { providerService } from './src/server/services/providerService';
 import { auditService } from './src/server/services/auditService';
 import { testRunnerService } from './src/server/services/testRunnerService';
+import { businessService, BusinessServiceError } from './src/server/services/businessService';
 import { advertisingCampaignService } from './src/server/services/advertisingCampaignService';
 import { leadService } from './src/server/services/leadService';
 import { 
@@ -1267,6 +1271,109 @@ async function startServer() {
     }
   });
 
+  // Dedicated Epic 2 Task 2.2.1 Create Business Test Runner
+  app.post('/api/tests/business-create', async (req, res) => {
+    try {
+      const result = await authTestRunnerService.runCreateBusinessTestOnly();
+      res.json({ success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  app.get('/api/tests/business-create', async (req, res) => {
+    try {
+      const result = await authTestRunnerService.runCreateBusinessTestOnly();
+      res.json({ success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  // Dedicated Epic 2 Task 2.2.2 Business Logo Test Runner
+  app.post('/api/tests/business-logo', async (req, res) => {
+    try {
+      const result = await authTestRunnerService.runBusinessLogoTestOnly();
+      res.json({ success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  app.get('/api/tests/business-logo', async (req, res) => {
+    try {
+      const result = await authTestRunnerService.runBusinessLogoTestOnly();
+      res.json({ success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  // Dedicated Epic 2 Task 2.2.3 Business Cover Image Test Runner
+  app.post('/api/tests/business-cover', async (req, res) => {
+    try {
+      const result = await authTestRunnerService.runBusinessCoverTestOnly();
+      res.json({ success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  app.get('/api/tests/business-cover', async (req, res) => {
+    try {
+      const result = await authTestRunnerService.runBusinessCoverTestOnly();
+      res.json({ success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  app.get('/api/tests/business-description', async (req, res) => {
+    try {
+      const result = await authTestRunnerService.runBusinessDescriptionTestOnly();
+      res.json({ success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  app.post('/api/tests/business-description', async (req, res) => {
+    try {
+      const result = await authTestRunnerService.runBusinessDescriptionTestOnly();
+      res.json({ success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  app.get('/api/tests/business-location', async (req, res) => {
+    try {
+      const result = await authTestRunnerService.runBusinessLocationTestOnly();
+      res.json({ success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  app.post('/api/tests/business-location', async (req, res) => {
+    try {
+      const result = await authTestRunnerService.runBusinessLocationTestOnly();
+      res.json({ success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
   // Dedicated Client Password Change & Security Controls Test Runner
   app.post('/api/tests/password-security', async (req, res) => {
     try {
@@ -2310,77 +2417,898 @@ async function startServer() {
     });
   });
 
-  app.post('/api/businesses/create', (req, res) => {
+  /**
+   * Epic 2 Feature 2.2 Task 2.2.1: Business Creation Handler
+   * - Authentication mandatory (enforced via authenticate middleware)
+   * - Owner derived strictly from authenticated session (never trust client ownerId/userId)
+   * - Whitelist ONLY writable field: "name"
+   * - Mass assignment protection: explicitly reject protected/system fields with 403 Forbidden
+   * - Validates business name (length, characters, non-empty, trimmed)
+   * - Derives safe slug
+   * - Atomically persists in DatabaseStore and links to authenticated user (user.businessId, clientType='business')
+   * - Emits audit log
+   * - Returns safe response without sensitive internals
+   */
+  const handleBusinessCreate = async (req: AuthenticatedRequest, res: express.Response) => {
     try {
-      const {
-        ownerId,
-        name,
-        tagline,
-        description,
-        logoUrl,
-        coverImageUrl,
-        category,
-        subcategories,
-        location,
-        phone,
-        whatsapp,
-        email,
-        website,
-        openingHours
-      } = req.body;
-
-      if (!name || !category || !phone) {
-        return res.status(400).json({ success: false, error: 'Name, Category, and Phone are required' });
+      const currentUser = req.user;
+      if (!currentUser) {
+        return res.status(401).json({
+          success: false,
+          error: 'Authentication required to create a business profile.',
+          code: 'UNAUTHORIZED'
+        });
       }
 
-      const slug = name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-');
-      const id = `biz_${Date.now()}`;
-
-      const newBiz: Business = {
-        id,
-        ownerId: ownerId || 'usr_maddy_ceo',
-        name,
-        slug,
-        tagline: tagline || 'Verified Boost Market Business',
-        description: description || '',
-        logoUrl: logoUrl || 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=200&auto=format&fit=crop&q=80',
-        coverImageUrl: coverImageUrl || 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=1200&auto=format&fit=crop&q=80',
-        category,
-        categoryLabel: category.replace('_', ' ').toUpperCase(),
-        subcategories: Array.isArray(subcategories) ? subcategories : [],
-        location: location || { city: 'Kaduna', state: 'Kaduna State', country: 'Nigeria', lat: 10.5105, lng: 7.4165, serviceAreaKm: 50 },
-        phone,
-        whatsapp: whatsapp || phone,
-        email: email || `${slug}@boostmarket.ng`,
-        website,
-        openingHours: openingHours || [
-          { day: 'Mon - Fri', hours: '08:00 AM - 06:00 PM', isOpen: true },
-          { day: 'Saturday', hours: '09:00 AM - 04:00 PM', isOpen: true },
-          { day: 'Sunday', hours: 'Closed', isOpen: false }
-        ],
-        rating: 5.0,
-        reviewCount: 1,
-        isVerified: true,
-        tier: 'free',
-        featured: false,
-        stats: { views: 1, leads: 0, conversions: 0, totalRevenue: 0 },
-        createdAt: new Date().toISOString()
-      };
-
-      db.businesses.set(id, newBiz);
-
-      // Link to owner
-      if (ownerId && db.users.has(ownerId)) {
-        const u = db.users.get(ownerId)!;
-        u.businessId = id;
-        u.clientType = 'business';
+      // Check session validity & revocation
+      if (req.sessionId) {
+        const session = db.sessions.get(req.sessionId);
+        if (!session || session.isRevoked || new Date(session.expiresAt).getTime() < Date.now()) {
+          return res.status(401).json({
+            success: false,
+            error: 'Session has expired or has been revoked. Please log in again.',
+            code: 'SESSION_REVOKED'
+          });
+        }
       }
 
-      auditService.log('BUSINESS_CREATED', id, ownerId || 'user', 'merchant', { businessName: name });
-      res.json({ success: true, business: newBiz });
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = (req.headers['user-agent'] as string) || 'browser';
+
+      const result = await businessService.createBusiness(
+        currentUser.id,
+        req.body || {},
+        clientIp,
+        userAgent
+      );
+
+      return res.status(201).json(result);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      res.status(500).json({ success: false, error: message });
+      if (err instanceof BusinessServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code,
+          details: err.details
+        });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to create business';
+      return res.status(400).json({
+        success: false,
+        error: message
+      });
+    }
+  };
+
+  // Business Creation Endpoints (Epic 2 Feature 2.2 Task 2.2.1)
+  app.post('/api/businesses', authenticate, handleBusinessCreate);
+  app.post('/api/businesses/create', authenticate, handleBusinessCreate);
+
+  // Business Logo Management Handlers (Epic 2 Feature 2.2 Task 2.2.2)
+  const handleBusinessLogoUpload = async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const currentUser = req.user;
+      if (!currentUser) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      // Check session validity & revocation
+      if (req.sessionId) {
+        const session = db.sessions.get(req.sessionId);
+        if (!session || session.isRevoked || new Date(session.expiresAt).getTime() < Date.now()) {
+          return res.status(401).json({
+            success: false,
+            error: 'Session has expired or has been revoked. Please log in again.',
+            code: 'SESSION_REVOKED'
+          });
+        }
+      }
+
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = (req.headers['user-agent'] as string) || 'browser';
+
+      // Mass-assignment / privilege escalation defense
+      const combinedPayload = { ...req.query, ...req.body };
+      for (const field of PROTECTED_BUSINESS_FIELDS) {
+        if (combinedPayload[field] !== undefined) {
+          authService.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+            userId: currentUser.id,
+            userEmail: currentUser.email,
+            ipAddress: clientIp,
+            userAgent,
+            details: {
+              reason: `Attempted mass assignment on logo upload via field: ${field}`,
+              field
+            }
+          });
+          return res.status(403).json({
+            success: false,
+            error: `Unauthorized attempt to set protected field: "${field}".`,
+            code: 'PRIVILEGE_ESCALATION_BLOCKED'
+          });
+        }
+      }
+
+      // IDOR / Spoofing defense in payload
+      if (combinedPayload.ownerId !== undefined && combinedPayload.ownerId !== currentUser.id) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: You cannot specify or spoof ownerId.',
+          code: 'FORBIDDEN_OWNER_OVERRIDE'
+        });
+      }
+      if (combinedPayload.userId !== undefined && combinedPayload.userId !== currentUser.id) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: You cannot specify or spoof userId.',
+          code: 'FORBIDDEN_OWNER_OVERRIDE'
+        });
+      }
+
+      const businessId = req.params.id || req.body?.businessId;
+      if (!businessId) {
+        return res.status(400).json({ success: false, error: 'Business ID is required', code: 'MISSING_BUSINESS_ID' });
+      }
+
+      // Extract image data
+      let imageBuffer: Buffer | null = null;
+      let originalFilename = req.body?.filename || 'logo.jpg';
+
+      if (req.body?.image && typeof req.body.image === 'string') {
+        let rawStr = req.body.image.trim();
+        if (rawStr.startsWith('data:')) {
+          const commaIdx = rawStr.indexOf(',');
+          if (commaIdx !== -1) {
+            rawStr = rawStr.substring(commaIdx + 1);
+          }
+        }
+        try {
+          imageBuffer = Buffer.from(rawStr, 'base64');
+        } catch {
+          return res.status(400).json({ success: false, error: 'Invalid base64 image data' });
+        }
+      } else if (Buffer.isBuffer(req.body)) {
+        imageBuffer = req.body;
+      }
+
+      if (!imageBuffer || imageBuffer.length === 0) {
+        return res.status(400).json({ success: false, error: 'No image file provided or file is empty' });
+      }
+
+      // Pre-check size limit: 5MB
+      if (imageBuffer.length > storageService.MAX_AVATAR_SIZE_BYTES) {
+        return res.status(413).json({
+          success: false,
+          error: `File size (${(imageBuffer.length / (1024 * 1024)).toFixed(2)}MB) exceeds the 5MB maximum limit.`,
+          code: 'FILE_TOO_LARGE'
+        });
+      }
+
+      const result = await businessService.uploadBusinessLogo(
+        currentUser.id,
+        businessId,
+        { buffer: imageBuffer, originalFilename },
+        clientIp,
+        userAgent
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: 'Business logo updated successfully',
+        logoUrl: result.logoUrl,
+        logoKey: result.logoKey,
+        business: result.business
+      });
+    } catch (err: unknown) {
+      if (err instanceof BusinessServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code,
+          details: err.details
+        });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to upload business logo';
+      return res.status(400).json({ success: false, error: message });
+    }
+  };
+
+  const handleBusinessLogoRemove = async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const currentUser = req.user;
+      if (!currentUser) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      // Check session validity & revocation
+      if (req.sessionId) {
+        const session = db.sessions.get(req.sessionId);
+        if (!session || session.isRevoked || new Date(session.expiresAt).getTime() < Date.now()) {
+          return res.status(401).json({
+            success: false,
+            error: 'Session has expired or has been revoked. Please log in again.',
+            code: 'SESSION_REVOKED'
+          });
+        }
+      }
+
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = (req.headers['user-agent'] as string) || 'browser';
+
+      // Mass-assignment / privilege escalation defense
+      const combinedPayload = { ...req.query, ...req.body };
+      for (const field of PROTECTED_BUSINESS_FIELDS) {
+        if (combinedPayload[field] !== undefined) {
+          return res.status(403).json({
+            success: false,
+            error: `Unauthorized attempt to set protected field: "${field}".`,
+            code: 'PRIVILEGE_ESCALATION_BLOCKED'
+          });
+        }
+      }
+
+      const businessId = req.params.id || req.body?.businessId;
+      if (!businessId) {
+        return res.status(400).json({ success: false, error: 'Business ID is required', code: 'MISSING_BUSINESS_ID' });
+      }
+
+      const result = await businessService.removeBusinessLogo(
+        currentUser.id,
+        businessId,
+        clientIp,
+        userAgent
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: 'Business logo removed successfully',
+        business: result.business
+      });
+    } catch (err: unknown) {
+      if (err instanceof BusinessServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code,
+          details: err.details
+        });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to remove business logo';
+      return res.status(400).json({ success: false, error: message });
+    }
+  };
+
+  // Business Logo Endpoints (Epic 2 Feature 2.2 Task 2.2.2)
+  app.post('/api/businesses/:id/logo', authenticate, handleBusinessLogoUpload);
+  app.put('/api/businesses/:id/logo', authenticate, handleBusinessLogoUpload);
+  app.delete('/api/businesses/:id/logo', authenticate, handleBusinessLogoRemove);
+
+  // Secure Business Logo Media Serving Route
+  app.get('/api/media/logo/:filename', (req, res) => {
+    const filename = req.params.filename;
+    const resolvedPath = storageService.resolveBusinessLogoPath(filename);
+
+    if (!resolvedPath) {
+      return res.status(404).json({ success: false, error: 'Logo not found or invalid filename' });
+    }
+
+    const ext = path.extname(resolvedPath).toLowerCase();
+    let contentType = 'image/jpeg';
+    if (ext === '.png') contentType = 'image/png';
+    else if (ext === '.webp') contentType = 'image/webp';
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+
+    res.sendFile(resolvedPath);
+  });
+
+  // Business Cover Image Management Handlers (Epic 2 Feature 2.2 Task 2.2.3)
+  const handleBusinessCoverUpload = async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const currentUser = req.user;
+      if (!currentUser) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      // Check session validity & revocation
+      if (req.sessionId) {
+        const session = db.sessions.get(req.sessionId);
+        if (!session || session.isRevoked || new Date(session.expiresAt).getTime() < Date.now()) {
+          return res.status(401).json({
+            success: false,
+            error: 'Session has expired or has been revoked. Please log in again.',
+            code: 'SESSION_REVOKED'
+          });
+        }
+      }
+
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = (req.headers['user-agent'] as string) || 'browser';
+
+      // Mass-assignment / privilege escalation defense
+      const combinedPayload = { ...req.query, ...req.body };
+      for (const field of PROTECTED_BUSINESS_FIELDS) {
+        if (combinedPayload[field] !== undefined) {
+          authService.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+            userId: currentUser.id,
+            userEmail: currentUser.email,
+            ipAddress: clientIp,
+            userAgent,
+            details: {
+              reason: `Attempted mass assignment on cover upload via field: ${field}`,
+              field
+            }
+          });
+          return res.status(403).json({
+            success: false,
+            error: `Unauthorized attempt to set protected field: "${field}".`,
+            code: 'PRIVILEGE_ESCALATION_BLOCKED'
+          });
+        }
+      }
+
+      // IDOR / Spoofing defense in payload
+      if (combinedPayload.ownerId !== undefined && combinedPayload.ownerId !== currentUser.id) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: You cannot specify or spoof ownerId.',
+          code: 'FORBIDDEN_OWNER_OVERRIDE'
+        });
+      }
+      if (combinedPayload.userId !== undefined && combinedPayload.userId !== currentUser.id) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: You cannot specify or spoof userId.',
+          code: 'FORBIDDEN_OWNER_OVERRIDE'
+        });
+      }
+
+      const businessId = req.params.id || req.body?.businessId;
+      if (!businessId) {
+        return res.status(400).json({ success: false, error: 'Business ID is required', code: 'MISSING_BUSINESS_ID' });
+      }
+
+      // Extract image data
+      let imageBuffer: Buffer | null = null;
+      let originalFilename = req.body?.filename || 'cover.jpg';
+
+      if (req.body?.image && typeof req.body.image === 'string') {
+        let rawStr = req.body.image.trim();
+        if (rawStr.startsWith('data:')) {
+          const commaIdx = rawStr.indexOf(',');
+          if (commaIdx !== -1) {
+            rawStr = rawStr.substring(commaIdx + 1);
+          }
+        }
+        try {
+          imageBuffer = Buffer.from(rawStr, 'base64');
+        } catch {
+          return res.status(400).json({ success: false, error: 'Invalid base64 image data' });
+        }
+      } else if (Buffer.isBuffer(req.body)) {
+        imageBuffer = req.body;
+      }
+
+      if (!imageBuffer || imageBuffer.length === 0) {
+        return res.status(400).json({ success: false, error: 'No image file provided or file is empty' });
+      }
+
+      // Pre-check size limit: 5MB
+      if (imageBuffer.length > storageService.MAX_AVATAR_SIZE_BYTES) {
+        return res.status(413).json({
+          success: false,
+          error: `File size (${(imageBuffer.length / (1024 * 1024)).toFixed(2)}MB) exceeds the 5MB maximum limit.`,
+          code: 'FILE_TOO_LARGE'
+        });
+      }
+
+      const result = await businessService.uploadBusinessCover(
+        currentUser.id,
+        businessId,
+        { buffer: imageBuffer, originalFilename },
+        clientIp,
+        userAgent
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: 'Business cover image updated successfully',
+        coverUrl: result.coverUrl,
+        coverKey: result.coverKey,
+        business: result.business
+      });
+    } catch (err: unknown) {
+      if (err instanceof BusinessServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code,
+          details: err.details
+        });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to upload business cover image';
+      return res.status(400).json({ success: false, error: message });
+    }
+  };
+
+  const handleBusinessCoverRemove = async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const currentUser = req.user;
+      if (!currentUser) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      // Check session validity & revocation
+      if (req.sessionId) {
+        const session = db.sessions.get(req.sessionId);
+        if (!session || session.isRevoked || new Date(session.expiresAt).getTime() < Date.now()) {
+          return res.status(401).json({
+            success: false,
+            error: 'Session has expired or has been revoked. Please log in again.',
+            code: 'SESSION_REVOKED'
+          });
+        }
+      }
+
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = (req.headers['user-agent'] as string) || 'browser';
+
+      // Mass-assignment / privilege escalation defense
+      const combinedPayload = { ...req.query, ...req.body };
+      for (const field of PROTECTED_BUSINESS_FIELDS) {
+        if (combinedPayload[field] !== undefined) {
+          return res.status(403).json({
+            success: false,
+            error: `Unauthorized attempt to set protected field: "${field}".`,
+            code: 'PRIVILEGE_ESCALATION_BLOCKED'
+          });
+        }
+      }
+
+      const businessId = req.params.id || req.body?.businessId;
+      if (!businessId) {
+        return res.status(400).json({ success: false, error: 'Business ID is required', code: 'MISSING_BUSINESS_ID' });
+      }
+
+      const result = await businessService.removeBusinessCover(
+        currentUser.id,
+        businessId,
+        clientIp,
+        userAgent
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: 'Business cover image removed successfully',
+        business: result.business
+      });
+    } catch (err: unknown) {
+      if (err instanceof BusinessServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code,
+          details: err.details
+        });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to remove business cover image';
+      return res.status(400).json({ success: false, error: message });
+    }
+  };
+
+  // Business Cover Image Endpoints (Epic 2 Feature 2.2 Task 2.2.3)
+  app.post('/api/businesses/:id/cover', authenticate, handleBusinessCoverUpload);
+  app.put('/api/businesses/:id/cover', authenticate, handleBusinessCoverUpload);
+  app.delete('/api/businesses/:id/cover', authenticate, handleBusinessCoverRemove);
+
+  // Secure Business Cover Image Media Serving Route
+  app.get('/api/media/cover/:filename', (req, res) => {
+    const filename = req.params.filename;
+    const resolvedPath = storageService.resolveBusinessCoverPath(filename);
+
+    if (!resolvedPath) {
+      return res.status(404).json({ success: false, error: 'Cover image not found or invalid filename' });
+    }
+
+    const ext = path.extname(resolvedPath).toLowerCase();
+    let contentType = 'image/jpeg';
+    if (ext === '.png') contentType = 'image/png';
+    else if (ext === '.webp') contentType = 'image/webp';
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+
+    res.sendFile(resolvedPath);
+  });
+
+  // Business Description Management Handler (Epic 2 Feature 2.2 Task 2.2.4)
+  const handleBusinessDescriptionUpdate = async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const currentUser = req.user;
+      if (!currentUser) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      // Check session validity & revocation
+      if (req.sessionId) {
+        const session = db.sessions.get(req.sessionId);
+        if (!session || session.isRevoked || new Date(session.expiresAt).getTime() < Date.now()) {
+          return res.status(401).json({
+            success: false,
+            error: 'Session has expired or has been revoked. Please log in again.',
+            code: 'SESSION_REVOKED'
+          });
+        }
+      }
+
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = (req.headers['user-agent'] as string) || 'browser';
+
+      // Mass-assignment / privilege escalation defense
+      const combinedPayload = { ...req.query, ...req.body };
+      for (const field of PROTECTED_BUSINESS_FIELDS) {
+        if (combinedPayload[field] !== undefined) {
+          authService.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+            userId: currentUser.id,
+            userEmail: currentUser.email,
+            ipAddress: clientIp,
+            userAgent,
+            details: {
+              reason: `Attempted mass assignment on description update via field: ${field}`,
+              field
+            }
+          });
+          return res.status(403).json({
+            success: false,
+            error: `Unauthorized attempt to set protected field: "${field}".`,
+            code: 'PRIVILEGE_ESCALATION_BLOCKED'
+          });
+        }
+      }
+
+      // IDOR / Spoofing defense in payload
+      if (combinedPayload.ownerId !== undefined && combinedPayload.ownerId !== currentUser.id) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: You cannot specify or spoof ownerId.',
+          code: 'FORBIDDEN_OWNER_OVERRIDE'
+        });
+      }
+      if (combinedPayload.userId !== undefined && combinedPayload.userId !== currentUser.id) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: You cannot specify or spoof userId.',
+          code: 'FORBIDDEN_OWNER_OVERRIDE'
+        });
+      }
+
+      const businessId = req.params.id || req.body?.businessId;
+      if (!businessId) {
+        return res.status(400).json({ success: false, error: 'Business ID is required', code: 'MISSING_BUSINESS_ID' });
+      }
+
+      const description = req.body?.description;
+
+      const result = await businessService.updateBusinessDescription(
+        currentUser.id,
+        businessId,
+        description,
+        clientIp,
+        userAgent
+      );
+
+      return res.status(200).json(result);
+    } catch (err: unknown) {
+      if (err instanceof BusinessServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code,
+          details: err.details
+        });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to update business description';
+      return res.status(400).json({ success: false, error: message });
+    }
+  };
+
+  app.put('/api/businesses/:id/description', authenticate, handleBusinessDescriptionUpdate);
+  app.patch('/api/businesses/:id/description', authenticate, handleBusinessDescriptionUpdate);
+
+  // ==========================================
+  // Epic 2 Feature 2.2 Task 2.2.5: Business Categories
+  // ==========================================
+  app.get('/api/businesses/:id/categories', async (req: express.Request, res: express.Response) => {
+    try {
+      const businessId = req.params.id;
+      const business = db.getBusinessById(businessId);
+      if (!business) {
+        return res.status(404).json({ success: false, error: 'Business not found', code: 'BUSINESS_NOT_FOUND' });
+      }
+
+      const bcs = db.getBusinessCategories(businessId);
+      const configs = db.getBusinessCategoryConfigs(businessId);
+      const categoryIds = (business.categories && business.categories.length > 0)
+        ? business.categories
+        : bcs.map(bc => bc.categoryId);
+
+      return res.json({
+        success: true,
+        businessId,
+        categories: configs,
+        categoryIds,
+        businessCategories: bcs
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to retrieve categories';
+      return res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  const handleBusinessCategoriesUpdate = async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const currentUser = req.user;
+      if (!currentUser) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'unknown';
+
+      // Mass-assignment / privilege escalation defense
+      const combinedPayload = { ...req.query, ...req.body };
+      for (const field of PROTECTED_BUSINESS_FIELDS) {
+        if (combinedPayload[field] !== undefined) {
+          authService.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+            userId: currentUser.id,
+            userEmail: currentUser.email,
+            ipAddress: clientIp,
+            userAgent,
+            details: {
+              reason: `Attempted mass assignment on categories update via field: ${field}`,
+              field
+            }
+          });
+          return res.status(403).json({
+            success: false,
+            error: `Unauthorized attempt to set protected field: "${field}".`,
+            code: 'PRIVILEGE_ESCALATION_BLOCKED'
+          });
+        }
+      }
+
+      // IDOR / Spoofing defense in payload
+      if (combinedPayload.ownerId !== undefined && combinedPayload.ownerId !== currentUser.id) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: You cannot specify or spoof ownerId.',
+          code: 'FORBIDDEN_OWNER_OVERRIDE'
+        });
+      }
+      if (combinedPayload.userId !== undefined && combinedPayload.userId !== currentUser.id) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: You cannot specify or spoof userId.',
+          code: 'FORBIDDEN_OWNER_OVERRIDE'
+        });
+      }
+
+      const businessId = req.params.id || req.body?.businessId;
+      if (!businessId) {
+        return res.status(400).json({ success: false, error: 'Business ID is required', code: 'MISSING_BUSINESS_ID' });
+      }
+
+      const result = await businessService.updateBusinessCategories(
+        currentUser.id,
+        businessId,
+        req.body,
+        clientIp,
+        userAgent
+      );
+
+      return res.status(200).json(result);
+    } catch (err: unknown) {
+      if (err instanceof BusinessServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code,
+          details: err.details
+        });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to update business categories';
+      return res.status(400).json({ success: false, error: message });
+    }
+  };
+
+  app.put('/api/businesses/:id/categories', authenticate, handleBusinessCategoriesUpdate);
+  app.patch('/api/businesses/:id/categories', authenticate, handleBusinessCategoriesUpdate);
+  app.post('/api/businesses/:id/categories', authenticate, handleBusinessCategoriesUpdate);
+
+  app.delete('/api/businesses/:id/categories/:categoryId', authenticate, async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const currentUser = req.user;
+      if (!currentUser) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'unknown';
+      const businessId = req.params.id;
+      const categoryId = req.params.categoryId;
+
+      const result = await businessService.removeBusinessCategory(
+        currentUser.id,
+        businessId,
+        categoryId,
+        clientIp,
+        userAgent
+      );
+
+      return res.status(200).json(result);
+    } catch (err: unknown) {
+      if (err instanceof BusinessServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code,
+          details: err.details
+        });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to remove business category';
+      return res.status(400).json({ success: false, error: message });
+    }
+  });
+
+  app.delete('/api/businesses/:id/categories', authenticate, async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const currentUser = req.user;
+      if (!currentUser) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'unknown';
+      const businessId = req.params.id;
+
+      const result = await businessService.clearBusinessCategories(
+        currentUser.id,
+        businessId,
+        clientIp,
+        userAgent
+      );
+
+      return res.status(200).json(result);
+    } catch (err: unknown) {
+      if (err instanceof BusinessServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code,
+          details: err.details
+        });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to clear business categories';
+      return res.status(400).json({ success: false, error: message });
+    }
+  });
+
+  // ==========================================
+  // Epic 2 Feature 2.2 Task 2.2.6: Business Location
+  // ==========================================
+  app.get('/api/businesses/:id/location', async (req: express.Request, res: express.Response) => {
+    try {
+      const businessId = req.params.id;
+      const business = db.getBusinessById(businessId);
+      if (!business) {
+        return res.status(404).json({ success: false, error: 'Business not found', code: 'BUSINESS_NOT_FOUND' });
+      }
+      return res.status(200).json({
+        success: true,
+        businessId: business.id,
+        location: business.location || null
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to fetch business location';
+      return res.status(400).json({ success: false, error: message });
+    }
+  });
+
+  const handleBusinessLocationUpdate = async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const currentUser = req.user;
+      if (!currentUser) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'unknown';
+      const businessId = req.params.id;
+
+      const result = await businessService.updateBusinessLocation(
+        currentUser.id,
+        businessId,
+        req.body,
+        clientIp,
+        userAgent
+      );
+
+      return res.status(200).json(result);
+    } catch (err: unknown) {
+      if (err instanceof BusinessServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code,
+          details: err.details
+        });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to update business location';
+      return res.status(400).json({ success: false, error: message });
+    }
+  };
+
+  app.put('/api/businesses/:id/location', authenticate, handleBusinessLocationUpdate);
+  app.patch('/api/businesses/:id/location', authenticate, handleBusinessLocationUpdate);
+  app.post('/api/businesses/:id/location', authenticate, handleBusinessLocationUpdate);
+
+  app.delete('/api/businesses/:id/location', authenticate, async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const currentUser = req.user;
+      if (!currentUser) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'unknown';
+      const businessId = req.params.id;
+
+      const result = await businessService.clearBusinessLocation(
+        currentUser.id,
+        businessId,
+        clientIp,
+        userAgent
+      );
+
+      return res.status(200).json(result);
+    } catch (err: unknown) {
+      if (err instanceof BusinessServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code,
+          details: err.details
+        });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to remove business location';
+      return res.status(400).json({ success: false, error: message });
+    }
+  });
+
+  // Authenticated user's business retrieval
+  app.get('/api/businesses/me', authenticate, (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const currentUser = req.user;
+      if (!currentUser) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+      const myBusiness = db.getBusinessByOwnerId(currentUser.id) || null;
+      const myBusinesses = db.getBusinessesByOwnerId(currentUser.id);
+      return res.json({
+        success: true,
+        business: myBusiness,
+        businesses: myBusinesses
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to fetch business';
+      return res.status(400).json({ success: false, error: message });
     }
   });
 

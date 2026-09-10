@@ -34,6 +34,7 @@ import {
   Review,
   Report,
   CategoryConfig,
+  BusinessCategory,
   SubscriptionPlan,
   PlatformStats,
   MultiPlatformCampaign,
@@ -732,6 +733,7 @@ export class DatabaseStore {
   public reviews: Map<string, Review> = new Map();
   public reports: Map<string, Report> = new Map();
   public categories: CategoryConfig[] = [];
+  public businessCategories: Map<string, BusinessCategory> = new Map();
   public subscriptionPlans: SubscriptionPlan[] = [];
 
   // Financial & Settlement Entities
@@ -890,7 +892,8 @@ export class DatabaseStore {
         iconName: 'Wrench',
         description: 'Plumbing, electrical, mechanics, tailors, cleaning, tutors, and maintenance professionals',
         subcategories: ['Plumber', 'Electrician', 'Auto Mechanic', 'Tailor & Fashion Designer', 'Barber & Stylist', 'Home Cleaner', 'Tutor / Instructor', 'Repair Technician'],
-        bannerImage: 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=800&auto=format&fit=crop&q=80'
+        bannerImage: 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=800&auto=format&fit=crop&q=80',
+        active: true
       },
       {
         id: 'retail',
@@ -899,7 +902,8 @@ export class DatabaseStore {
         iconName: 'ShoppingBag',
         description: 'Fashion boutiques, electronics, phone gadgets, furniture, building materials, and auto parts',
         subcategories: ['Fashion & Apparel', 'Electronics & Laptops', 'Smartphones & Accessories', 'Home & Office Furniture', 'Building Materials', 'Supermarket & Groceries', 'Auto Spare Parts'],
-        bannerImage: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=800&auto=format&fit=crop&q=80'
+        bannerImage: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=800&auto=format&fit=crop&q=80',
+        active: true
       },
       {
         id: 'food_hospitality',
@@ -908,7 +912,8 @@ export class DatabaseStore {
         iconName: 'Utensils',
         description: 'Restaurants, artisan bakers, custom caterers, food vendors, and party food services',
         subcategories: ['Restaurants & Grills', 'Artisan Bakery', 'Event Catering', 'Street Food & Snacks', 'Private Chef', 'Drink & Cocktail Service'],
-        bannerImage: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&auto=format&fit=crop&q=80'
+        bannerImage: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&auto=format&fit=crop&q=80',
+        active: true
       },
       {
         id: 'creative',
@@ -917,7 +922,8 @@ export class DatabaseStore {
         iconName: 'Camera',
         description: 'Photographers, videographers, graphic designers, music producers, and event planners',
         subcategories: ['Studio & Event Photography', 'Cinematography & Video', 'Brand Identity & Graphic Design', 'Music & Sound Production', 'Event Planning & Decor'],
-        bannerImage: 'https://images.unsplash.com/photo-1542038784456-1ea8e935640e?w=800&auto=format&fit=crop&q=80'
+        bannerImage: 'https://images.unsplash.com/photo-1542038784456-1ea8e935640e?w=800&auto=format&fit=crop&q=80',
+        active: true
       },
       {
         id: 'agriculture',
@@ -926,7 +932,8 @@ export class DatabaseStore {
         iconName: 'Wheat',
         description: 'Commercial farmers, grain distributors, livestock breeders, agro-inputs, and machinery',
         subcategories: ['Crop & Grain Supply', 'Livestock & Poultry', 'Agro-Chemicals & Fertilizers', 'Farm Machinery & Tractors', 'Veterinary Services', 'Organic Produce'],
-        bannerImage: 'https://images.unsplash.com/photo-1500937386664-56d1dfef3854?w=800&auto=format&fit=crop&q=80'
+        bannerImage: 'https://images.unsplash.com/photo-1500937386664-56d1dfef3854?w=800&auto=format&fit=crop&q=80',
+        active: true
       },
       {
         id: 'professional',
@@ -935,7 +942,8 @@ export class DatabaseStore {
         iconName: 'Briefcase',
         description: 'Legal attorneys, accountants, corporate consulting, logistics freight, and HR agencies',
         subcategories: ['Legal & Corporate Law', 'Accounting & Tax Advisory', 'Management Consulting', 'Logistics & Haulage', 'HR & Recruitment'],
-        bannerImage: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=800&auto=format&fit=crop&q=80'
+        bannerImage: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=800&auto=format&fit=crop&q=80',
+        active: true
       },
       {
         id: 'tech_development',
@@ -944,7 +952,8 @@ export class DatabaseStore {
         iconName: 'Code',
         description: 'Web development, mobile apps, digital marketing, cybersecurity, and cloud architecture',
         subcategories: ['Full-Stack Web Apps', 'Mobile App Development', 'SEO & Performance Marketing', 'Cloud & DevOps', 'Cybersecurity & Audits'],
-        bannerImage: 'https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=800&auto=format&fit=crop&q=80'
+        bannerImage: 'https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=800&auto=format&fit=crop&q=80',
+        active: true
       },
       {
         id: 'beauty_wellness',
@@ -953,7 +962,38 @@ export class DatabaseStore {
         iconName: 'Sparkles',
         description: 'Skincare specialists, luxury spas, massage therapy, makeup artists, and fitness gyms',
         subcategories: ['Organic Skincare', 'Luxury Spa & Massage', 'Bridal Makeup', 'Fitness & Personal Trainers'],
-        bannerImage: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?w=800&auto=format&fit=crop&q=80'
+        bannerImage: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?w=800&auto=format&fit=crop&q=80',
+        active: true
+      },
+      {
+        id: 'automotive',
+        name: 'Automotive & Vehicles',
+        slug: 'automotive',
+        iconName: 'Car',
+        description: 'Auto sales, mechanics, car wash, vehicle diagnostics, spare parts, and towing',
+        subcategories: ['Auto Mechanic', 'Car Sales & Dealership', 'Auto Spare Parts', 'Car Wash & Detailing', 'Towing Service'],
+        bannerImage: 'https://images.unsplash.com/photo-1486006920555-c77dce18193b?w=800&auto=format&fit=crop&q=80',
+        active: true
+      },
+      {
+        id: 'real_estate',
+        name: 'Real Estate & Properties',
+        slug: 'real-estate',
+        iconName: 'Home',
+        description: 'Property sales, residential rentals, commercial leasing, land surveying, and valuation',
+        subcategories: ['Residential Sales', 'Apartment Rentals', 'Commercial Leasing', 'Land Surveying', 'Property Management'],
+        bannerImage: 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=800&auto=format&fit=crop&q=80',
+        active: true
+      },
+      {
+        id: 'education',
+        name: 'Education & Training',
+        slug: 'education',
+        iconName: 'GraduationCap',
+        description: 'Schools, private tutoring, professional certifications, vocational skills, and academies',
+        subcategories: ['Private Tutoring', 'Vocational Training', 'Language School', 'Code Academy', 'Music Lessons'],
+        bannerImage: 'https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=800&auto=format&fit=crop&q=80',
+        active: true
       }
     ];
 
@@ -1446,6 +1486,29 @@ export class DatabaseStore {
       createdAt: new Date(Date.now() - 40 * 86400000).toISOString()
     };
     this.businesses.set(bizSavannahAgro.id, bizSavannahAgro);
+
+    // 4b. Seed Business Categories (Join Table)
+    const seedCategoriesForBiz = (bizId: string, primaryCatId: string) => {
+      const catRec: BusinessCategory = {
+        id: `bc_${bizId}_${primaryCatId}`,
+        businessId: bizId,
+        categoryId: primaryCatId,
+        isPrimary: true,
+        assignedAt: new Date().toISOString()
+      };
+      this.businessCategories.set(catRec.id, catRec);
+      const biz = this.businesses.get(bizId);
+      if (biz) {
+        biz.categories = [primaryCatId];
+        biz.businessCategories = [catRec];
+      }
+    };
+
+    seedCategoriesForBiz('biz_maddy_realboosters', 'professional');
+    seedCategoriesForBiz('biz_zeenat_couture', 'retail');
+    seedCategoriesForBiz('biz_khemsafe_tech', 'tech_development');
+    seedCategoriesForBiz('biz_arewa_motors', 'services');
+    seedCategoriesForBiz('biz_savannah_agro', 'agriculture');
 
     // 5. Seed Products & Services
     const p1: Product = {
@@ -2580,6 +2643,252 @@ export class DatabaseStore {
 
   public getProfileByUsername(username: string): ClientProfile | undefined {
     return this.profiles.getByUsername(username);
+  }
+
+  /**
+   * Epic 2 Task 2.2.1: Business Creation with database-level ownership integrity and user linking
+   */
+  public createBusiness(business: Business): Business {
+    if (!business || typeof business !== 'object') {
+      throw new DatabaseValidationError('Business object is required.');
+    }
+    if (!business.id || typeof business.id !== 'string' || !business.id.trim()) {
+      throw new DatabaseValidationError('Business requires a valid non-empty "id".');
+    }
+    if (!business.ownerId || typeof business.ownerId !== 'string' || !business.ownerId.trim()) {
+      throw new DatabaseValidationError('Business requires a valid non-empty "ownerId".');
+    }
+    if (!business.name || typeof business.name !== 'string' || !business.name.trim()) {
+      throw new DatabaseValidationError('Business requires a valid non-empty "name".');
+    }
+
+    const owner = this.users.get(business.ownerId);
+    if (!owner) {
+      throw new DatabaseNotFoundError(`Owner user with ID "${business.ownerId}" does not exist.`);
+    }
+
+    if (owner.role !== 'CLIENT' && owner.role !== 'SUPER_ADMIN') {
+      throw new DatabaseRoleConstraintError('Only CLIENT accounts can own and create a business.');
+    }
+
+    // Slug generation or uniqueness
+    let slug = business.slug;
+    if (!slug || !slug.trim()) {
+      slug = business.name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'biz';
+    }
+    const existingWithSlug = Array.from(this.businesses.values()).find(b => b.slug === slug && b.id !== business.id);
+    if (existingWithSlug) {
+      slug = `${slug}-${Date.now().toString(36)}`;
+    }
+    business.slug = slug;
+
+    // Ensure timestamps
+    if (!business.createdAt) {
+      business.createdAt = new Date().toISOString();
+    }
+    business.updatedAt = new Date().toISOString();
+
+    // Persist business
+    this.businesses.set(business.id, business);
+
+    // Atomically link to owner user
+    owner.businessId = business.id;
+    owner.clientType = 'business';
+    owner.updatedAt = new Date().toISOString();
+    this.users.set(owner.id, owner);
+
+    return business;
+  }
+
+  /**
+   * Update business profile safely (Epic 2 Task 2.2.2)
+   */
+  public updateBusiness(id: string, updates: Partial<Business>): Business {
+    const business = this.businesses.get(id);
+    if (!business) {
+      throw new DatabaseNotFoundError(`Business with ID "${id}" does not exist.`);
+    }
+
+    // Do NOT allow changing id or ownerId via updateBusiness directly
+    if (updates.id && updates.id !== business.id) {
+      throw new DatabaseValidationError('Cannot modify business ID.');
+    }
+    if (updates.ownerId && updates.ownerId !== business.ownerId) {
+      throw new DatabaseValidationError('Cannot transfer business ownership via updateBusiness.');
+    }
+
+    if (updates.name !== undefined) {
+      if (!updates.name || typeof updates.name !== 'string' || !updates.name.trim()) {
+        throw new DatabaseValidationError('Business requires a valid non-empty "name".');
+      }
+      business.name = updates.name.trim();
+    }
+
+    if (updates.slug !== undefined) {
+      business.slug = updates.slug;
+    }
+
+    if (updates.logoUrl !== undefined) {
+      business.logoUrl = updates.logoUrl;
+    }
+
+    if (updates.logoKey !== undefined) {
+      if (updates.logoKey) {
+        business.logoKey = updates.logoKey;
+      } else {
+        delete business.logoKey;
+      }
+    }
+
+    if (updates.coverImageUrl !== undefined) {
+      business.coverImageUrl = updates.coverImageUrl;
+    }
+
+    if (updates.coverImageKey !== undefined) {
+      if (updates.coverImageKey) {
+        business.coverImageKey = updates.coverImageKey;
+      } else {
+        delete business.coverImageKey;
+      }
+    }
+
+    if (updates.description !== undefined) {
+      if (updates.description && typeof updates.description === 'string' && updates.description.trim()) {
+        business.description = updates.description.trim();
+      } else {
+        delete business.description;
+      }
+    }
+
+    if (updates.location !== undefined) {
+      if (updates.location && typeof updates.location === 'object') {
+        business.location = { ...updates.location };
+      } else {
+        delete business.location;
+      }
+    }
+
+    business.updatedAt = new Date().toISOString();
+    this.businesses.set(business.id, business);
+    return business;
+  }
+
+  public getBusinessById(id: string): Business | undefined {
+    return this.businesses.get(id);
+  }
+
+  public getBusinessByOwnerId(ownerId: string): Business | undefined {
+    for (const b of this.businesses.values()) {
+      if (b.ownerId === ownerId) return b;
+    }
+    return undefined;
+  }
+
+  public getBusinessesByOwnerId(ownerId: string): Business[] {
+    const list: Business[] = [];
+    for (const b of this.businesses.values()) {
+      if (b.ownerId === ownerId) list.push(b);
+    }
+    return list;
+  }
+
+  // Category management database methods (Epic 2 Feature 2.2 Task 2.2.5)
+  public getCategoryById(id: string): CategoryConfig | undefined {
+    return this.categories.find(c => c.id === id || c.slug === id);
+  }
+
+  public getAllCategories(): CategoryConfig[] {
+    return this.categories;
+  }
+
+  public getActiveCategories(): CategoryConfig[] {
+    return this.categories.filter(c => c.active !== false);
+  }
+
+  public getBusinessCategories(businessId: string): BusinessCategory[] {
+    const list: BusinessCategory[] = [];
+    for (const bc of this.businessCategories.values()) {
+      if (bc.businessId === businessId) {
+        list.push(bc);
+      }
+    }
+    return list;
+  }
+
+  public getBusinessCategoryConfigs(businessId: string): CategoryConfig[] {
+    const bcs = this.getBusinessCategories(businessId);
+    const configs: CategoryConfig[] = [];
+    for (const bc of bcs) {
+      const cat = this.getCategoryById(bc.categoryId);
+      if (cat) configs.push(cat);
+    }
+    return configs;
+  }
+
+  public setBusinessCategories(businessId: string, categoryIds: string[]): { business: Business; businessCategories: BusinessCategory[] } {
+    const business = this.businesses.get(businessId);
+    if (!business) {
+      throw new Error(`Business not found: ${businessId}`);
+    }
+
+    // Validate foreign keys & active status
+    for (const catId of categoryIds) {
+      const cat = this.getCategoryById(catId);
+      if (!cat) {
+        throw new Error(`Category does not exist: "${catId}"`);
+      }
+      if (cat.active === false) {
+        throw new Error(`Category is inactive: "${catId}"`);
+      }
+    }
+
+    // Remove old join records for this business
+    for (const [key, bc] of Array.from(this.businessCategories.entries())) {
+      if (bc.businessId === businessId) {
+        this.businessCategories.delete(key);
+      }
+    }
+
+    // Create new join records
+    const newRecords: BusinessCategory[] = [];
+    const now = new Date().toISOString();
+    categoryIds.forEach((catId, index) => {
+      const recordId = `bc_${businessId}_${catId}`;
+      const record: BusinessCategory = {
+        id: recordId,
+        businessId,
+        categoryId: catId as any,
+        isPrimary: index === 0,
+        assignedAt: now
+      };
+      this.businessCategories.set(recordId, record);
+      newRecords.push(record);
+    });
+
+    // Update business entity fields for compatibility
+    const primaryCat = categoryIds.length > 0 ? this.getCategoryById(categoryIds[0]) : undefined;
+    business.categories = categoryIds;
+    business.category = (categoryIds[0] as any) || undefined;
+    business.categoryLabel = primaryCat?.name || undefined;
+    business.businessCategories = newRecords;
+    business.updatedAt = now;
+    this.businesses.set(business.id, business);
+
+    return { business, businessCategories: newRecords };
+  }
+
+  public removeBusinessCategory(businessId: string, categoryId: string): { business: Business; businessCategories: BusinessCategory[] } {
+    const business = this.businesses.get(businessId);
+    if (!business) {
+      throw new Error(`Business not found: ${businessId}`);
+    }
+
+    const currentIds = (business.categories || []).filter(id => id !== categoryId);
+    return this.setBusinessCategories(businessId, currentIds as string[]);
+  }
+
+  public clearBusinessCategories(businessId: string): { business: Business; businessCategories: BusinessCategory[] } {
+    return this.setBusinessCategories(businessId, []);
   }
 
   public deleteProfile(id: string): boolean {

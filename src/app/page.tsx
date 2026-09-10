@@ -16,6 +16,7 @@ import { AdminLoginView } from '../components/AdminLoginView';
 import { AdminPanelView } from '../components/AdminPanelView';
 import { ClientProfileView } from '../components/ClientProfileView';
 import { ClientSecuritySettingsView } from '../components/ClientSecuritySettingsView';
+import { CreateBusinessView } from '../components/CreateBusinessView';
 import { CreateAdModal } from '../components/CreateAdModal';
 import { ReportModal } from '../components/ReportModal';
 import { NotificationDrawer } from '../components/NotificationDrawer';
@@ -53,6 +54,8 @@ export default function HomePage() {
         return <ClientProfileView />;
       case 'settings':
         return <ClientSecuritySettingsView />;
+      case 'create_business':
+        return <CreateBusinessView />;
       default:
         return <DiscoverView />;
     }

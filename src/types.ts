@@ -27,11 +27,22 @@ export interface LocationCoordinates {
   city: string;
   state: string;
   country: string;
-  lat: number;
-  lng: number;
+  lat?: number;
+  lng?: number;
   address?: string;
+  lga?: string;
+  postalCode?: string;
   serviceAreaKm?: number;
+  isServiceAreaOnly?: boolean;
 }
+
+export const NIGERIAN_STATES = [
+  'Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa', 'Benue', 'Borno',
+  'Cross River', 'Delta', 'Ebonyi', 'Edo', 'Ekiti', 'Enugu', 'Federal Capital Territory',
+  'Gombe', 'Imo', 'Jigawa', 'Kaduna', 'Kano', 'Katsina', 'Kebbi', 'Kogi', 'Kwara',
+  'Lagos', 'Nasarawa', 'Niger', 'Ogun', 'Ondo', 'Osun', 'Oyo', 'Plateau', 'Rivers',
+  'Sokoto', 'Taraba', 'Yobe', 'Zamfara'
+] as const;
 
 export interface ClientProfile {
   id: string; // 'prof_...'
@@ -255,33 +266,38 @@ export interface Business {
   ownerId: string;
   name: string;
   slug: string;
-  tagline: string;
-  description: string;
-  logoUrl: string;
-  coverImageUrl: string;
-  category: BusinessCategoryType;
-  categoryLabel: string;
-  subcategories: string[];
-  location: LocationCoordinates;
-  phone: string;
+  tagline?: string;
+  description?: string;
+  logoUrl?: string;
+  logoKey?: string;
+  coverImageUrl?: string;
+  coverImageKey?: string;
+  category?: BusinessCategoryType;
+  categoryLabel?: string;
+  categories?: (BusinessCategoryType | string)[];
+  businessCategories?: BusinessCategory[];
+  subcategories?: string[];
+  location?: LocationCoordinates;
+  phone?: string;
   whatsapp?: string;
-  email: string;
+  email?: string;
   website?: string;
-  openingHours: OpeningHour[];
-  rating: number;
-  reviewCount: number;
-  isVerified: boolean;
-  tier: SubscriptionTier;
+  openingHours?: OpeningHour[];
+  rating?: number;
+  reviewCount?: number;
+  isVerified?: boolean;
+  tier?: SubscriptionTier;
   socialLinks?: SocialLinks;
-  stats: {
+  stats?: {
     views: number;
     leads: number;
     conversions: number;
     totalRevenue: number;
   };
-  featured: boolean;
+  featured?: boolean;
   portfolioItems?: PortfolioItem[];
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface Product {
@@ -667,6 +683,15 @@ export interface CategoryConfig {
   description: string;
   subcategories: string[];
   bannerImage: string;
+  active?: boolean;
+}
+
+export interface BusinessCategory {
+  id: string;
+  businessId: string;
+  categoryId: BusinessCategoryType | string;
+  isPrimary?: boolean;
+  assignedAt: string;
 }
 
 export interface SubscriptionPlan {

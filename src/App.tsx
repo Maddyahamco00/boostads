@@ -16,6 +16,7 @@ import { ForgotPasswordView } from './components/ForgotPasswordView';
 import { ResetPasswordView } from './components/ResetPasswordView';
 import { ClientProfileView } from './components/ClientProfileView';
 import { ClientSecuritySettingsView } from './components/ClientSecuritySettingsView';
+import { CreateBusinessView } from './components/CreateBusinessView';
 import { CreateAdModal } from './components/CreateAdModal';
 import { NotificationDrawer } from './components/NotificationDrawer';
 import { ReportModal } from './components/ReportModal';
@@ -45,6 +46,7 @@ const MainLayout: React.FC = () => {
         {activeView === 'admin_panel' && <AdminPanelView />}
         {activeView === 'profile' && <ClientProfileView />}
         {activeView === 'settings' && <ClientSecuritySettingsView />}
+        {activeView === 'create_business' && <CreateBusinessView />}
       </main>
 
       {/* Global Footer */}

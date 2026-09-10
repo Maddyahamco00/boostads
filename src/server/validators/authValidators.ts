@@ -427,3 +427,7 @@ export const ContactInfoSchema = z.object({
     .optional()
 });
 
+// Re-export Business Validators (Epic 2 Feature 2.2 Task 2.2.1)
+export * from './businessValidators';
+
+

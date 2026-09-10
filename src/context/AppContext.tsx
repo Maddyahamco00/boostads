@@ -37,7 +37,8 @@ export type AppView =
   | 'forgot_password'
   | 'reset_password'
   | 'profile'
-  | 'settings';
+  | 'settings'
+  | 'create_business';
 
 interface AppContextType {
   // Authentication State

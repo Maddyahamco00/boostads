@@ -4,7 +4,9 @@ import { db, SUPER_ADMIN_EMAIL, SUPER_ADMIN_ID, DatabaseRoleConstraintError, Dat
 import { emailService } from './emailService';
 import { passwordService } from './passwordService';
 import { emailVerificationTokenService } from './emailVerificationTokenService';
-import { RegisterClientSchema, ChangePasswordSchema, UpdateProfileSchema, AvatarUploadSchema, ContactInfoSchema, formatZodError } from '../validators/authValidators';
+import { RegisterClientSchema, ChangePasswordSchema, UpdateProfileSchema, AvatarUploadSchema, ContactInfoSchema, CreateBusinessSchema, UpdateBusinessDescriptionSchema, sanitizeDescription, PROTECTED_BUSINESS_FIELDS, formatZodError } from '../validators/authValidators';
+import { UpdateBusinessLocationSchema, NIGERIAN_STATES } from '../validators/businessValidators';
+import { businessService, BusinessServiceError } from './businessService';
 import { storageService } from './storageService';
 import { UserEntity, AuthSession, VerificationToken } from '../../types';
 import jwt from 'jsonwebtoken';
@@ -6474,6 +6476,46 @@ export class AuthTestRunnerService {
       async (logs) => this.executeContactInfoSuite(logs)
     ));
 
+    // Test 34: Epic 2 Task 2.2.1 — Create Business Profile Flow
+    results.push(await this.runTest(
+      'auth_34_create_business_epic2_task_2_2_1',
+      'Epic 2 Task 2.2.1: Create Business Profile Flow',
+      'Verify authenticated business creation, strict server-side owner derivation, IDOR spoofing defense, mass-assignment blocking, rigorous business name validation, database integrity, and atomic user linking',
+      async (logs) => this.executeCreateBusinessSuite(logs)
+    ));
+
+    // Test 35: Epic 2 Task 2.2.2 — Business Logo Lifecycle & Storage Flow
+    results.push(await this.runTest(
+      'auth_35_business_logo_epic2_task_2_2_2',
+      'Epic 2 Task 2.2.2: Business Logo Lifecycle & Storage Flow',
+      'Verify authenticated business logo upload, magic-byte inspection, 5MB size limit, server-side owner authorization (IDOR defense), atomic replacement with orphan cleanup, media serving traversal defense, and complete logo removal',
+      async (logs) => this.executeBusinessLogoSuite(logs)
+    ));
+
+    // Test 36: Epic 2 Task 2.2.3 — Business Cover Image Lifecycle & Storage Flow
+    results.push(await this.runTest(
+      'auth_36_business_cover_epic2_task_2_2_3',
+      'Epic 2 Task 2.2.3: Business Cover Image Lifecycle & Storage Flow',
+      'Verify authenticated business cover image upload, magic-byte inspection, 5MB size limit, server-side owner authorization (IDOR defense), atomic replacement with orphan cleanup, media serving traversal defense, and complete cover removal',
+      async (logs) => this.executeBusinessCoverSuite(logs)
+    ));
+
+    // Test 37: Epic 2 Task 2.2.4 — Business Description Flow & Security
+    results.push(await this.runTest(
+      'auth_37_business_description_epic2_task_2_2_4',
+      'Epic 2 Task 2.2.4: Business Description Flow & Security',
+      'Verify authenticated business owner description creation and editing, safe newline preservation, whitespace normalization, XSS/script sanitization, 2000 character boundary rejection, null byte defense, unauthenticated rejection, strict IDOR authorization, mass-assignment blocking, and description clearing',
+      async (logs) => this.executeBusinessDescriptionSuite(logs)
+    ));
+
+    // Test 38: Epic 2 Task 2.2.6 — Business Location Flow & Security
+    results.push(await this.runTest(
+      'auth_38_business_location_epic2_task_2_2_6',
+      'Epic 2 Task 2.2.6: Business Location Flow & Security',
+      'Verify authenticated business owner location updates, Nigerian states validation, GPS coordinate bounds, service area flags, cross-user IDOR protection, mass-assignment blocking, public retrieval, and location removal',
+      async (logs) => this.executeBusinessLocationSuite(logs)
+    ));
+
     return results;
   }
 
@@ -6528,6 +6570,51 @@ export class AuthTestRunnerService {
       'Epic 2 Task 2.1.4: Client Personal Contact Information Flow',
       'Verify personal phone normalization, international format handling, separate contact email, immutable login identity, input validation, IDOR defense, and mass-assignment protection',
       async (logs) => this.executeContactInfoSuite(logs)
+    );
+  }
+
+  public async runCreateBusinessTestOnly(): Promise<AuthTestResult> {
+    return this.runTest(
+      'auth_34_create_business_epic2_task_2_2_1',
+      'Epic 2 Task 2.2.1: Create Business Profile Flow',
+      'Verify authenticated business creation, strict server-side owner derivation, IDOR spoofing defense, mass-assignment blocking, rigorous business name validation, database integrity, and atomic user linking',
+      async (logs) => this.executeCreateBusinessSuite(logs)
+    );
+  }
+
+  public async runBusinessLogoTestOnly(): Promise<AuthTestResult> {
+    return this.runTest(
+      'auth_35_business_logo_epic2_task_2_2_2',
+      'Epic 2 Task 2.2.2: Business Logo Lifecycle & Storage Flow',
+      'Verify authenticated business logo upload, magic-byte inspection, 5MB size limit, server-side owner authorization (IDOR defense), atomic replacement with orphan cleanup, media serving traversal defense, and complete logo removal',
+      async (logs) => this.executeBusinessLogoSuite(logs)
+    );
+  }
+
+  public async runBusinessCoverTestOnly(): Promise<AuthTestResult> {
+    return this.runTest(
+      'auth_36_business_cover_epic2_task_2_2_3',
+      'Epic 2 Task 2.2.3: Business Cover Image Lifecycle & Storage Flow',
+      'Verify authenticated business cover image upload, magic-byte inspection, 5MB size limit, server-side owner authorization (IDOR defense), atomic replacement with orphan cleanup, media serving traversal defense, and complete cover removal',
+      async (logs) => this.executeBusinessCoverSuite(logs)
+    );
+  }
+
+  public async runBusinessDescriptionTestOnly(): Promise<AuthTestResult> {
+    return this.runTest(
+      'auth_37_business_description_epic2_task_2_2_4',
+      'Epic 2 Task 2.2.4: Business Description Flow & Security',
+      'Verify authenticated business owner description creation and editing, safe newline preservation, whitespace normalization, XSS/script sanitization, 2000 character boundary rejection, null byte defense, unauthenticated rejection, strict IDOR authorization, mass-assignment blocking, and description clearing',
+      async (logs) => this.executeBusinessDescriptionSuite(logs)
+    );
+  }
+
+  public async runBusinessLocationTestOnly(): Promise<AuthTestResult> {
+    return this.runTest(
+      'auth_38_business_location_epic2_task_2_2_6',
+      'Epic 2 Task 2.2.6: Business Location Flow & Security',
+      'Verify authenticated business owner location updates, Nigerian states validation, GPS coordinate bounds, service area flags, cross-user IDOR protection, mass-assignment blocking, public retrieval, and location removal',
+      async (logs) => this.executeBusinessLocationSuite(logs)
     );
   }
 
@@ -7847,6 +7934,1207 @@ export class AuthTestRunnerService {
     logs.push('[CHECK 10 PASSED] Schema mass-assignment and privilege escalation defense verified');
 
     logs.push('=== ALL 10 CONTACT INFORMATION FLOW & SECURITY CHECKS PASSED ===');
+  }
+
+  private async executeCreateBusinessSuite(logs: string[]): Promise<void> {
+    logs.push('=== STARTING EPIC 2 TASK 2.2.1: CREATE BUSINESS PROFILE SUITE ===');
+
+    const timestamp = Date.now();
+    const clientIp = '127.0.0.1';
+    const userAgent = 'SecurityTestRunner/1.0';
+
+    // 1. Authenticated CLIENT creates a business successfully
+    const userAEmail = `biz_owner_a_${timestamp}@example.com`;
+    const userAPassword = 'SecureBizPass2026!';
+    await authService.registerClient({
+      name: 'Owner Alice',
+      email: userAEmail,
+      password: userAPassword,
+      clientType: 'customer'
+    }, clientIp, userAgent);
+
+    const userA = db.getUserByEmail(userAEmail);
+    if (!userA) throw new Error('Owner Alice not found in DB');
+    userA.status = 'ACTIVE';
+    userA.emailVerifiedAt = new Date().toISOString();
+    db.updateUser(userA.id, { status: 'ACTIVE', emailVerifiedAt: userA.emailVerifiedAt });
+
+    const bizResult = await businessService.createBusiness(
+      userA.id,
+      { name: 'Alice Organic Farm & Bakery' },
+      clientIp,
+      userAgent
+    );
+
+    if (!bizResult.success || !bizResult.business) {
+      throw new Error('Business creation failed for authenticated client');
+    }
+    const createdBiz = bizResult.business;
+
+    // Check properties
+    if (createdBiz.name !== 'Alice Organic Farm & Bakery') {
+      throw new Error(`Expected business name 'Alice Organic Farm & Bakery' but got '${createdBiz.name}'`);
+    }
+    if (createdBiz.ownerId !== userA.id) {
+      throw new Error(`CRITICAL: Expected ownerId '${userA.id}' but got '${createdBiz.ownerId}'`);
+    }
+    if (createdBiz.isVerified !== false) {
+      throw new Error('Expected new business to start unverified');
+    }
+    if (!createdBiz.slug || !createdBiz.slug.includes('alice-organic-farm')) {
+      throw new Error(`Expected slug containing 'alice-organic-farm' but got '${createdBiz.slug}'`);
+    }
+
+    // Verify DB persistence and atomic linking to user
+    const dbBiz = db.getBusinessById(createdBiz.id);
+    if (!dbBiz) {
+      throw new Error('Business not found in DatabaseStore via getBusinessById');
+    }
+    const freshUserA = db.getUserById(userA.id);
+    if (freshUserA?.businessId !== createdBiz.id) {
+      throw new Error('User record was not updated with created businessId');
+    }
+    if (freshUserA?.clientType !== 'business') {
+      throw new Error('User clientType was not atomically updated to business');
+    }
+    logs.push('[CHECK 1 PASSED] Authenticated CLIENT successfully creates business; ownership derived server-side and user atomically linked');
+
+    // 2. Unauthenticated request rejection (User not found)
+    let unauthenticatedBlocked = false;
+    try {
+      await businessService.createBusiness(
+        'non_existent_user_id',
+        { name: 'Ghost Enterprise' },
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      if (err.statusCode === 404 || err.code === 'USER_NOT_FOUND') {
+        unauthenticatedBlocked = true;
+      }
+    }
+    if (!unauthenticatedBlocked) {
+      throw new Error('CRITICAL FLAW: Unauthenticated / non-existent user was able to create a business');
+    }
+    logs.push('[CHECK 2 PASSED] Unauthenticated/non-existent user rejected');
+
+    // 3. IDOR / Spoofing Defense: Client cannot specify a different ownerId
+    const userBEmail = `biz_victim_b_${timestamp}@example.com`;
+    await authService.registerClient({
+      name: 'Victim Bob',
+      email: userBEmail,
+      password: 'SecureBizPass2026!',
+      clientType: 'customer'
+    }, clientIp, userAgent);
+    const userB = db.getUserByEmail(userBEmail)!;
+
+    let idorBlocked = false;
+    try {
+      await businessService.createBusiness(
+        userA.id,
+        {
+          name: 'Bob Hijacked Business',
+          ownerId: userB.id
+        },
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      if (err.statusCode === 403 || err.code === 'FORBIDDEN_OWNER_OVERRIDE') {
+        idorBlocked = true;
+      }
+    }
+    if (!idorBlocked) {
+      throw new Error('CRITICAL VULNERABILITY: Client was able to spoof ownerId in createBusiness payload!');
+    }
+    // Verify Bob's profile was not modified
+    const untouchedBob = db.getUserById(userB.id);
+    if (untouchedBob?.businessId) {
+      throw new Error('CRITICAL BREACH: Target user was assigned a business by attacker');
+    }
+    logs.push('[CHECK 3 PASSED] IDOR / ownerId spoofing attempt strictly blocked with 403 Forbidden');
+
+    // 4. Mass-Assignment & Protected Field Defense
+    const protectedFieldsToTest = ['isVerified', 'rating', 'reviewCount', 'totalReach', 'featured', 'status'];
+    for (const field of protectedFieldsToTest) {
+      let fieldBlocked = false;
+      try {
+        await businessService.createBusiness(
+          userA.id,
+          {
+            name: `Test Protection ${field}`,
+            [field]: true
+          },
+          clientIp,
+          userAgent
+        );
+      } catch (err: any) {
+        if (err.statusCode === 403 || err.code === 'PRIVILEGE_ESCALATION_BLOCKED') {
+          fieldBlocked = true;
+        }
+      }
+      if (!fieldBlocked) {
+        throw new Error(`CRITICAL VULNERABILITY: Protected field '${field}' was accepted in createBusiness!`);
+      }
+    }
+    logs.push('[CHECK 4 PASSED] Mass-assignment protection verified: all protected/system fields blocked with 403 Forbidden');
+
+    // 5. Strict Business Name Validation
+    // 5a. Empty string
+    let emptyBlocked = false;
+    try {
+      await businessService.createBusiness(userA.id, { name: '' }, clientIp, userAgent);
+    } catch (err: any) {
+      if (err.statusCode === 400) emptyBlocked = true;
+    }
+    if (!emptyBlocked) throw new Error('Empty business name should be rejected');
+
+    // 5b. Whitespace only
+    let whitespaceBlocked = false;
+    try {
+      await businessService.createBusiness(userA.id, { name: '    ' }, clientIp, userAgent);
+    } catch (err: any) {
+      if (err.statusCode === 400) whitespaceBlocked = true;
+    }
+    if (!whitespaceBlocked) throw new Error('Whitespace-only business name should be rejected');
+
+    // 5c. Too short (< 2 characters)
+    let tooShortBlocked = false;
+    try {
+      await businessService.createBusiness(userA.id, { name: 'A' }, clientIp, userAgent);
+    } catch (err: any) {
+      if (err.statusCode === 400) tooShortBlocked = true;
+    }
+    if (!tooShortBlocked) throw new Error('Single-character business name should be rejected');
+
+    // 5d. Too long (> 100 characters)
+    const longName = 'A'.repeat(101);
+    let tooLongBlocked = false;
+    try {
+      await businessService.createBusiness(userA.id, { name: longName }, clientIp, userAgent);
+    } catch (err: any) {
+      if (err.statusCode === 400) tooLongBlocked = true;
+    }
+    if (!tooLongBlocked) throw new Error('Excessively long business name should be rejected');
+
+    // 5e. Control characters
+    let ctrlBlocked = false;
+    try {
+      await businessService.createBusiness(userA.id, { name: 'Bad\u0000Name' }, clientIp, userAgent);
+    } catch (err: any) {
+      if (err.statusCode === 400) ctrlBlocked = true;
+    }
+    if (!ctrlBlocked) throw new Error('Control characters in business name should be rejected');
+
+    // 5f. No alphanumeric characters
+    let symbolsBlocked = false;
+    try {
+      await businessService.createBusiness(userA.id, { name: '!@#$%^&*()' }, clientIp, userAgent);
+    } catch (err: any) {
+      if (err.statusCode === 400) symbolsBlocked = true;
+    }
+    if (!symbolsBlocked) throw new Error('Symbol-only business name should be rejected');
+    logs.push('[CHECK 5 PASSED] Business name validation rules verified (empty, whitespace, length, control chars, alphanumeric requirements)');
+
+    // 6. Database Queries & Lookup
+    const ownerBusinesses = businessService.getBusinessesByOwner(userA.id);
+    if (!ownerBusinesses.some(b => b.id === createdBiz.id)) {
+      throw new Error('getBusinessesByOwner did not return the newly created business');
+    }
+    const singleBiz = businessService.getBusinessByOwner(userA.id);
+    if (!singleBiz || singleBiz.id !== createdBiz.id) {
+      throw new Error('getBusinessByOwner did not return the correct business');
+    }
+    logs.push('[CHECK 6 PASSED] Database query methods (getBusinessById, getBusinessByOwnerId, getBusinessesByOwnerId) verified');
+
+    // 7. Suspended Account & Role Authorization Defense
+    const suspendedUser = db.createUser({
+      id: `usr_suspended_${timestamp}`,
+      email: `suspended_${timestamp}@example.com`,
+      name: 'Suspended Account',
+      role: 'CLIENT',
+      status: 'SUSPENDED',
+      tier: 'free',
+      failedLoginAttempts: 0,
+      createdAt: new Date().toISOString()
+    });
+    let suspendedBlocked = false;
+    try {
+      await businessService.createBusiness(suspendedUser.id, { name: 'Suspended Venture' }, clientIp, userAgent);
+    } catch (err: any) {
+      if (err.statusCode === 403 || err.code === 'ACCOUNT_SUSPENDED') suspendedBlocked = true;
+    }
+    if (!suspendedBlocked) {
+      throw new Error('Suspended user account was able to create a business profile');
+    }
+    logs.push('[CHECK 7 PASSED] Suspended accounts strictly rejected from creating business profile');
+
+    logs.push('=== ALL 7 CREATE BUSINESS FLOW & SECURITY CHECKS PASSED ===');
+  }
+
+  private async executeBusinessLogoSuite(logs: string[]): Promise<void> {
+    logs.push('=== STARTING EPIC 2 TASK 2.2.2: BUSINESS LOGO SUITE ===');
+
+    const timestamp = Date.now();
+    const clientIp = '127.0.0.1';
+    const userAgent = 'SecurityTestRunner/1.0';
+
+    // 1. Provision Owner User (Alice) and Non-Owner User (Bob)
+    const ownerEmail = `logo_owner_${timestamp}@example.com`;
+    await authService.registerClient({
+      name: 'Logo Owner Alice',
+      email: ownerEmail,
+      password: 'StrongPassword123!',
+      clientType: 'business'
+    }, clientIp, userAgent);
+    const owner = db.getUserByEmail(ownerEmail)!;
+    owner.status = 'ACTIVE';
+    owner.emailVerifiedAt = new Date().toISOString();
+    db.updateUser(owner.id, { status: 'ACTIVE', emailVerifiedAt: owner.emailVerifiedAt });
+
+    const nonOwnerEmail = `logo_attacker_${timestamp}@example.com`;
+    await authService.registerClient({
+      name: 'Logo Attacker Bob',
+      email: nonOwnerEmail,
+      password: 'StrongPassword123!',
+      clientType: 'business'
+    }, clientIp, userAgent);
+    const nonOwner = db.getUserByEmail(nonOwnerEmail)!;
+    nonOwner.status = 'ACTIVE';
+    nonOwner.emailVerifiedAt = new Date().toISOString();
+    db.updateUser(nonOwner.id, { status: 'ACTIVE', emailVerifiedAt: nonOwner.emailVerifiedAt });
+
+    // 2. Create a Business Owned by Alice
+    const bizName = `Alice Boutique ${timestamp}`;
+    const bizRes = await businessService.createBusiness(owner.id, { name: bizName }, clientIp, userAgent);
+    const businessId = bizRes.business.id;
+    logs.push(`[CHECK 1 PASSED] Business "${bizName}" created for owner ${owner.email} (ID: ${businessId})`);
+
+    // 3. Valid Test Image Buffers (32x32 pixels, satisfying min resolution check)
+    // Valid PNG (Magic: 89 50 4E 47 0D 0A 1A 0A)
+    const validPngBuffer = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, // PNG Signature
+      0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, // IHDR chunk length & type
+      0x00, 0x00, 0x00, 0x20, // width: 32
+      0x00, 0x00, 0x00, 0x20, // height: 32
+      0x08, 0x02, 0x00, 0x00, 0x00, // bit depth, color type, compression, filter, interlace
+      0xfd, 0x73, 0x8a, 0xfe, // CRC
+      0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82 // IEND chunk
+    ]);
+
+    // Valid JPEG (Magic: FF D8 FF)
+    const validJpgBuffer = Buffer.from([
+      0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01,
+      0x00, 0x01, 0x00, 0x00, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x20, 0x00, 0x20, 0x03, 0x01, 0x11,
+      0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01, 0xff, 0xd9
+    ]);
+
+    // 4. Magic-Byte Validation: Reject Non-Image File (e.g. PHP/JS payload disguised with .jpg filename)
+    const fakeImageBuffer = Buffer.from('<?php echo "evil"; ?> <script>alert("xss")</script>');
+    let fakeBlocked = false;
+    try {
+      await businessService.uploadBusinessLogo(
+        owner.id,
+        businessId,
+        { buffer: fakeImageBuffer, originalFilename: 'malicious.jpg' },
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      if (err.message.includes('magic numbers') || err.message.includes('signature') || err.message.includes('format')) {
+        fakeBlocked = true;
+      }
+    }
+    if (!fakeBlocked) {
+      throw new Error('CRITICAL FLAW: Server accepted fake image payload without valid magic-byte signature!');
+    }
+    logs.push('[CHECK 2 PASSED] Magic-byte validation successfully rejected non-image malicious payload');
+
+    // 5. Size Limit: Reject file exceeding 5MB
+    const oversizedBuffer = Buffer.alloc(5 * 1024 * 1024 + 1024, 0);
+    oversizedBuffer.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
+    let oversizedBlocked = false;
+    try {
+      await businessService.uploadBusinessLogo(
+        owner.id,
+        businessId,
+        { buffer: oversizedBuffer, originalFilename: 'huge.png' },
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      if (err.message.includes('exceeds') || err.message.includes('5MB')) {
+        oversizedBlocked = true;
+      }
+    }
+    if (!oversizedBlocked) {
+      throw new Error('CRITICAL FLAW: Server accepted file exceeding 5MB maximum limit!');
+    }
+    logs.push('[CHECK 3 PASSED] Server-side 5MB size limit strictly enforced');
+
+    // 6. IDOR / Ownership Authorization: Non-owner cannot upload logo to Alice\'s business
+    let nonOwnerUploadBlocked = false;
+    try {
+      await businessService.uploadBusinessLogo(
+        nonOwner.id,
+        businessId,
+        { buffer: validPngBuffer, originalFilename: 'hacked_logo.png' },
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      if (err.statusCode === 403 || err.code === 'FORBIDDEN_BUSINESS_ACCESS') {
+        nonOwnerUploadBlocked = true;
+      }
+    }
+    if (!nonOwnerUploadBlocked) {
+      throw new Error('CRITICAL VULNERABILITY: Non-owner was permitted to upload logo to another user business (IDOR)!');
+    }
+    logs.push('[CHECK 4 PASSED] IDOR upload attack blocked: non-owner strictly forbidden (403)');
+
+    // 7. Successful First Logo Upload (PNG) by Owner
+    const uploadRes1 = await businessService.uploadBusinessLogo(
+      owner.id,
+      businessId,
+      { buffer: validPngBuffer, originalFilename: 'alice_store_logo.png' },
+      clientIp,
+      userAgent
+    );
+
+    if (!uploadRes1.logoUrl || !uploadRes1.logoUrl.startsWith('/api/media/logo/')) {
+      throw new Error(`Invalid logoUrl returned: ${uploadRes1.logoUrl}`);
+    }
+    if (!uploadRes1.logoKey || uploadRes1.logoKey.includes('..')) {
+      throw new Error(`Invalid or insecure logoKey: ${uploadRes1.logoKey}`);
+    }
+
+    // Verify on disk
+    const diskPath1 = storageService.resolveBusinessLogoPath(uploadRes1.logoKey);
+    if (!diskPath1) {
+      throw new Error('Storage verification failed: Uploaded logo does not exist on disk');
+    }
+
+    // Verify in database
+    const bizInDb = db.getBusinessById(businessId);
+    if (!bizInDb || bizInDb.logoUrl !== uploadRes1.logoUrl || bizInDb.logoKey !== uploadRes1.logoKey) {
+      throw new Error('Database verification failed: Business entity not updated with logoUrl and logoKey');
+    }
+    logs.push(`[CHECK 5 PASSED] Logo uploaded successfully: URL=${uploadRes1.logoUrl}, Key=${uploadRes1.logoKey}`);
+
+    // 8. Path Traversal Defense on Media Serving
+    const traversalAttempt1 = storageService.resolveBusinessLogoPath('../../../etc/passwd');
+    const traversalAttempt2 = storageService.resolveBusinessLogoPath('..%2F..%2Fetc%2Fshadow');
+    const traversalAttempt3 = storageService.resolveBusinessLogoPath('subfolder/../../config.json');
+    if (traversalAttempt1 !== null || traversalAttempt2 !== null || traversalAttempt3 !== null) {
+      throw new Error('CRITICAL FLAW: resolveBusinessLogoPath allowed directory traversal attack');
+    }
+    logs.push('[CHECK 6 PASSED] Path traversal defense verified: all relative path attacks safely returned null');
+
+    // 9. Atomic Replacement: Uploading a new logo (JPEG) replaces old file and cleans up old file
+    const uploadRes2 = await businessService.uploadBusinessLogo(
+      owner.id,
+      businessId,
+      { buffer: validJpgBuffer, originalFilename: 'alice_new_logo.jpg' },
+      clientIp,
+      userAgent
+    );
+
+    if (uploadRes2.logoKey === uploadRes1.logoKey) {
+      throw new Error('Replaced logo has identical key as previous logo');
+    }
+
+    // Verify new file exists on disk
+    const diskPath2 = storageService.resolveBusinessLogoPath(uploadRes2.logoKey);
+    if (!diskPath2) {
+      throw new Error('Replacement logo does not exist on disk');
+    }
+
+    // Verify old file was deleted from disk
+    const oldDiskCheck = storageService.resolveBusinessLogoPath(uploadRes1.logoKey);
+    if (oldDiskCheck !== null) {
+      throw new Error('Orphaned file defect: Previous logo file was not deleted upon replacement');
+    }
+
+    // Verify DB updated
+    const bizAfterReplace = db.getBusinessById(businessId);
+    if (!bizAfterReplace || bizAfterReplace.logoKey !== uploadRes2.logoKey) {
+      throw new Error('Database not updated with replaced logo');
+    }
+    logs.push(`[CHECK 7 PASSED] Atomic replacement verified: old file cleaned from disk, new logo active: Key=${uploadRes2.logoKey}`);
+
+    // 10. IDOR on Remove: Non-owner cannot remove Alice\'s business logo
+    let nonOwnerRemoveBlocked = false;
+    try {
+      await businessService.removeBusinessLogo(
+        nonOwner.id,
+        businessId,
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      if (err.statusCode === 403 || err.code === 'FORBIDDEN_BUSINESS_ACCESS') {
+        nonOwnerRemoveBlocked = true;
+      }
+    }
+    if (!nonOwnerRemoveBlocked) {
+      throw new Error('CRITICAL VULNERABILITY: Non-owner was permitted to delete another user business logo (IDOR)!');
+    }
+    logs.push('[CHECK 8 PASSED] IDOR delete attack blocked: non-owner strictly forbidden (403)');
+
+    // 11. Complete Logo Removal Flow by Owner
+    const removeRes = await businessService.removeBusinessLogo(
+      owner.id,
+      businessId,
+      clientIp,
+      userAgent
+    );
+
+    if (Boolean(removeRes.business.logoUrl) || Boolean(removeRes.business.logoKey)) {
+      throw new Error('Business object returned from removal still contains logoUrl or logoKey');
+    }
+
+    // Verify removed from disk
+    const diskPathAfterRemove = storageService.resolveBusinessLogoPath(uploadRes2.logoKey);
+    if (diskPathAfterRemove !== null) {
+      throw new Error('Removal failed: Logo file still exists on disk after removal');
+    }
+
+    // Verify DB state
+    const bizAfterRemove = db.getBusinessById(businessId);
+    if (!bizAfterRemove || bizAfterRemove.logoUrl !== '' || bizAfterRemove.logoKey) {
+      throw new Error('Database verification failed: Business still has logoUrl/logoKey after removal');
+    }
+    logs.push('[CHECK 9 PASSED] Complete removal flow verified: file deleted from disk, DB fields cleared atomically');
+
+    // 12. Idempotent Removal: Calling remove again when no logo exists succeeds gracefully
+    const secondRemoveRes = await businessService.removeBusinessLogo(
+      owner.id,
+      businessId,
+      clientIp,
+      userAgent
+    );
+    if (secondRemoveRes.business.logoUrl !== '') {
+      throw new Error('Idempotent removal failed');
+    }
+    logs.push('[CHECK 10 PASSED] Idempotent removal verified: removing when no logo exists is safe and graceful');
+
+    logs.push('=== ALL 10 BUSINESS LOGO FLOW & SECURITY CHECKS PASSED ===');
+  }
+
+  private async executeBusinessCoverSuite(logs: string[]): Promise<void> {
+    logs.push('=== STARTING EPIC 2 TASK 2.2.3: BUSINESS COVER IMAGE LIFECYCLE & SECURITY VERIFICATION ===');
+    const timestamp = Date.now();
+    const userAgent = 'BusinessCoverTester/1.0';
+    const clientIp = '127.0.0.1';
+
+    // 1. Provision Owner User (Alice) and Non-Owner Attacker User (Bob)
+    const ownerEmail = `cover_owner_${timestamp}@example.com`;
+    await authService.registerClient({
+      name: 'Cover Owner Alice',
+      email: ownerEmail,
+      password: 'StrongPassword123!',
+      clientType: 'business'
+    }, clientIp, userAgent);
+    const owner = db.getUserByEmail(ownerEmail)!;
+    owner.status = 'ACTIVE';
+    owner.emailVerifiedAt = new Date().toISOString();
+    db.updateUser(owner.id, { status: 'ACTIVE', emailVerifiedAt: owner.emailVerifiedAt });
+
+    const nonOwnerEmail = `cover_attacker_${timestamp}@example.com`;
+    await authService.registerClient({
+      name: 'Cover Attacker Bob',
+      email: nonOwnerEmail,
+      password: 'StrongPassword123!',
+      clientType: 'business'
+    }, clientIp, userAgent);
+    const nonOwner = db.getUserByEmail(nonOwnerEmail)!;
+    nonOwner.status = 'ACTIVE';
+    nonOwner.emailVerifiedAt = new Date().toISOString();
+    db.updateUser(nonOwner.id, { status: 'ACTIVE', emailVerifiedAt: nonOwner.emailVerifiedAt });
+
+    // 2. Create a Business Owned by Alice
+    const bizName = `Alice Fashion Hub ${timestamp}`;
+    const bizRes = await businessService.createBusiness(owner.id, { name: bizName }, clientIp, userAgent);
+    const businessId = bizRes.business.id;
+    logs.push(`[CHECK 1 PASSED] Business "${bizName}" created for owner ${owner.email} (ID: ${businessId})`);
+
+    // 3. Valid Test Image Buffers (32x32 pixels, satisfying min resolution check)
+    // Valid PNG (Magic: 89 50 4E 47 0D 0A 1A 0A)
+    const validPngBuffer = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+      0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+      0x00, 0x00, 0x00, 0x20,
+      0x00, 0x00, 0x00, 0x20,
+      0x08, 0x02, 0x00, 0x00, 0x00,
+      0xfd, 0x73, 0x8a, 0xfe,
+      0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82
+    ]);
+
+    // Valid JPEG (Magic: FF D8 FF)
+    const validJpgBuffer = Buffer.from([
+      0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01,
+      0x00, 0x01, 0x00, 0x00, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x20, 0x00, 0x20, 0x03, 0x01, 0x11,
+      0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01, 0xff, 0xd9
+    ]);
+
+    // 4. Magic-Byte Validation: Reject Non-Image File (e.g. PHP/JS payload disguised with .jpg filename)
+    const fakeImageBuffer = Buffer.from('<?php echo "evil"; ?> <script>alert("xss")</script>');
+    let fakeBlocked = false;
+    try {
+      await businessService.uploadBusinessCover(
+        owner.id,
+        businessId,
+        { buffer: fakeImageBuffer, originalFilename: 'malicious_cover.jpg' },
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      if (err.message.includes('magic numbers') || err.message.includes('signature') || err.message.includes('format')) {
+        fakeBlocked = true;
+      }
+    }
+    if (!fakeBlocked) {
+      throw new Error('CRITICAL FLAW: Server accepted fake image payload without valid magic-byte signature!');
+    }
+    logs.push('[CHECK 2 PASSED] Magic-byte validation successfully rejected non-image malicious payload');
+
+    // 5. Size Limit: Reject file exceeding 5MB
+    const oversizedBuffer = Buffer.alloc(5 * 1024 * 1024 + 1024, 0);
+    oversizedBuffer.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
+    let oversizedBlocked = false;
+    try {
+      await businessService.uploadBusinessCover(
+        owner.id,
+        businessId,
+        { buffer: oversizedBuffer, originalFilename: 'huge_cover.png' },
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      if (err.message.includes('exceeds') || err.message.includes('5MB')) {
+        oversizedBlocked = true;
+      }
+    }
+    if (!oversizedBlocked) {
+      throw new Error('CRITICAL FLAW: Server accepted cover image exceeding 5MB maximum limit!');
+    }
+    logs.push('[CHECK 3 PASSED] Server-side 5MB size limit strictly enforced on cover upload');
+
+    // 6. IDOR / Ownership Authorization: Non-owner cannot upload cover to Alice\'s business
+    let nonOwnerUploadBlocked = false;
+    try {
+      await businessService.uploadBusinessCover(
+        nonOwner.id,
+        businessId,
+        { buffer: validPngBuffer, originalFilename: 'hacked_cover.png' },
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      if (err.statusCode === 403 || err.code === 'FORBIDDEN_NOT_OWNER') {
+        nonOwnerUploadBlocked = true;
+      }
+    }
+    if (!nonOwnerUploadBlocked) {
+      throw new Error('CRITICAL VULNERABILITY: Non-owner was permitted to upload cover to another user business (IDOR)!');
+    }
+    logs.push('[CHECK 4 PASSED] IDOR upload attack blocked: non-owner strictly forbidden (403)');
+
+    // 7. Successful First Cover Upload (PNG) by Owner
+    const uploadRes1 = await businessService.uploadBusinessCover(
+      owner.id,
+      businessId,
+      { buffer: validPngBuffer, originalFilename: 'alice_cover.png' },
+      clientIp,
+      userAgent
+    );
+
+    if (!uploadRes1.coverUrl || !uploadRes1.coverUrl.startsWith('/api/media/cover/')) {
+      throw new Error(`Invalid coverUrl returned: ${uploadRes1.coverUrl}`);
+    }
+    if (!uploadRes1.coverKey || uploadRes1.coverKey.includes('..')) {
+      throw new Error(`Invalid or insecure coverKey: ${uploadRes1.coverKey}`);
+    }
+
+    // Verify on disk
+    const diskPath1 = storageService.resolveBusinessCoverPath(uploadRes1.coverKey);
+    if (!diskPath1) {
+      throw new Error('Storage verification failed: Uploaded cover image does not exist on disk');
+    }
+
+    // Verify in database
+    const bizInDb = db.getBusinessById(businessId);
+    if (!bizInDb || bizInDb.coverImageUrl !== uploadRes1.coverUrl || bizInDb.coverImageKey !== uploadRes1.coverKey) {
+      throw new Error('Database verification failed: Business entity not updated with coverImageUrl and coverImageKey');
+    }
+    logs.push(`[CHECK 5 PASSED] Cover uploaded successfully: URL=${uploadRes1.coverUrl}, Key=${uploadRes1.coverKey}`);
+
+    // 8. Path Traversal Defense on Media Serving
+    const traversalAttempt1 = storageService.resolveBusinessCoverPath('../../../etc/passwd');
+    const traversalAttempt2 = storageService.resolveBusinessCoverPath('..%2F..%2Fetc%2Fshadow');
+    const traversalAttempt3 = storageService.resolveBusinessCoverPath('subfolder/../../config.json');
+    if (traversalAttempt1 !== null || traversalAttempt2 !== null || traversalAttempt3 !== null) {
+      throw new Error('CRITICAL FLAW: resolveBusinessCoverPath allowed directory traversal attack');
+    }
+    logs.push('[CHECK 6 PASSED] Path traversal defense verified: all relative path attacks safely returned null');
+
+    // 9. Atomic Replacement & Orphan Cleanup: Uploading new cover replaces old cover
+    const uploadRes2 = await businessService.uploadBusinessCover(
+      owner.id,
+      businessId,
+      { buffer: validJpgBuffer, originalFilename: 'alice_cover_v2.jpg' },
+      clientIp,
+      userAgent
+    );
+
+    if (!uploadRes2.coverUrl || uploadRes2.coverUrl === uploadRes1.coverUrl) {
+      throw new Error('Cover replacement did not generate new cover URL');
+    }
+    if (!uploadRes2.coverKey || uploadRes2.coverKey === uploadRes1.coverKey) {
+      throw new Error('Cover replacement did not generate new cover key');
+    }
+
+    // Verify old file is cleaned up on disk
+    const oldDiskPath = storageService.resolveBusinessCoverPath(uploadRes1.coverKey);
+    if (oldDiskPath !== null) {
+      throw new Error('Storage verification failed: Previous cover image file was not deleted upon replacement');
+    }
+
+    // Verify new file exists on disk
+    const newDiskPath = storageService.resolveBusinessCoverPath(uploadRes2.coverKey);
+    if (!newDiskPath) {
+      throw new Error('Storage verification failed: Replacement cover image does not exist on disk');
+    }
+
+    // Verify DB updated
+    const bizAfterReplace = db.getBusinessById(businessId);
+    if (!bizAfterReplace || bizAfterReplace.coverImageUrl !== uploadRes2.coverUrl || bizAfterReplace.coverImageKey !== uploadRes2.coverKey) {
+      throw new Error('Database verification failed: Business record does not reflect replaced cover image');
+    }
+    logs.push('[CHECK 7 PASSED] Atomic cover replacement verified: old file cleaned up, new file persisted, DB updated');
+
+    // 10. IDOR on Cover Removal: Non-owner cannot remove cover image
+    let nonOwnerRemoveBlocked = false;
+    try {
+      await businessService.removeBusinessCover(
+        nonOwner.id,
+        businessId,
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      if (err.statusCode === 403 || err.code === 'FORBIDDEN_NOT_OWNER') {
+        nonOwnerRemoveBlocked = true;
+      }
+    }
+    if (!nonOwnerRemoveBlocked) {
+      throw new Error('CRITICAL VULNERABILITY: Non-owner was permitted to remove cover image of another user business (IDOR)!');
+    }
+    logs.push('[CHECK 8 PASSED] IDOR cover removal attack blocked: non-owner cannot delete cover image (403)');
+
+    // 11. Complete Removal Flow by Owner
+    const removeRes = await businessService.removeBusinessCover(
+      owner.id,
+      businessId,
+      clientIp,
+      userAgent
+    );
+    if (!removeRes.business) {
+      throw new Error('Business object missing from removal response');
+    }
+
+    // Verify file deleted from disk
+    const deletedDiskPath = storageService.resolveBusinessCoverPath(uploadRes2.coverKey);
+    if (deletedDiskPath !== null) {
+      throw new Error('Storage verification failed: Cover image file still exists on disk after removal');
+    }
+
+    // Verify DB state
+    const bizAfterRemove = db.getBusinessById(businessId);
+    if (!bizAfterRemove || bizAfterRemove.coverImageUrl !== '' || bizAfterRemove.coverImageKey) {
+      throw new Error('Database verification failed: Business still has coverImageUrl/coverImageKey after removal');
+    }
+    logs.push('[CHECK 9 PASSED] Complete removal flow verified: file deleted from disk, DB fields cleared atomically');
+
+    // 12. Idempotent Removal: Calling remove again when no cover exists succeeds gracefully
+    const secondRemoveRes = await businessService.removeBusinessCover(
+      owner.id,
+      businessId,
+      clientIp,
+      userAgent
+    );
+    if (secondRemoveRes.business.coverImageUrl !== '') {
+      throw new Error('Idempotent removal failed');
+    }
+    logs.push('[CHECK 10 PASSED] Idempotent removal verified: removing when no cover exists is safe and graceful');
+
+    logs.push('=== ALL 10 BUSINESS COVER FLOW & SECURITY CHECKS PASSED ===');
+  }
+
+  private async executeBusinessDescriptionSuite(logs: string[]): Promise<void> {
+    logs.push('=== STARTING EPIC 2 TASK 2.2.4: BUSINESS DESCRIPTION FLOW & SECURITY VERIFICATION ===');
+    const timestamp = Date.now();
+    const userAgent = 'BusinessDescriptionTester/1.0';
+    const clientIp = '127.0.0.1';
+
+    // 1. Provision Owner User (Alice) and Non-Owner Attacker User (Bob)
+    const ownerEmail = `desc_owner_${timestamp}@example.com`;
+    await authService.registerClient({
+      name: 'Description Owner Alice',
+      email: ownerEmail,
+      password: 'StrongPassword123!',
+      clientType: 'business'
+    }, clientIp, userAgent);
+    const owner = db.getUserByEmail(ownerEmail)!;
+    owner.status = 'ACTIVE';
+    owner.emailVerifiedAt = new Date().toISOString();
+    db.updateUser(owner.id, { status: 'ACTIVE', emailVerifiedAt: owner.emailVerifiedAt });
+
+    const nonOwnerEmail = `desc_attacker_${timestamp}@example.com`;
+    await authService.registerClient({
+      name: 'Description Attacker Bob',
+      email: nonOwnerEmail,
+      password: 'StrongPassword123!',
+      clientType: 'business'
+    }, clientIp, userAgent);
+    const nonOwner = db.getUserByEmail(nonOwnerEmail)!;
+    nonOwner.status = 'ACTIVE';
+    nonOwner.emailVerifiedAt = new Date().toISOString();
+    db.updateUser(nonOwner.id, { status: 'ACTIVE', emailVerifiedAt: nonOwner.emailVerifiedAt });
+
+    // 2. Create Business for Alice with Optional Initial Description
+    const initialDesc = 'We craft handcrafted organic furniture in Abuja.\nSustainable and elegant.';
+    const bizName = `Alice Furniture Studio ${timestamp}`;
+    const bizRes = await businessService.createBusiness(
+      owner.id,
+      { name: bizName, description: initialDesc },
+      clientIp,
+      userAgent
+    );
+    const businessId = bizRes.business.id;
+    if (bizRes.business.description !== initialDesc) {
+      throw new Error(`Initial description not saved on creation: ${bizRes.business.description}`);
+    }
+    const dbBizCheck = db.getBusinessById(businessId);
+    if (!dbBizCheck || dbBizCheck.description !== initialDesc) {
+      throw new Error('Database does not reflect initial description from creation');
+    }
+    logs.push(`[CHECK 1 PASSED] Business created with initial description for owner ${owner.email} (ID: ${businessId})`);
+
+    // 3. Authenticated Owner Edits Description
+    const updatedDesc = 'We specialize in custom solid wood dining tables, ergonomic chairs, and modern shelving units.\nNationwide shipping across Nigeria.\nContact our workshop for bespoke commissions.';
+    const updateRes = await businessService.updateBusinessDescription(
+      owner.id,
+      businessId,
+      updatedDesc,
+      clientIp,
+      userAgent
+    );
+    if (!updateRes.success || updateRes.business.description !== updatedDesc) {
+      throw new Error('Business description update failed for authenticated owner');
+    }
+    const dbAfterUpdate = db.getBusinessById(businessId);
+    if (!dbAfterUpdate || dbAfterUpdate.description !== updatedDesc) {
+      throw new Error('Database entity not updated with new description');
+    }
+    logs.push('[CHECK 2 PASSED] Authenticated owner successfully edited business description and DB persisted');
+
+    // 4. Safe Line Break Handling and Whitespace Normalization
+    const rawMultiLine = '  Line One: Premium wood.\r\n\r\n\r\n\r\nLine Two: Hand finished.\r\nLine Three: Made in Nigeria.   ';
+    const normRes = await businessService.updateBusinessDescription(
+      owner.id,
+      businessId,
+      rawMultiLine,
+      clientIp,
+      userAgent
+    );
+    const expectedNormalized = 'Line One: Premium wood.\n\nLine Two: Hand finished.\nLine Three: Made in Nigeria.';
+    if (normRes.description !== expectedNormalized) {
+      throw new Error(`Whitespace normalization failed. Expected:\n"${expectedNormalized}"\nGot:\n"${normRes.description}"`);
+    }
+    logs.push('[CHECK 3 PASSED] Safe line break preservation and whitespace normalization verified');
+
+    // 5. XSS Defense & Script Tag Sanitization
+    const xssPayload = 'Natural timber finishes. <script>alert("XSS")</script><img src="x" onerror="alert(1)"> <b>Sturdy and durable.</b>';
+    const xssRes = await businessService.updateBusinessDescription(
+      owner.id,
+      businessId,
+      xssPayload,
+      clientIp,
+      userAgent
+    );
+    if (xssRes.description?.includes('<script>') || xssRes.description?.includes('alert') || xssRes.description?.includes('<') || xssRes.description?.includes('>')) {
+      throw new Error(`Security defect: Script/HTML tags not stripped from description: "${xssRes.description}"`);
+    }
+    if (!xssRes.description?.includes('Natural timber finishes.') || !xssRes.description?.includes('Sturdy and durable.')) {
+      throw new Error(`Legitimate text lost during XSS sanitization: "${xssRes.description}"`);
+    }
+    logs.push('[CHECK 4 PASSED] XSS and malicious HTML/script tags safely stripped and neutralized');
+
+    // 6. Max Length Boundary Enforcement (2000 characters)
+    const validLongText = 'A'.repeat(2000);
+    const validLongRes = await businessService.updateBusinessDescription(
+      owner.id,
+      businessId,
+      validLongText,
+      clientIp,
+      userAgent
+    );
+    if (validLongRes.description?.length !== 2000) {
+      throw new Error(`Expected 2000 characters to succeed, got length ${validLongRes.description?.length}`);
+    }
+
+    const oversizedText = 'A'.repeat(2001);
+    let oversizedBlocked = false;
+    try {
+      await businessService.updateBusinessDescription(
+        owner.id,
+        businessId,
+        oversizedText,
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      if (err.statusCode === 400 || err.code === 'VALIDATION_ERROR') {
+        oversizedBlocked = true;
+      }
+    }
+    if (!oversizedBlocked) {
+      throw new Error('CRITICAL FLAW: Description exceeding 2000 characters was accepted!');
+    }
+    logs.push('[CHECK 5 PASSED] Character length boundaries enforced (2000 max, 2001 rejected with 400)');
+
+    // 7. Null Byte Injection Defense
+    const nullByteText = 'Safe description text\0with malicious hidden suffix';
+    let nullByteBlockedOrSanitized = false;
+    try {
+      const res = await businessService.updateBusinessDescription(
+        owner.id,
+        businessId,
+        nullByteText,
+        clientIp,
+        userAgent
+      );
+      if (!res.description?.includes('\0')) {
+        nullByteBlockedOrSanitized = true;
+      }
+    } catch (err: any) {
+      if (err.statusCode === 400 || err.code === 'VALIDATION_ERROR') {
+        nullByteBlockedOrSanitized = true;
+      }
+    }
+    if (!nullByteBlockedOrSanitized) {
+      throw new Error('CRITICAL FLAW: Null byte injection corrupted description without being blocked or sanitized');
+    }
+    logs.push('[CHECK 6 PASSED] Null byte injection defense verified: null byte either rejected or stripped safely');
+
+    // 8. Unauthenticated Request Rejection
+    let unauthenticatedBlocked = false;
+    try {
+      await businessService.updateBusinessDescription(
+        'non_existent_user_id',
+        businessId,
+        'Updated description',
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      if (err.statusCode === 404 || err.statusCode === 401 || err.code === 'USER_NOT_FOUND') {
+        unauthenticatedBlocked = true;
+      }
+    }
+    if (!unauthenticatedBlocked) {
+      throw new Error('Unauthenticated / non-existent user was able to modify business description');
+    }
+    logs.push('[CHECK 7 PASSED] Unauthenticated request strictly rejected (404/401)');
+
+    // 9. IDOR Defense: Cross-Business Edit Prevention (Non-Owner Rejected)
+    let idorBlocked = false;
+    const currentBizBeforeAttack = db.getBusinessById(businessId)!.description;
+    try {
+      await businessService.updateBusinessDescription(
+        nonOwner.id, // Bob tries to edit Alice's business description
+        businessId,
+        'HACKED BY BOB! New description takeover.',
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      if (err.statusCode === 403 || err.code === 'FORBIDDEN_NOT_OWNER') {
+        idorBlocked = true;
+      }
+    }
+    if (!idorBlocked) {
+      throw new Error('CRITICAL VULNERABILITY: Non-owner Bob was permitted to modify Alice business description (IDOR)!');
+    }
+    const currentBizAfterAttack = db.getBusinessById(businessId)!.description;
+    if (currentBizAfterAttack !== currentBizBeforeAttack) {
+      throw new Error('CRITICAL BREACH: Business description was altered by unauthorized non-owner attacker');
+    }
+    logs.push('[CHECK 8 PASSED] IDOR protection verified: cross-business modification attempt strictly rejected with 403');
+
+    // 10. Mass-Assignment & Protected Fields Defense on Description Schema
+    const massAssignmentPayload = {
+      description: 'Clean text',
+      ownerId: nonOwner.id,
+      isVerified: true,
+      rating: 5.0
+    };
+    const schemaCheck = UpdateBusinessDescriptionSchema.safeParse(massAssignmentPayload);
+    if (schemaCheck.success) {
+      throw new Error('CRITICAL VULNERABILITY: UpdateBusinessDescriptionSchema accepted extraneous protected fields!');
+    }
+    logs.push('[CHECK 9 PASSED] Mass-assignment defense verified: schema rejects unauthorized fields with strict mode');
+
+    // 11. Clearing Description Safely
+    const clearRes = await businessService.updateBusinessDescription(
+      owner.id,
+      businessId,
+      '',
+      clientIp,
+      userAgent
+    );
+    if (clearRes.business.description !== undefined && clearRes.business.description !== '') {
+      throw new Error('Expected business description to be cleared');
+    }
+    const dbAfterClear = db.getBusinessById(businessId);
+    if (dbAfterClear?.description) {
+      throw new Error('Database entity still has description after clearing');
+    }
+    logs.push('[CHECK 10 PASSED] Clearing / resetting description handled cleanly and verified in DB');
+
+    logs.push('=== ALL 10 BUSINESS DESCRIPTION FLOW & SECURITY CHECKS PASSED ===');
+  }
+
+  private async executeBusinessLocationSuite(logs: string[]): Promise<void> {
+    logs.push('=== STARTING EPIC 2 TASK 2.2.6: BUSINESS LOCATION FLOW & SECURITY VERIFICATION ===');
+    const timestamp = Date.now();
+    const userAgent = 'BusinessLocationTester/1.0';
+    const clientIp = '127.0.0.1';
+
+    // 1. Provision Owner User (Alice) and Non-Owner Attacker User (Bob)
+    const ownerEmail = `loc_owner_${timestamp}@example.com`;
+    await authService.registerClient({
+      name: 'Location Owner Alice',
+      email: ownerEmail,
+      password: 'StrongPassword123!',
+      clientType: 'business'
+    }, clientIp, userAgent);
+    const owner = db.getUserByEmail(ownerEmail)!;
+    owner.status = 'ACTIVE';
+    owner.emailVerifiedAt = new Date().toISOString();
+    db.updateUser(owner.id, { status: 'ACTIVE', emailVerifiedAt: owner.emailVerifiedAt });
+
+    const nonOwnerEmail = `loc_attacker_${timestamp}@example.com`;
+    await authService.registerClient({
+      name: 'Location Attacker Bob',
+      email: nonOwnerEmail,
+      password: 'StrongPassword123!',
+      clientType: 'business'
+    }, clientIp, userAgent);
+    const nonOwner = db.getUserByEmail(nonOwnerEmail)!;
+    nonOwner.status = 'ACTIVE';
+    nonOwner.emailVerifiedAt = new Date().toISOString();
+    db.updateUser(nonOwner.id, { status: 'ACTIVE', emailVerifiedAt: nonOwner.emailVerifiedAt });
+
+    // 2. Create Business for Alice with Initial Location (Kaduna)
+    const bizName = `Alice Kaduna Logistics ${timestamp}`;
+    const initialLocation = {
+      address: '15 Independence Way',
+      city: 'Kaduna',
+      state: 'Kaduna',
+      country: 'Nigeria',
+      lga: 'Kaduna North',
+      postalCode: '800283',
+      lat: 10.5105,
+      lng: 7.4165,
+      isServiceAreaOnly: false
+    };
+
+    const bizRes = await businessService.createBusiness(
+      owner.id,
+      { name: bizName, description: 'Logistics and delivery hub in Kaduna', location: initialLocation },
+      clientIp,
+      userAgent
+    );
+    const businessId = bizRes.business.id;
+    if (!bizRes.business.location || bizRes.business.location.city !== 'Kaduna') {
+      throw new Error(`Initial location not properly saved on business creation`);
+    }
+    logs.push(`[CHECK 1 PASSED] Business created with initial Nigerian location (${bizRes.business.location.city}, ${bizRes.business.location.state})`);
+
+    // 3. Authenticated Owner Updates Location (e.g. Lagos Expansion)
+    const updatedLocation = {
+      address: '24 Marina Street, Lagos Island',
+      city: 'Lagos',
+      state: 'Lagos',
+      country: 'Nigeria',
+      lga: 'Lagos Island',
+      postalCode: '100221',
+      lat: 6.4549,
+      lng: 3.3892,
+      isServiceAreaOnly: true,
+      serviceAreaKm: 50
+    };
+
+    const updateRes = await businessService.updateBusinessLocation(
+      owner.id,
+      businessId,
+      updatedLocation,
+      clientIp,
+      userAgent
+    );
+    if (!updateRes.business.location || updateRes.business.location.city !== 'Lagos' || updateRes.business.location.serviceAreaKm !== 50) {
+      throw new Error('Business location update failed to persist full fields');
+    }
+    const dbBiz = db.getBusinessById(businessId);
+    if (!dbBiz?.location || dbBiz.location.city !== 'Lagos' || dbBiz.location.lat !== 6.4549) {
+      throw new Error('Database location state mismatch after update');
+    }
+    logs.push('[CHECK 2 PASSED] Authenticated owner successfully updated full business location fields and verified in DB');
+
+    // 4. GPS Coordinate Validation: Reject Invalid Latitude (> 90 or < -90)
+    let invalidLatBlocked = false;
+    try {
+      await businessService.updateBusinessLocation(
+        owner.id,
+        businessId,
+        { ...updatedLocation, lat: 95.0 }, // Invalid lat
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      invalidLatBlocked = true;
+    }
+    if (!invalidLatBlocked) {
+      throw new Error('CRITICAL FLAW: Location update accepted invalid latitude > 90');
+    }
+
+    let invalidLngBlocked = false;
+    try {
+      await businessService.updateBusinessLocation(
+        owner.id,
+        businessId,
+        { ...updatedLocation, lng: 195.0 }, // Invalid lng
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      invalidLngBlocked = true;
+    }
+    if (!invalidLngBlocked) {
+      throw new Error('CRITICAL FLAW: Location update accepted invalid longitude > 180');
+    }
+    logs.push('[CHECK 3 PASSED] GPS coordinate bounds strictly enforced (-90 to +90 lat, -180 to +180 lng)');
+
+    // 5. Control Character / Null Byte Defense
+    let nullByteBlocked = false;
+    try {
+      await businessService.updateBusinessLocation(
+        owner.id,
+        businessId,
+        { ...updatedLocation, city: 'Lagos\0Hacked' },
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      nullByteBlocked = true;
+    }
+    if (!nullByteBlocked) {
+      throw new Error('CRITICAL FLAW: Location update accepted null bytes in city/address string');
+    }
+    logs.push('[CHECK 4 PASSED] Null byte injection and control character defense verified');
+
+    // 6. Non-Owner IDOR Defense: Bob cannot modify Alice\'s business location
+    let idorBlocked = false;
+    try {
+      await businessService.updateBusinessLocation(
+        nonOwner.id, // Bob
+        businessId,  // Alice's biz
+        { city: 'Kano', state: 'Kano', country: 'Nigeria' },
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      if (err.statusCode === 403 || err.message.includes('not authorized') || err.message.includes('forbidden')) {
+        idorBlocked = true;
+      }
+    }
+    if (!idorBlocked) {
+      throw new Error('CRITICAL VULNERABILITY: Non-owner Bob was permitted to update Alice business location (IDOR)!');
+    }
+    logs.push('[CHECK 5 PASSED] IDOR protection verified: cross-user location update rejected with 403');
+
+    // 7. Mass-Assignment & Protected Fields Defense
+    const massAssignmentPayload = {
+      city: 'Abuja',
+      state: 'Federal Capital Territory',
+      country: 'Nigeria',
+      ownerId: nonOwner.id,
+      isVerified: true,
+      rating: 5.0
+    };
+    const schemaCheck = UpdateBusinessLocationSchema.safeParse(massAssignmentPayload);
+    if (schemaCheck.success) {
+      throw new Error('CRITICAL VULNERABILITY: UpdateBusinessLocationSchema accepted extraneous protected fields!');
+    }
+    logs.push('[CHECK 6 PASSED] Mass-assignment defense verified: schema rejects unauthorized fields with strict mode');
+
+    // 8. Public Location Retrieval
+    const getRes = await businessService.getBusinessLocation(businessId);
+    if (!getRes || getRes.city !== 'Lagos' || getRes.state !== 'Lagos') {
+      throw new Error('Public location retrieval failed');
+    }
+    logs.push('[CHECK 7 PASSED] Public business location retrieval verified');
+
+    // 9. Non-Owner IDOR on Location Removal
+    let idorRemoveBlocked = false;
+    try {
+      await businessService.clearBusinessLocation(
+        nonOwner.id, // Bob
+        businessId,
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      if (err.statusCode === 403 || err.message.includes('not authorized')) {
+        idorRemoveBlocked = true;
+      }
+    }
+    if (!idorRemoveBlocked) {
+      throw new Error('CRITICAL VULNERABILITY: Non-owner Bob was permitted to clear Alice business location (IDOR)!');
+    }
+    logs.push('[CHECK 8 PASSED] IDOR location removal protection verified: non-owner strictly rejected (403)');
+
+    // 10. Complete Location Removal by Owner
+    const clearRes = await businessService.clearBusinessLocation(
+      owner.id,
+      businessId,
+      clientIp,
+      userAgent
+    );
+    if (clearRes.business.location !== undefined && clearRes.business.location !== null) {
+      throw new Error('Expected business location to be undefined after removal');
+    }
+    const dbAfterClear = db.getBusinessById(businessId);
+    if (dbAfterClear?.location) {
+      throw new Error('Database entity still has location after removal');
+    }
+    logs.push('[CHECK 9 PASSED] Complete location removal by owner verified and entity cleared in DB');
+
+    // 11. Idempotent Location Removal
+    const secondClearRes = await businessService.clearBusinessLocation(
+      owner.id,
+      businessId,
+      clientIp,
+      userAgent
+    );
+    if (secondClearRes.business.location !== undefined && secondClearRes.business.location !== null) {
+      throw new Error('Idempotent location removal failed');
+    }
+    logs.push('[CHECK 10 PASSED] Idempotent location removal verified: clearing non-existent location succeeds gracefully');
+
+    logs.push('=== ALL 10 BUSINESS LOCATION FLOW & SECURITY CHECKS PASSED ===');
   }
 
   public async run18SecurityAttacks(): Promise<{

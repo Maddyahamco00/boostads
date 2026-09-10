@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
   DollarSign, 
@@ -23,15 +23,28 @@ import {
   CreditCard,
   CheckCircle2,
   Phone,
-  ArrowUpRight
+  ArrowUpRight,
+  Camera,
+  Trash2,
+  Loader2,
+  AlertCircle,
+  Check,
+  Tag,
+  X,
+  Search,
+  MapPin,
+  Navigation
 } from 'lucide-react';
 import { AdvertisementCard } from './AdvertisementCard';
+import { businessApi } from '../lib/api';
+import { NIGERIAN_STATES, LocationCoordinates } from '../types';
 
 export const MerchantDashboardView: React.FC = () => {
   const { 
     currentUser, 
     businesses, 
     advertisements, 
+    categories,
     campaigns,
     leads,
     setIsCreateAdModalOpen,
@@ -41,11 +54,97 @@ export const MerchantDashboardView: React.FC = () => {
   } = useApp();
 
   const userBiz = businesses.find(b => b.ownerId === currentUser.id) || businesses[0];
+  const isOwner = Boolean(userBiz && (userBiz.ownerId === currentUser.id || currentUser.role === 'SUPER_ADMIN'));
+
   const userAds = advertisements.filter(a => a.businessId === userBiz?.id);
   const userCampaigns = campaigns.filter(c => c.businessId === userBiz?.id || currentUser.role === 'SUPER_ADMIN');
   const userLeads = leads.filter(l => l.businessId === userBiz?.id || currentUser.role === 'SUPER_ADMIN');
 
   const [activeTab, setActiveTab] = useState<'overview' | 'ads' | 'leads' | 'products' | 'services' | 'bank_payouts'>('overview');
+
+  // Business Logo Management States (Epic 2 Feature 2.2 Task 2.2.2)
+  const logoFileInputRef = useRef<HTMLInputElement>(null);
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const [isRemovingLogo, setIsRemovingLogo] = useState(false);
+  const [logoMessage, setLogoMessage] = useState<{ text: string; isError: boolean } | null>(null);
+
+  // Business Cover Image Management States (Epic 2 Feature 2.2 Task 2.2.3)
+  const coverFileInputRef = useRef<HTMLInputElement>(null);
+  const [isUploadingCover, setIsUploadingCover] = useState(false);
+  const [isRemovingCover, setIsRemovingCover] = useState(false);
+  const [coverMessage, setCoverMessage] = useState<{ text: string; isError: boolean } | null>(null);
+
+  // Business Description Management States (Epic 2 Feature 2.2 Task 2.2.4)
+  const [isEditingDescription, setIsEditingDescription] = useState(false);
+  const [descriptionInput, setDescriptionInput] = useState(userBiz?.description || '');
+  const [isSavingDescription, setIsSavingDescription] = useState(false);
+  const [descriptionMessage, setDescriptionMessage] = useState<{ text: string; isError: boolean } | null>(null);
+
+  useEffect(() => {
+    if (!isEditingDescription) {
+      setDescriptionInput(userBiz?.description || '');
+    }
+  }, [userBiz?.description, isEditingDescription]);
+
+  // Business Categories Management States (Epic 2 Feature 2.2 Task 2.2.5)
+  const [isEditingCategories, setIsEditingCategories] = useState(false);
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
+  const [categorySearchQuery, setCategorySearchQuery] = useState('');
+  const [isSavingCategories, setIsSavingCategories] = useState(false);
+  const [categoriesMessage, setCategoriesMessage] = useState<{ text: string; isError: boolean } | null>(null);
+
+  useEffect(() => {
+    if (!isEditingCategories && userBiz) {
+      if (Array.isArray(userBiz.categories) && userBiz.categories.length > 0) {
+        setSelectedCategoryIds(userBiz.categories);
+      } else if (userBiz.category) {
+        setSelectedCategoryIds([userBiz.category]);
+      } else {
+        setSelectedCategoryIds([]);
+      }
+    }
+  }, [userBiz?.categories, userBiz?.category, isEditingCategories]);
+
+  // Business Location Management States (Epic 2 Feature 2.2 Task 2.2.6)
+  const [isEditingLocation, setIsEditingLocation] = useState(false);
+  const [locationAddress, setLocationAddress] = useState('');
+  const [locationCity, setLocationCity] = useState('');
+  const [locationState, setLocationState] = useState('');
+  const [locationCountry, setLocationCountry] = useState('Nigeria');
+  const [locationLga, setLocationLga] = useState('');
+  const [locationPostalCode, setLocationPostalCode] = useState('');
+  const [locationLat, setLocationLat] = useState<string>('');
+  const [locationLng, setLocationLng] = useState<string>('');
+  const [isServiceAreaOnly, setIsServiceAreaOnly] = useState(false);
+  const [serviceAreaKm, setServiceAreaKm] = useState<string>('');
+  const [isSavingLocation, setIsSavingLocation] = useState(false);
+  const [locationMessage, setLocationMessage] = useState<{ text: string; isError: boolean } | null>(null);
+
+  useEffect(() => {
+    if (!isEditingLocation && userBiz?.location) {
+      setLocationAddress(userBiz.location.address || '');
+      setLocationCity(userBiz.location.city || '');
+      setLocationState(userBiz.location.state || '');
+      setLocationCountry(userBiz.location.country || 'Nigeria');
+      setLocationLga(userBiz.location.lga || '');
+      setLocationPostalCode(userBiz.location.postalCode || '');
+      setLocationLat(typeof userBiz.location.lat === 'number' ? String(userBiz.location.lat) : '');
+      setLocationLng(typeof userBiz.location.lng === 'number' ? String(userBiz.location.lng) : '');
+      setIsServiceAreaOnly(!!userBiz.location.isServiceAreaOnly);
+      setServiceAreaKm(typeof userBiz.location.serviceAreaKm === 'number' ? String(userBiz.location.serviceAreaKm) : '');
+    } else if (!isEditingLocation && !userBiz?.location) {
+      setLocationAddress('');
+      setLocationCity('');
+      setLocationState('');
+      setLocationCountry('Nigeria');
+      setLocationLga('');
+      setLocationPostalCode('');
+      setLocationLat('');
+      setLocationLng('');
+      setIsServiceAreaOnly(false);
+      setServiceAreaKm('');
+    }
+  }, [userBiz?.location, isEditingLocation]);
 
   // Form states for adding product/service
   const [newProdName, setNewProdName] = useState('');
@@ -124,18 +223,524 @@ export const MerchantDashboardView: React.FC = () => {
     setTimeout(() => setBankSaved(false), 3000);
   };
 
+  // Business Logo Handlers (Epic 2 Task 2.2.2)
+  const handleLogoFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !userBiz) return;
+
+    setLogoMessage(null);
+
+    // Format check
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      setLogoMessage({
+        text: 'Invalid file format. Only JPEG, PNG, and WebP images are permitted.',
+        isError: true
+      });
+      if (logoFileInputRef.current) logoFileInputRef.current.value = '';
+      return;
+    }
+
+    // Size check (5MB)
+    const MAX_SIZE = 5 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      setLogoMessage({
+        text: `File is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). Maximum allowed size is 5MB.`,
+        isError: true
+      });
+      if (logoFileInputRef.current) logoFileInputRef.current.value = '';
+      return;
+    }
+
+    setIsUploadingLogo(true);
+    try {
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve, reject) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(new Error('Failed to read image file'));
+      });
+      reader.readAsDataURL(file);
+      const base64Data = await base64Promise;
+
+      const res = await businessApi.uploadLogo(userBiz.id, {
+        image: base64Data,
+        filename: file.name
+      });
+
+      if (res.success && res.logoUrl) {
+        setLogoMessage({
+          text: 'Business logo updated successfully.',
+          isError: false
+        });
+        await refreshData();
+      } else {
+        setLogoMessage({
+          text: res.message || 'Failed to update business logo.',
+          isError: true
+        });
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to upload business logo.';
+      setLogoMessage({
+        text: msg,
+        isError: true
+      });
+    } finally {
+      setIsUploadingLogo(false);
+      if (logoFileInputRef.current) logoFileInputRef.current.value = '';
+    }
+  };
+
+  const handleRemoveLogo = async () => {
+    if (!userBiz) return;
+    setLogoMessage(null);
+    setIsRemovingLogo(true);
+
+    try {
+      const res = await businessApi.removeLogo(userBiz.id);
+      if (res.success) {
+        setLogoMessage({
+          text: 'Business logo removed successfully.',
+          isError: false
+        });
+        await refreshData();
+      } else {
+        setLogoMessage({
+          text: res.message || 'Failed to remove business logo.',
+          isError: true
+        });
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to remove business logo.';
+      setLogoMessage({
+        text: msg,
+        isError: true
+      });
+    } finally {
+      setIsRemovingLogo(false);
+    }
+  };
+
+  // Business Cover Image Handlers (Epic 2 Task 2.2.3)
+  const handleCoverFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !userBiz) return;
+
+    setCoverMessage(null);
+
+    // Format check
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      setCoverMessage({
+        text: 'Invalid file format. Only JPEG, PNG, and WebP images are permitted.',
+        isError: true
+      });
+      if (coverFileInputRef.current) coverFileInputRef.current.value = '';
+      return;
+    }
+
+    // Size check (5MB)
+    const MAX_SIZE = 5 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      setCoverMessage({
+        text: `File is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). Maximum allowed size is 5MB.`,
+        isError: true
+      });
+      if (coverFileInputRef.current) coverFileInputRef.current.value = '';
+      return;
+    }
+
+    setIsUploadingCover(true);
+    try {
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve, reject) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(new Error('Failed to read image file'));
+      });
+      reader.readAsDataURL(file);
+      const base64Data = await base64Promise;
+
+      const res = await businessApi.uploadCover(userBiz.id, {
+        image: base64Data,
+        filename: file.name
+      });
+
+      if (res.success && res.coverUrl) {
+        setCoverMessage({
+          text: 'Business cover image updated successfully.',
+          isError: false
+        });
+        await refreshData();
+      } else {
+        setCoverMessage({
+          text: res.message || 'Failed to update business cover image.',
+          isError: true
+        });
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to upload business cover image.';
+      setCoverMessage({
+        text: msg,
+        isError: true
+      });
+    } finally {
+      setIsUploadingCover(false);
+      if (coverFileInputRef.current) coverFileInputRef.current.value = '';
+    }
+  };
+
+  const handleRemoveCover = async () => {
+    if (!userBiz) return;
+    setCoverMessage(null);
+    setIsRemovingCover(true);
+
+    try {
+      const res = await businessApi.removeCover(userBiz.id);
+      if (res.success) {
+        setCoverMessage({
+          text: 'Business cover image removed successfully.',
+          isError: false
+        });
+        await refreshData();
+      } else {
+        setCoverMessage({
+          text: res.message || 'Failed to remove business cover image.',
+          isError: true
+        });
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to remove business cover image.';
+      setCoverMessage({
+        text: msg,
+        isError: true
+      });
+    } finally {
+      setIsRemovingCover(false);
+    }
+  };
+
+  // Business Description Handler (Epic 2 Task 2.2.4)
+  const handleSaveDescription = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!userBiz) return;
+    setDescriptionMessage(null);
+    setIsSavingDescription(true);
+
+    try {
+      const res = await businessApi.updateDescription(userBiz.id, {
+        description: descriptionInput
+      });
+
+      if (res.success) {
+        setDescriptionMessage({
+          text: res.message || 'Business description saved successfully.',
+          isError: false
+        });
+        setIsEditingDescription(false);
+        await refreshData();
+      } else {
+        setDescriptionMessage({
+          text: res.message || 'Failed to update business description.',
+          isError: true
+        });
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to update business description.';
+      setDescriptionMessage({
+        text: msg,
+        isError: true
+      });
+    } finally {
+      setIsSavingDescription(false);
+    }
+  };
+
+  // Business Categories Handlers (Epic 2 Task 2.2.5)
+  const handleToggleCategory = (catId: string) => {
+    setCategoriesMessage(null);
+    if (selectedCategoryIds.includes(catId)) {
+      setSelectedCategoryIds(prev => prev.filter(id => id !== catId));
+    } else {
+      if (selectedCategoryIds.length >= 5) {
+        setCategoriesMessage({
+          text: 'Maximum of 5 categories allowed per business.',
+          isError: true
+        });
+        return;
+      }
+      setSelectedCategoryIds(prev => [...prev, catId]);
+    }
+  };
+
+  const handleSaveCategories = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!userBiz) return;
+    setCategoriesMessage(null);
+    setIsSavingCategories(true);
+
+    try {
+      const res = await businessApi.updateCategories(userBiz.id, {
+        categoryIds: selectedCategoryIds
+      });
+
+      if (res.success) {
+        setCategoriesMessage({
+          text: res.message || 'Business categories updated successfully.',
+          isError: false
+        });
+        setIsEditingCategories(false);
+        await refreshData();
+      } else {
+        setCategoriesMessage({
+          text: res.message || 'Failed to update business categories.',
+          isError: true
+        });
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to update business categories.';
+      setCategoriesMessage({
+        text: msg,
+        isError: true
+      });
+    } finally {
+      setIsSavingCategories(false);
+    }
+  };
+
+  // Business Location Handlers (Epic 2 Task 2.2.6)
+  const handleSaveLocation = async () => {
+    if (!userBiz) return;
+    setLocationMessage(null);
+
+    const trimmedCity = locationCity.trim();
+    const trimmedState = locationState.trim();
+    const trimmedCountry = locationCountry.trim() || 'Nigeria';
+
+    if (!trimmedCity) {
+      setLocationMessage({ text: 'City/town is required.', isError: true });
+      return;
+    }
+    if (!trimmedState) {
+      setLocationMessage({ text: 'State/region is required.', isError: true });
+      return;
+    }
+
+    let latNum: number | undefined = undefined;
+    let lngNum: number | undefined = undefined;
+
+    if (locationLat.trim() !== '') {
+      const parsed = parseFloat(locationLat.trim());
+      if (isNaN(parsed) || !isFinite(parsed) || parsed < -90 || parsed > 90) {
+        setLocationMessage({ text: 'Latitude must be a valid number between -90 and +90.', isError: true });
+        return;
+      }
+      latNum = parsed;
+    }
+
+    if (locationLng.trim() !== '') {
+      const parsed = parseFloat(locationLng.trim());
+      if (isNaN(parsed) || !isFinite(parsed) || parsed < -180 || parsed > 180) {
+        setLocationMessage({ text: 'Longitude must be a valid number between -180 and +180.', isError: true });
+        return;
+      }
+      lngNum = parsed;
+    }
+
+    let radiusNum: number | undefined = undefined;
+    if (serviceAreaKm.trim() !== '') {
+      const parsed = parseFloat(serviceAreaKm.trim());
+      if (isNaN(parsed) || parsed < 0 || parsed > 1000) {
+        setLocationMessage({ text: 'Service area radius must be between 0 and 1000 km.', isError: true });
+        return;
+      }
+      radiusNum = parsed;
+    }
+
+    setIsSavingLocation(true);
+    try {
+      const payload: Partial<LocationCoordinates> = {
+        address: locationAddress.trim() || undefined,
+        city: trimmedCity,
+        state: trimmedState,
+        country: trimmedCountry,
+        lga: locationLga.trim() || undefined,
+        postalCode: locationPostalCode.trim() || undefined,
+        lat: latNum,
+        lng: lngNum,
+        isServiceAreaOnly,
+        serviceAreaKm: radiusNum
+      };
+
+      const res = await businessApi.updateLocation(userBiz.id, payload);
+      if (res.success && res.business) {
+        setIsEditingLocation(false);
+        setLocationMessage({ text: res.message || 'Business location updated successfully.', isError: false });
+        await refreshData();
+      } else {
+        setLocationMessage({ text: (res as any).error || res.message || 'Failed to update business location.', isError: true });
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'An error occurred while updating location.';
+      setLocationMessage({ text: msg, isError: true });
+    } finally {
+      setIsSavingLocation(false);
+    }
+  };
+
+  const handleClearLocation = async () => {
+    if (!userBiz) return;
+    if (!window.confirm('Are you sure you want to remove the business location?')) return;
+    setIsSavingLocation(true);
+    setLocationMessage(null);
+    try {
+      const res = await businessApi.clearLocation(userBiz.id);
+      if (res.success && res.business) {
+        setIsEditingLocation(false);
+        setLocationMessage({ text: res.message || 'Business location removed.', isError: false });
+        await refreshData();
+      } else {
+        setLocationMessage({ text: (res as any).error || res.message || 'Failed to remove location.', isError: true });
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'An error occurred while removing location.';
+      setLocationMessage({ text: msg, isError: true });
+    } finally {
+      setIsSavingLocation(false);
+    }
+  };
+
   return (
     <div id="merchant-dashboard-view" className="min-h-screen pb-20 text-slate-900 dark:text-slate-100 transition-colors">
       
+      {/* Business Cover Banner (Epic 2 Task 2.2.3) */}
+      <div className="relative w-full h-44 sm:h-56 md:h-64 bg-slate-100 dark:bg-slate-800/80 overflow-hidden border-b border-slate-200/80 dark:border-slate-800 group">
+        {userBiz?.coverImageUrl ? (
+          <img
+            id="business-cover-image"
+            src={userBiz.coverImageUrl}
+            alt={`${userBiz?.name || 'Business'} Cover`}
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <div 
+            id="business-cover-placeholder"
+            className="w-full h-full flex flex-col items-center justify-center bg-slate-50 dark:bg-slate-900/60 text-slate-400 dark:text-slate-500 select-none"
+          >
+            <ImageIcon className="w-10 h-10 mb-1.5 opacity-40 stroke-1" />
+            <span className="text-xs font-medium text-slate-400 dark:text-slate-500">No cover image uploaded</span>
+          </div>
+        )}
+
+        {/* Cover Management Controls (Owner only) */}
+        {isOwner && (
+          <div className="absolute top-4 right-4 flex items-center gap-2">
+            <input
+              ref={coverFileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={handleCoverFileSelect}
+              className="hidden"
+              id="business-cover-file-input"
+            />
+            <button
+              type="button"
+              id="upload-business-cover-btn"
+              onClick={() => coverFileInputRef.current?.click()}
+              disabled={isUploadingCover || isRemovingCover}
+              className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-white/95 hover:bg-white dark:bg-slate-900/95 dark:hover:bg-slate-900 text-slate-800 dark:text-slate-100 shadow-sm border border-slate-200/80 dark:border-slate-700 flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+            >
+              {isUploadingCover ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600 dark:text-cyan-400" />
+                  <span>Uploading Cover...</span>
+                </>
+              ) : (
+                <>
+                  <Camera className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+                  <span>{userBiz?.coverImageUrl ? 'Change Cover' : 'Upload Cover'}</span>
+                </>
+              )}
+            </button>
+
+            {userBiz?.coverImageUrl && (
+              <button
+                type="button"
+                id="remove-business-cover-btn"
+                onClick={handleRemoveCover}
+                disabled={isUploadingCover || isRemovingCover}
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-white/95 hover:bg-rose-50 dark:bg-slate-900/95 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 shadow-sm border border-rose-200 dark:border-rose-900/50 flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {isRemovingCover ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Removing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Remove</span>
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Cover Feedback Notification Banner */}
+        {coverMessage && (
+          <div
+            id="business-cover-feedback"
+            className={`absolute bottom-3 left-4 right-4 sm:left-auto sm:right-4 max-w-md px-3 py-2 rounded-lg text-xs font-medium shadow-md border flex items-center gap-2 ${
+              coverMessage.isError
+                ? 'bg-rose-50 text-rose-800 dark:bg-rose-950 dark:text-rose-200 border-rose-200 dark:border-rose-800'
+                : 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200 border-emerald-200 dark:border-emerald-800'
+            }`}
+          >
+            {coverMessage.isError ? (
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400" />
+            ) : (
+              <Check className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+            )}
+            <span className="flex-1">{coverMessage.text}</span>
+            <button
+              type="button"
+              onClick={() => setCoverMessage(null)}
+              className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 font-bold px-1"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* Top Banner / Merchant Identity */}
       <div className="glass-panel border-b border-slate-200/80 dark:border-slate-800 px-4 py-6 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center gap-3.5">
-            <img
-              src={userBiz?.logoUrl || 'https://images.unsplash.com/photo-1549298916-b41d501d3772?w=200&auto=format&fit=crop&q=80'}
-              alt={userBiz?.name}
-              className="w-14 h-14 rounded-2xl object-cover border border-slate-200 dark:border-slate-700 shadow-sm"
-            />
+          <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+            <div className="relative group shrink-0 w-16 h-16">
+              <img
+                src={userBiz?.logoUrl || 'https://images.unsplash.com/photo-1549298916-b41d501d3772?w=200&auto=format&fit=crop&q=80'}
+                alt={userBiz?.name || 'Business'}
+                className="w-16 h-16 rounded-2xl object-cover border-2 border-slate-200 dark:border-slate-700 shadow-sm bg-slate-100 dark:bg-slate-800"
+              />
+              {isOwner && (
+                <button
+                  type="button"
+                  onClick={() => logoFileInputRef.current?.click()}
+                  disabled={isUploadingLogo || isRemovingLogo}
+                  aria-label="Upload new business logo"
+                  className="absolute inset-0 bg-black/40 hover:bg-black/60 rounded-2xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer text-white"
+                  title="Upload new logo"
+                >
+                  {isUploadingLogo ? (
+                    <Loader2 className="w-5 h-5 animate-spin text-white" />
+                  ) : (
+                    <Camera className="w-5 h-5 text-white" />
+                  )}
+                </button>
+              )}
+            </div>
+
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
@@ -144,8 +749,84 @@ export const MerchantDashboardView: React.FC = () => {
                 <ShieldCheck className="w-5 h-5 text-indigo-600 dark:text-cyan-400" />
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                {userBiz?.categoryLabel || userBiz?.category} • {userBiz?.location?.city}, {userBiz?.location?.state}
+                {(userBiz?.categories && userBiz.categories.length > 0)
+                  ? userBiz.categories.map(cId => categories.find(c => c.id === cId)?.name || cId).join(', ')
+                  : (userBiz?.categoryLabel || userBiz?.category || 'General Business')}
+                {userBiz?.location?.city ? ` • ${userBiz.location.city}, ${userBiz.location.state}` : ''}
               </p>
+
+              {/* Logo Management Actions */}
+              {isOwner && (
+                <div className="flex items-center gap-2 mt-2">
+                  <input
+                    ref={logoFileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={handleLogoFileSelect}
+                    className="hidden"
+                    id="business-logo-file-input"
+                  />
+                  <button
+                    type="button"
+                    id="upload-business-logo-btn"
+                    onClick={() => logoFileInputRef.current?.click()}
+                    disabled={isUploadingLogo || isRemovingLogo}
+                    className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    {isUploadingLogo ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600 dark:text-cyan-400" />
+                        <span>Uploading...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Camera className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+                        <span>{userBiz?.logoUrl ? 'Change Logo' : 'Upload Logo'}</span>
+                      </>
+                    )}
+                  </button>
+
+                  {userBiz?.logoUrl && (
+                    <button
+                      type="button"
+                      id="remove-business-logo-btn"
+                      onClick={handleRemoveLogo}
+                      disabled={isUploadingLogo || isRemovingLogo}
+                      className="px-2.5 py-1 text-xs font-semibold rounded-lg text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1"
+                    >
+                      {isRemovingLogo ? (
+                        <>
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          <span>Removing...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Trash2 className="w-3 h-3" />
+                          <span>Remove</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {logoMessage && (
+                <div
+                  id="business-logo-feedback"
+                  className={`mt-2 text-xs px-2.5 py-1 rounded-md inline-flex items-center gap-1.5 ${
+                    logoMessage.isError
+                      ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border border-rose-200 dark:border-rose-900'
+                      : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900'
+                  }`}
+                >
+                  {logoMessage.isError ? (
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  ) : (
+                    <Check className="w-3.5 h-3.5 shrink-0" />
+                  )}
+                  <span>{logoMessage.text}</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -166,6 +847,656 @@ export const MerchantDashboardView: React.FC = () => {
               <span>Create Advertisement</span>
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* Business Description Section (Epic 2 Feature 2.2 Task 2.2.4) */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-5">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs">
+          <div className="flex items-center justify-between gap-4 mb-2">
+            <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <Building2 className="w-4 h-4 text-indigo-600 dark:text-cyan-400" />
+              <span>About the Business</span>
+            </h2>
+            {isOwner && !isEditingDescription && (
+              <button
+                type="button"
+                id="edit-business-description-btn"
+                onClick={() => {
+                  setDescriptionInput(userBiz?.description || '');
+                  setIsEditingDescription(true);
+                  setDescriptionMessage(null);
+                }}
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+              >
+                {userBiz?.description ? 'Edit Description' : 'Add Description'}
+              </button>
+            )}
+          </div>
+
+          {/* Description Message Notification */}
+          {descriptionMessage && (
+            <div
+              id="business-description-feedback"
+              className={`mb-3 text-xs px-3 py-2 rounded-lg flex items-center gap-2 border ${
+                descriptionMessage.isError
+                  ? 'bg-rose-50 text-rose-800 dark:bg-rose-950/50 dark:text-rose-200 border-rose-200 dark:border-rose-800'
+                  : 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200 border-emerald-200 dark:border-emerald-800'
+              }`}
+            >
+              {descriptionMessage.isError ? (
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400" />
+              ) : (
+                <Check className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+              )}
+              <span className="flex-1">{descriptionMessage.text}</span>
+              <button
+                type="button"
+                onClick={() => setDescriptionMessage(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 font-bold"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          {isEditingDescription ? (
+            <form onSubmit={handleSaveDescription} className="space-y-3">
+              <div>
+                <textarea
+                  id="business-description-textarea"
+                  rows={4}
+                  maxLength={2000}
+                  value={descriptionInput}
+                  onChange={(e) => setDescriptionInput(e.target.value)}
+                  placeholder="Describe your business, products, services, specialty, or history..."
+                  disabled={isSavingDescription}
+                  className="w-full px-3.5 py-2.5 text-sm bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white transition-all resize-y"
+                />
+                <div className="flex justify-between items-center mt-1 text-xs text-slate-400">
+                  <span>Formatting: Paragraphs and line breaks are safely preserved</span>
+                  <span className={descriptionInput.length > 2000 ? 'text-rose-500 font-bold' : ''}>
+                    {descriptionInput.length}/2000
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  id="cancel-business-description-btn"
+                  onClick={() => {
+                    setIsEditingDescription(false);
+                    setDescriptionInput(userBiz?.description || '');
+                    setDescriptionMessage(null);
+                  }}
+                  disabled={isSavingDescription}
+                  className="px-3.5 py-1.5 text-xs font-medium rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  id="save-business-description-btn"
+                  disabled={isSavingDescription || descriptionInput.length > 2000}
+                  className="px-4 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSavingDescription ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <span>Save Description</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          ) : (
+            <div>
+              {userBiz?.description ? (
+                <p id="business-description-display" className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-line">
+                  {userBiz.description}
+                </p>
+              ) : (
+                <p id="business-description-empty" className="text-sm text-slate-400 dark:text-slate-500 italic">
+                  No business description provided yet.
+                  {isOwner && ' Click "Add Description" above to tell customers about what makes your business special.'}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Business Categories Management Card (Epic 2 Feature 2.2 Task 2.2.5) */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-5">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs">
+          <div className="flex items-center justify-between gap-4 mb-2">
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Tag className="w-4 h-4 text-indigo-600 dark:text-cyan-400" />
+                <span>Business Categories</span>
+              </h2>
+              <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-medium">
+                {selectedCategoryIds.length}/5
+              </span>
+            </div>
+            {isOwner && !isEditingCategories && (
+              <button
+                type="button"
+                id="edit-business-categories-btn"
+                onClick={() => {
+                  setIsEditingCategories(true);
+                  setCategoriesMessage(null);
+                  setCategorySearchQuery('');
+                }}
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+              >
+                {selectedCategoryIds.length > 0 ? 'Edit Categories' : 'Add Categories'}
+              </button>
+            )}
+          </div>
+
+          {/* Categories Feedback Notification */}
+          {categoriesMessage && (
+            <div
+              id="business-categories-feedback"
+              className={`mb-3 text-xs px-3 py-2 rounded-lg flex items-center gap-2 border ${
+                categoriesMessage.isError
+                  ? 'bg-rose-50 text-rose-800 dark:bg-rose-950/50 dark:text-rose-200 border-rose-200 dark:border-rose-800'
+                  : 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200 border-emerald-200 dark:border-emerald-800'
+              }`}
+            >
+              {categoriesMessage.isError ? (
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400" />
+              ) : (
+                <Check className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+              )}
+              <span className="flex-1">{categoriesMessage.text}</span>
+              <button
+                type="button"
+                onClick={() => setCategoriesMessage(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 font-bold"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          {isEditingCategories ? (
+            <div className="space-y-4">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Select up to 5 controlled categories that classify your business. The first category acts as your primary category.
+              </p>
+
+              {/* Selected Categories Chips with Remove */}
+              {selectedCategoryIds.length > 0 && (
+                <div>
+                  <div className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                    Selected Categories ({selectedCategoryIds.length}/5):
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedCategoryIds.map((catId, idx) => {
+                      const catConfig = categories.find(c => c.id === catId);
+                      const name = catConfig?.name || catId;
+                      return (
+                        <span
+                          key={catId}
+                          id={`selected-category-${catId}`}
+                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-indigo-900 dark:text-indigo-200"
+                        >
+                          {idx === 0 && (
+                            <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-indigo-200 dark:bg-indigo-800 text-indigo-800 dark:text-indigo-100">
+                              Primary
+                            </span>
+                          )}
+                          <span>{name}</span>
+                          <button
+                            type="button"
+                            id={`remove-category-${catId}`}
+                            onClick={() => handleToggleCategory(catId)}
+                            className="p-0.5 text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-100 rounded transition-colors cursor-pointer"
+                            title={`Remove ${name}`}
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Search filter if there are many categories */}
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  id="category-search-input"
+                  value={categorySearchQuery}
+                  onChange={(e) => setCategorySearchQuery(e.target.value)}
+                  placeholder="Filter available categories..."
+                  className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+
+              {/* Available Categories Grid */}
+              <div className="border border-slate-200 dark:border-slate-800 rounded-xl p-3 bg-slate-50/50 dark:bg-slate-800/30 max-h-56 overflow-y-auto">
+                <div className="flex flex-wrap gap-2">
+                  {categories
+                    .filter(cat => cat.active !== false)
+                    .filter(cat => !categorySearchQuery || cat.name.toLowerCase().includes(categorySearchQuery.toLowerCase()))
+                    .map((cat) => {
+                      const isSelected = selectedCategoryIds.includes(cat.id);
+                      return (
+                        <button
+                          key={cat.id}
+                          type="button"
+                          id={`category-toggle-${cat.id}`}
+                          onClick={() => handleToggleCategory(cat.id)}
+                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition-all cursor-pointer ${
+                            isSelected
+                              ? 'bg-indigo-600 border-indigo-600 text-white font-semibold shadow-xs'
+                              : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 text-slate-700 dark:text-slate-300'
+                          }`}
+                        >
+                          {isSelected && <Check className="w-3.5 h-3.5 text-white" />}
+                          <span>{cat.name}</span>
+                        </button>
+                      );
+                    })}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  id="cancel-business-categories-btn"
+                  onClick={() => {
+                    setIsEditingCategories(false);
+                    if (userBiz?.categories) {
+                      setSelectedCategoryIds(userBiz.categories);
+                    } else if (userBiz?.category) {
+                      setSelectedCategoryIds([userBiz.category]);
+                    } else {
+                      setSelectedCategoryIds([]);
+                    }
+                    setCategoriesMessage(null);
+                  }}
+                  disabled={isSavingCategories}
+                  className="px-3.5 py-1.5 text-xs font-medium rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  id="save-business-categories-btn"
+                  onClick={() => handleSaveCategories()}
+                  disabled={isSavingCategories}
+                  className="px-4 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSavingCategories ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <span>Save Categories</span>
+                  )}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              {selectedCategoryIds.length > 0 ? (
+                <div id="business-categories-display" className="flex flex-wrap gap-2 items-center">
+                  {selectedCategoryIds.map((catId, idx) => {
+                    const catConfig = categories.find(c => c.id === catId);
+                    const name = catConfig?.name || catId;
+                    return (
+                      <span
+                        key={catId}
+                        id={`category-chip-${catId}`}
+                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200"
+                      >
+                        {idx === 0 && (
+                          <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300">
+                            Primary
+                          </span>
+                        )}
+                        <span>{name}</span>
+                      </span>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p id="business-categories-empty" className="text-sm text-slate-400 dark:text-slate-500 italic">
+                  No categories selected yet.
+                  {isOwner && ' Click "Add Categories" above to associate your business with relevant categories.'}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Business Location Management Card (Epic 2 Feature 2.2 Task 2.2.6) */}
+      <div id="business-location-card" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-5">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs">
+          <div className="flex items-center justify-between gap-4 mb-2">
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-indigo-600 dark:text-cyan-400" />
+                <span>Business Location</span>
+              </h2>
+              {userBiz?.location && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 font-medium">
+                  Configured
+                </span>
+              )}
+            </div>
+            {isOwner && !isEditingLocation && (
+              <div className="flex items-center gap-2">
+                {userBiz?.location && (
+                  <button
+                    type="button"
+                    id="clear-business-location-btn"
+                    onClick={() => handleClearLocation()}
+                    disabled={isSavingLocation}
+                    className="px-2.5 py-1.5 text-xs font-medium rounded-lg text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    Remove
+                  </button>
+                )}
+                <button
+                  type="button"
+                  id="edit-business-location-btn"
+                  onClick={() => {
+                    setIsEditingLocation(true);
+                    setLocationMessage(null);
+                  }}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+                >
+                  {userBiz?.location ? 'Edit Location' : 'Add Location'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Location Feedback Notification */}
+          {locationMessage && (
+            <div
+              id="business-location-feedback"
+              className={`mb-3 text-xs px-3 py-2 rounded-lg flex items-center gap-2 border ${
+                locationMessage.isError
+                  ? 'bg-rose-50 text-rose-800 dark:bg-rose-950/50 dark:text-rose-200 border-rose-200 dark:border-rose-800'
+                  : 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200 border-emerald-200 dark:border-emerald-800'
+              }`}
+            >
+              {locationMessage.isError ? (
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400" />
+              ) : (
+                <Check className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+              )}
+              <span className="flex-1">{locationMessage.text}</span>
+              <button
+                type="button"
+                onClick={() => setLocationMessage(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 font-bold"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          {isEditingLocation ? (
+            <div className="space-y-4 pt-1">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Set your operating address or service area. Businesses across all Nigerian states and cities are supported.
+              </p>
+
+              {/* State & City Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="location-state-select" className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    State / Region <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    id="location-state-select"
+                    value={locationState}
+                    onChange={(e) => setLocationState(e.target.value)}
+                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  >
+                    <option value="">Select a Nigerian State...</option>
+                    {NIGERIAN_STATES.map((st) => (
+                      <option key={st} value={st}>
+                        {st}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label htmlFor="location-city-input" className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    City / Town <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    id="location-city-input"
+                    value={locationCity}
+                    onChange={(e) => setLocationCity(e.target.value)}
+                    placeholder="e.g. Ikeja, Wuse, Kaduna Central, Aba"
+                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              {/* Street Address & LGA */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="location-address-input" className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Street Address (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    id="location-address-input"
+                    value={locationAddress}
+                    onChange={(e) => setLocationAddress(e.target.value)}
+                    placeholder="e.g. 14 Ahmadu Bello Way"
+                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="location-lga-input" className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    LGA / District (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    id="location-lga-input"
+                    value={locationLga}
+                    onChange={(e) => setLocationLga(e.target.value)}
+                    placeholder="e.g. Kaduna North, Ikeja, Abuja Municipal"
+                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              {/* Postal Code & Country */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="location-postalcode-input" className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Postal Code (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    id="location-postalcode-input"
+                    value={locationPostalCode}
+                    onChange={(e) => setLocationPostalCode(e.target.value)}
+                    placeholder="e.g. 800283"
+                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="location-country-input" className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Country
+                  </label>
+                  <input
+                    type="text"
+                    id="location-country-input"
+                    value={locationCountry}
+                    onChange={(e) => setLocationCountry(e.target.value)}
+                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              {/* Coordinates (Optional) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div>
+                  <label htmlFor="location-lat-input" className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Latitude (-90 to +90, Optional)
+                  </label>
+                  <input
+                    type="text"
+                    id="location-lat-input"
+                    value={locationLat}
+                    onChange={(e) => setLocationLat(e.target.value)}
+                    placeholder="e.g. 10.5105"
+                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="location-lng-input" className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Longitude (-180 to +180, Optional)
+                  </label>
+                  <input
+                    type="text"
+                    id="location-lng-input"
+                    value={locationLng}
+                    onChange={(e) => setLocationLng(e.target.value)}
+                    placeholder="e.g. 7.4165"
+                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              {/* Service Area Checkbox & Distance */}
+              <div className="border-t border-slate-100 dark:border-slate-800 pt-3">
+                <label className="flex items-center gap-2 cursor-pointer mb-2">
+                  <input
+                    type="checkbox"
+                    id="location-service-area-checkbox"
+                    checked={isServiceAreaOnly}
+                    onChange={(e) => setIsServiceAreaOnly(e.target.checked)}
+                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+                  />
+                  <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                    Service area only (online delivery / mobile services without public walk-in premises)
+                  </span>
+                </label>
+
+                {isServiceAreaOnly && (
+                  <div className="pl-6 pt-1 max-w-xs">
+                    <label htmlFor="location-service-area-km-input" className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Service Radius (km, Optional)
+                    </label>
+                    <input
+                      type="number"
+                      id="location-service-area-km-input"
+                      min="1"
+                      max="1000"
+                      value={serviceAreaKm}
+                      onChange={(e) => setServiceAreaKm(e.target.value)}
+                      placeholder="e.g. 25"
+                      className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  id="cancel-business-location-btn"
+                  onClick={() => {
+                    setIsEditingLocation(false);
+                    setLocationMessage(null);
+                  }}
+                  disabled={isSavingLocation}
+                  className="px-3.5 py-1.5 text-xs font-medium rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  id="save-business-location-btn"
+                  onClick={() => handleSaveLocation()}
+                  disabled={isSavingLocation}
+                  className="px-4 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSavingLocation ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <span>Save Location</span>
+                  )}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              {userBiz?.location ? (
+                <div id="business-location-display" className="space-y-1.5 text-xs text-slate-700 dark:text-slate-300">
+                  <div className="font-semibold text-slate-900 dark:text-white flex items-center gap-1.5">
+                    <span>
+                      {[
+                        userBiz.location.address,
+                        userBiz.location.lga,
+                        userBiz.location.city,
+                        userBiz.location.state,
+                        userBiz.location.country
+                      ].filter(Boolean).join(', ')}
+                    </span>
+                  </div>
+
+                  {userBiz.location.postalCode && (
+                    <div className="text-slate-500 dark:text-slate-400">
+                      Postal Code: {userBiz.location.postalCode}
+                    </div>
+                  )}
+
+                  {typeof userBiz.location.lat === 'number' && typeof userBiz.location.lng === 'number' && (
+                    <div className="text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                      <Navigation className="w-3 h-3 text-indigo-500" />
+                      <span>GPS: {userBiz.location.lat.toFixed(5)}, {userBiz.location.lng.toFixed(5)}</span>
+                    </div>
+                  )}
+
+                  {userBiz.location.isServiceAreaOnly && (
+                    <div className="inline-block mt-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800">
+                      Service Area Only{userBiz.location.serviceAreaKm ? ` (within ${userBiz.location.serviceAreaKm} km)` : ''}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p id="business-location-empty" className="text-sm text-slate-400 dark:text-slate-500 italic">
+                  No location specified yet.
+                  {isOwner && ' Click "Add Location" above to set where your business operates.'}
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

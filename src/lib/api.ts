@@ -8,7 +8,7 @@
  * - Type-safe endpoint wrappers
  */
 
-import { UserProfile, AccountSecurityState, ClientProfile, ClientContactInfo } from '../types';
+import { UserProfile, AccountSecurityState, ClientProfile, ClientContactInfo, Business, CategoryConfig, BusinessCategory, LocationCoordinates } from '../types';
 
 export class ApiError extends Error {
   public status: number;
@@ -873,3 +873,213 @@ export const adminApi = {
     });
   }
 };
+
+/**
+ * Business API Client (Epic 2 Feature 2.2 Task 2.2.1)
+ */
+export const businessApi = {
+  /**
+   * Create a new business with authenticated user as owner
+   */
+  async create(data: { name: string; description?: string; categoryIds?: string[]; location?: LocationCoordinates }) {
+    return fetchWithAuth<{
+      success: boolean;
+      business: Business;
+      message?: string;
+    }>('/api/businesses', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  /**
+   * Fetch authenticated user's business
+   */
+  async getMyBusiness() {
+    return fetchWithAuth<{
+      success: boolean;
+      business?: Business | null;
+      businesses?: Business[];
+    }>('/api/businesses/me', {
+      method: 'GET'
+    });
+  },
+
+  /**
+   * Upload or replace business logo (Epic 2 Feature 2.2 Task 2.2.2)
+   */
+  async uploadLogo(businessId: string, data: { image: string; filename?: string }) {
+    return fetchWithAuth<{
+      success: boolean;
+      logoUrl: string;
+      logoKey: string;
+      business: Business;
+      message?: string;
+    }>(`/api/businesses/${encodeURIComponent(businessId)}/logo`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  /**
+   * Remove business logo (Epic 2 Feature 2.2 Task 2.2.2)
+   */
+  async removeLogo(businessId: string) {
+    return fetchWithAuth<{
+      success: boolean;
+      business: Business;
+      message?: string;
+    }>(`/api/businesses/${encodeURIComponent(businessId)}/logo`, {
+      method: 'DELETE'
+    });
+  },
+
+  /**
+   * Upload or replace business cover image (Epic 2 Feature 2.2 Task 2.2.3)
+   */
+  async uploadCover(businessId: string, data: { image: string; filename?: string }) {
+    return fetchWithAuth<{
+      success: boolean;
+      coverUrl: string;
+      coverKey: string;
+      business: Business;
+      message?: string;
+    }>(`/api/businesses/${encodeURIComponent(businessId)}/cover`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  /**
+   * Remove business cover image (Epic 2 Feature 2.2 Task 2.2.3)
+   */
+  async removeCover(businessId: string) {
+    return fetchWithAuth<{
+      success: boolean;
+      business: Business;
+      message?: string;
+    }>(`/api/businesses/${encodeURIComponent(businessId)}/cover`, {
+      method: 'DELETE'
+    });
+  },
+
+  /**
+   * Update or clear business description (Epic 2 Feature 2.2 Task 2.2.4)
+   */
+  async updateDescription(businessId: string, data: { description: string }) {
+    return fetchWithAuth<{
+      success: boolean;
+      description: string;
+      business: Business;
+      message?: string;
+    }>(`/api/businesses/${encodeURIComponent(businessId)}/description`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  },
+
+  /**
+   * Fetch categories for a business (Epic 2 Feature 2.2 Task 2.2.5)
+   */
+  async getCategories(businessId: string) {
+    return fetchWithAuth<{
+      success: boolean;
+      businessId: string;
+      categories: CategoryConfig[];
+      categoryIds: string[];
+      businessCategories: BusinessCategory[];
+      message?: string;
+    }>(`/api/businesses/${encodeURIComponent(businessId)}/categories`, {
+      method: 'GET'
+    });
+  },
+
+  /**
+   * Update categories for a business (Epic 2 Feature 2.2 Task 2.2.5)
+   */
+  async updateCategories(businessId: string, data: { categoryIds: string[] }) {
+    return fetchWithAuth<{
+      success: boolean;
+      business: Business;
+      categoryIds: string[];
+      businessCategories: BusinessCategory[];
+      message?: string;
+    }>(`/api/businesses/${encodeURIComponent(businessId)}/categories`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  },
+
+  /**
+   * Remove a single category from a business (Epic 2 Feature 2.2 Task 2.2.5)
+   */
+  async removeCategory(businessId: string, categoryId: string) {
+    return fetchWithAuth<{
+      success: boolean;
+      business: Business;
+      categoryIds: string[];
+      businessCategories: BusinessCategory[];
+      message?: string;
+    }>(`/api/businesses/${encodeURIComponent(businessId)}/categories/${encodeURIComponent(categoryId)}`, {
+      method: 'DELETE'
+    });
+  },
+
+  /**
+   * Clear all categories from a business (Epic 2 Feature 2.2 Task 2.2.5)
+   */
+  async clearCategories(businessId: string) {
+    return fetchWithAuth<{
+      success: boolean;
+      business: Business;
+      categoryIds: string[];
+      businessCategories: BusinessCategory[];
+      message?: string;
+    }>(`/api/businesses/${encodeURIComponent(businessId)}/categories`, {
+      method: 'DELETE'
+    });
+  },
+
+  /**
+   * Fetch business location (Epic 2 Feature 2.2 Task 2.2.6)
+   */
+  async getLocation(businessId: string) {
+    return fetchWithAuth<{
+      success: boolean;
+      businessId: string;
+      location: LocationCoordinates | null;
+      error?: string;
+    }>(`/api/businesses/${encodeURIComponent(businessId)}/location`, {
+      method: 'GET'
+    });
+  },
+
+  /**
+   * Update business location (Epic 2 Feature 2.2 Task 2.2.6)
+   */
+  async updateLocation(businessId: string, data: Partial<LocationCoordinates>) {
+    return fetchWithAuth<{
+      success: boolean;
+      business: Business;
+      location: LocationCoordinates;
+      message?: string;
+    }>(`/api/businesses/${encodeURIComponent(businessId)}/location`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  },
+
+  /**
+   * Clear business location (Epic 2 Feature 2.2 Task 2.2.6)
+   */
+  async clearLocation(businessId: string) {
+    return fetchWithAuth<{
+      success: boolean;
+      business: Business;
+      message?: string;
+    }>(`/api/businesses/${encodeURIComponent(businessId)}/location`, {
+      method: 'DELETE'
+    });
+  }
+};
+

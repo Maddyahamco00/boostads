@@ -31,7 +31,8 @@ export const BusinessProfileView: React.FC = () => {
     startChatWithBusiness, 
     openReportModal,
     currentUser,
-    refreshData
+    refreshData,
+    categories
   } = useApp();
 
   const [businessData, setBusinessData] = useState<{
@@ -173,7 +174,7 @@ export const BusinessProfileView: React.FC = () => {
               {/* Logo and Identity */}
               <div className="flex items-end gap-4">
                 <img
-                  src={biz.logoUrl}
+                  src={biz.logoUrl || 'https://images.unsplash.com/photo-1549298916-b41d501d3772?w=200&auto=format&fit=crop&q=80'}
                   alt={biz.name}
                   className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl object-cover border-4 border-white dark:border-slate-900 shadow-xl bg-white shrink-0"
                 />
@@ -190,15 +191,55 @@ export const BusinessProfileView: React.FC = () => {
                     )}
                   </div>
 
-                  <p className="text-xs font-bold text-indigo-600 dark:text-cyan-400 mt-1 uppercase tracking-wider">
-                    {biz.categoryLabel || biz.category}
-                  </p>
+                  <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                    {biz.categories && biz.categories.length > 0 ? (
+                      biz.categories.map((catId, idx) => {
+                        const catConfig = categories.find(c => c.id === catId);
+                        const label = catConfig?.name || catId;
+                        return (
+                          <span
+                            key={catId}
+                            className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                              idx === 0
+                                ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-cyan-300 border border-indigo-200 dark:border-indigo-800'
+                                : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                            }`}
+                          >
+                            {label}
+                          </span>
+                        );
+                      })
+                    ) : (
+                      <span className="text-xs font-bold text-indigo-600 dark:text-cyan-400 uppercase tracking-wider">
+                        {biz.categoryLabel || biz.category || 'General Business'}
+                      </span>
+                    )}
+                  </div>
 
                   <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400 mt-1.5 flex-wrap">
-                    <span className="flex items-center gap-1 font-medium">
-                      <MapPin className="w-3.5 h-3.5 text-indigo-500" />
-                      {biz.location?.address || `${biz.location?.city}, ${biz.location?.state}`}
-                    </span>
+                    {biz.location ? (
+                      <span className="flex items-center gap-1 font-medium">
+                        <MapPin className="w-3.5 h-3.5 text-indigo-500" />
+                        <span>
+                          {[
+                            biz.location.address,
+                            biz.location.lga,
+                            biz.location.city,
+                            biz.location.state
+                          ].filter(Boolean).join(', ')}
+                        </span>
+                        {biz.location.isServiceAreaOnly && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                            Service Area Only
+                          </span>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-slate-400">
+                        <MapPin className="w-3.5 h-3.5" />
+                        <span>Nigeria</span>
+                      </span>
+                    )}
                     <span className="flex items-center gap-1 text-amber-500 font-bold">
                       <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
                       {biz.rating || 5.0} ({biz.reviewCount || 0} reviews)
@@ -242,9 +283,11 @@ export const BusinessProfileView: React.FC = () => {
             </div>
 
             {/* Description */}
-            <p className="mt-6 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed border-t border-slate-100 dark:border-slate-800 pt-4">
-              {biz.description}
-            </p>
+            {biz.description ? (
+              <p className="mt-6 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed border-t border-slate-100 dark:border-slate-800 pt-4 whitespace-pre-line">
+                {biz.description}
+              </p>
+            ) : null}
 
             {/* Subcategories tags */}
             {biz.subcategories && biz.subcategories.length > 0 && (

@@ -20,32 +20,64 @@ export interface StoredAvatarResult {
   sizeBytes: number;
 }
 
+export interface StoredLogoResult {
+  logoUrl: string;
+  logoKey: string;
+  format: 'jpeg' | 'png' | 'webp';
+  sizeBytes: number;
+}
+
+export interface StoredCoverResult {
+  coverUrl: string;
+  coverKey: string;
+  format: 'jpeg' | 'png' | 'webp';
+  sizeBytes: number;
+}
+
 export class StorageService {
   private readonly avatarsDir: string;
+  private readonly logosDir: string;
+  private readonly coversDir: string;
   public readonly MAX_AVATAR_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
   public readonly MAX_IMAGE_DIMENSION = 4096; // 4096 x 4096 px
   public readonly MIN_IMAGE_DIMENSION = 16; // 16 x 16 px
 
   constructor() {
     this.avatarsDir = path.join(process.cwd(), 'public', 'uploads', 'avatars');
+    this.logosDir = path.join(process.cwd(), 'public', 'uploads', 'logos');
+    this.coversDir = path.join(process.cwd(), 'public', 'uploads', 'covers');
     this.ensureStorageDirectory();
   }
 
   /**
-   * Ensures the upload storage directory exists on disk.
+   * Ensures the upload storage directories exist on disk.
    */
   public ensureStorageDirectory(): void {
     try {
       if (!fs.existsSync(this.avatarsDir)) {
         fs.mkdirSync(this.avatarsDir, { recursive: true, mode: 0o755 });
       }
+      if (!fs.existsSync(this.logosDir)) {
+        fs.mkdirSync(this.logosDir, { recursive: true, mode: 0o755 });
+      }
+      if (!fs.existsSync(this.coversDir)) {
+        fs.mkdirSync(this.coversDir, { recursive: true, mode: 0o755 });
+      }
     } catch (err) {
-      console.error('[StorageService] Error initializing avatars storage directory:', err);
+      console.error('[StorageService] Error initializing storage directories:', err);
     }
   }
 
   public getStorageDirectory(): string {
     return this.avatarsDir;
+  }
+
+  public getLogosDirectory(): string {
+    return this.logosDir;
+  }
+
+  public getCoversDirectory(): string {
+    return this.coversDir;
   }
 
   /**
@@ -450,6 +482,276 @@ export class StorageService {
 
     const resolvedPath = path.resolve(path.join(this.avatarsDir, filename));
     if (!resolvedPath.startsWith(path.resolve(this.avatarsDir))) {
+      return null;
+    }
+
+    if (!fs.existsSync(resolvedPath)) {
+      return null;
+    }
+
+    return resolvedPath;
+  }
+
+  /**
+   * Generates a safe, unguessable, server-controlled business logo storage key.
+   * Prevents path traversal and ignores any untrusted client filename.
+   */
+  public generateLogoKey(businessId: string, ext: string): string {
+    const cleanBusinessId = businessId.replace(/[^a-zA-Z0-9_]/g, '');
+    const randomHex = crypto.randomBytes(8).toString('hex');
+    const timestamp = Date.now();
+    return `logo_${cleanBusinessId}_${timestamp}_${randomHex}.${ext}`;
+  }
+
+  /**
+   * Stores a business logo buffer safely on disk.
+   */
+  public async saveBusinessLogo(
+    businessId: string,
+    buffer: Buffer,
+    format: 'jpeg' | 'png' | 'webp'
+  ): Promise<StoredLogoResult> {
+    this.ensureStorageDirectory();
+
+    const ext = format === 'jpeg' ? 'jpg' : format;
+    const logoKey = this.generateLogoKey(businessId, ext);
+    const targetPath = path.join(this.logosDir, logoKey);
+
+    // Atomic write
+    const tempPath = path.join(this.logosDir, `.tmp_${logoKey}`);
+    try {
+      await fs.promises.writeFile(tempPath, buffer, { mode: 0o644 });
+      await fs.promises.rename(tempPath, targetPath);
+    } catch (err) {
+      try {
+        if (fs.existsSync(tempPath)) {
+          await fs.promises.unlink(tempPath);
+        }
+      } catch {
+        // ignore cleanup error
+      }
+      throw new Error(`Failed to store business logo on disk: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    // Public URL served via application media route
+    const logoUrl = `/api/media/logo/${logoKey}`;
+
+    return {
+      logoUrl,
+      logoKey,
+      format,
+      sizeBytes: buffer.length
+    };
+  }
+
+  /**
+   * Safely deletes an obsolete business logo file from storage.
+   * Validates key format to prevent directory traversal.
+   */
+  public async deleteBusinessLogo(logoKeyOrUrl?: string): Promise<boolean> {
+    if (!logoKeyOrUrl || typeof logoKeyOrUrl !== 'string') {
+      return false;
+    }
+
+    // Extract filename from URL if a URL was provided
+    let filename = logoKeyOrUrl;
+    if (filename.includes('/')) {
+      filename = filename.substring(filename.lastIndexOf('/') + 1);
+    }
+
+    // Remove query params if any
+    if (filename.includes('?')) {
+      filename = filename.split('?')[0];
+    }
+
+    // Strict validation: must match expected server-generated logo filename pattern
+    if (!/^logo_[a-zA-Z0-9_]+_\d+_[a-f0-9]+\.(jpg|jpeg|png|webp)$/i.test(filename)) {
+      // Not a local server-stored logo (e.g. external link or Unsplash URL)
+      return false;
+    }
+
+    const filePath = path.join(this.logosDir, filename);
+
+    // Path traversal defense
+    const resolvedPath = path.resolve(filePath);
+    if (!resolvedPath.startsWith(path.resolve(this.logosDir))) {
+      console.warn(`[StorageService] Blocked directory traversal attempt in deleteBusinessLogo: ${logoKeyOrUrl}`);
+      return false;
+    }
+
+    try {
+      if (fs.existsSync(resolvedPath)) {
+        await fs.promises.unlink(resolvedPath);
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.warn(`[StorageService] Could not unlink obsolete logo file: ${filePath}`, err);
+      return false;
+    }
+  }
+
+  /**
+   * Resolves the safe absolute file path for a business logo key.
+   * Returns null if key is invalid or attempts path traversal.
+   */
+  public resolveBusinessLogoPath(key: string): string | null {
+    if (!key || typeof key !== 'string') return null;
+
+    let filename = key;
+    if (filename.includes('/')) {
+      filename = filename.substring(filename.lastIndexOf('/') + 1);
+    }
+    if (filename.includes('?')) {
+      filename = filename.split('?')[0];
+    }
+
+    // Path traversal defense
+    if (filename.includes('..') || filename.includes('/') || filename.includes('\\') || filename.includes('\0')) {
+      return null;
+    }
+
+    if (!/^logo_[a-zA-Z0-9_]+_\d+_[a-f0-9]+\.(jpg|jpeg|png|webp)$/i.test(filename)) {
+      return null;
+    }
+
+    const resolvedPath = path.resolve(path.join(this.logosDir, filename));
+    if (!resolvedPath.startsWith(path.resolve(this.logosDir))) {
+      return null;
+    }
+
+    if (!fs.existsSync(resolvedPath)) {
+      return null;
+    }
+
+    return resolvedPath;
+  }
+
+  /**
+   * Generates a safe, unguessable, server-controlled business cover storage key.
+   * Prevents path traversal and ignores any untrusted client filename.
+   */
+  public generateCoverKey(businessId: string, ext: string): string {
+    const cleanBusinessId = businessId.replace(/[^a-zA-Z0-9_]/g, '');
+    const randomHex = crypto.randomBytes(8).toString('hex');
+    const timestamp = Date.now();
+    return `cover_${cleanBusinessId}_${timestamp}_${randomHex}.${ext}`;
+  }
+
+  /**
+   * Stores a business cover image buffer safely on disk.
+   */
+  public async saveBusinessCover(
+    businessId: string,
+    buffer: Buffer,
+    format: 'jpeg' | 'png' | 'webp'
+  ): Promise<StoredCoverResult> {
+    this.ensureStorageDirectory();
+
+    const ext = format === 'jpeg' ? 'jpg' : format;
+    const coverKey = this.generateCoverKey(businessId, ext);
+    const targetPath = path.join(this.coversDir, coverKey);
+
+    // Atomic write
+    const tempPath = path.join(this.coversDir, `.tmp_${coverKey}`);
+    try {
+      await fs.promises.writeFile(tempPath, buffer, { mode: 0o644 });
+      await fs.promises.rename(tempPath, targetPath);
+    } catch (err) {
+      try {
+        if (fs.existsSync(tempPath)) {
+          await fs.promises.unlink(tempPath);
+        }
+      } catch {
+        // ignore cleanup error
+      }
+      throw new Error(`Failed to store business cover image on disk: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    // Public URL served via application media route
+    const coverUrl = `/api/media/cover/${coverKey}`;
+
+    return {
+      coverUrl,
+      coverKey,
+      format,
+      sizeBytes: buffer.length
+    };
+  }
+
+  /**
+   * Safely deletes an obsolete business cover file from storage.
+   * Validates key format to prevent directory traversal.
+   */
+  public async deleteBusinessCover(coverKeyOrUrl?: string): Promise<boolean> {
+    if (!coverKeyOrUrl || typeof coverKeyOrUrl !== 'string') {
+      return false;
+    }
+
+    // Extract filename from URL if a URL was provided
+    let filename = coverKeyOrUrl;
+    if (filename.includes('/')) {
+      filename = filename.substring(filename.lastIndexOf('/') + 1);
+    }
+
+    // Remove query params if any
+    if (filename.includes('?')) {
+      filename = filename.split('?')[0];
+    }
+
+    // Strict validation: must match expected server-generated cover filename pattern
+    if (!/^cover_[a-zA-Z0-9_]+_\d+_[a-f0-9]+\.(jpg|jpeg|png|webp)$/i.test(filename)) {
+      // Not a local server-stored cover (e.g. external link or Unsplash URL)
+      return false;
+    }
+
+    const filePath = path.join(this.coversDir, filename);
+
+    // Path traversal defense
+    const resolvedPath = path.resolve(filePath);
+    if (!resolvedPath.startsWith(path.resolve(this.coversDir))) {
+      console.warn(`[StorageService] Blocked directory traversal attempt in deleteBusinessCover: ${coverKeyOrUrl}`);
+      return false;
+    }
+
+    try {
+      if (fs.existsSync(resolvedPath)) {
+        await fs.promises.unlink(resolvedPath);
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.warn(`[StorageService] Could not unlink obsolete cover file: ${filePath}`, err);
+      return false;
+    }
+  }
+
+  /**
+   * Resolves the safe absolute file path for a business cover key.
+   * Returns null if key is invalid or attempts path traversal.
+   */
+  public resolveBusinessCoverPath(key: string): string | null {
+    if (!key || typeof key !== 'string') return null;
+
+    let filename = key;
+    if (filename.includes('/')) {
+      filename = filename.substring(filename.lastIndexOf('/') + 1);
+    }
+    if (filename.includes('?')) {
+      filename = filename.split('?')[0];
+    }
+
+    // Path traversal defense
+    if (filename.includes('..') || filename.includes('/') || filename.includes('\\') || filename.includes('\0')) {
+      return null;
+    }
+
+    if (!/^cover_[a-zA-Z0-9_]+_\d+_[a-f0-9]+\.(jpg|jpeg|png|webp)$/i.test(filename)) {
+      return null;
+    }
+
+    const resolvedPath = path.resolve(path.join(this.coversDir, filename));
+    if (!resolvedPath.startsWith(path.resolve(this.coversDir))) {
       return null;
     }
 
