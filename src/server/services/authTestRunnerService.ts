@@ -6516,7 +6516,41 @@ export class AuthTestRunnerService {
       async (logs) => this.executeBusinessLocationSuite(logs)
     ));
 
+    // Test 39: Epic 2 Task 2.2.7 — Business Opening Hours Flow & Security
+    results.push(await this.runTest(
+      'auth_39_business_opening_hours_epic2_task_2_2_7',
+      'Epic 2 Task 2.2.7: Business Opening Hours Flow & Security',
+      'Verify authenticated owner schedule management, machine-readable HH:mm intervals, closed days, multiple split shifts, cross-midnight support, overlap prevention, duplicate day rejection, IDOR protection, mass-assignment blocking, public retrieval, and schedule clearing',
+      async (logs) => this.executeBusinessOpeningHoursSuite(logs)
+    ));
+
+    // Test 40: Epic 2 Task 2.2.8 — Business Contact Information Flow & Security
+    results.push(await this.runTest(
+      'auth_40_business_contact_info_epic2_task_2_2_8',
+      'Epic 2 Task 2.2.8: Business Contact Information Flow & Security',
+      'Verify business contact management (phone, email, website), strict separation from personal user profile/account credentials, IDOR defense, server-side phone normalization, email validation, URL safety, mass-assignment blocking, partial updates, and clearing contact info',
+      async (logs) => this.executeBusinessContactInfoSuite(logs)
+    ));
+
     return results;
+  }
+
+  public async runBusinessOpeningHoursTestOnly(): Promise<AuthTestResult> {
+    return this.runTest(
+      'auth_39_business_opening_hours_epic2_task_2_2_7',
+      'Epic 2 Task 2.2.7: Business Opening Hours Flow & Security',
+      'Verify authenticated owner schedule management, machine-readable HH:mm intervals, closed days, multiple split shifts, cross-midnight support, overlap prevention, duplicate day rejection, IDOR protection, mass-assignment blocking, public retrieval, and schedule clearing',
+      async (logs) => this.executeBusinessOpeningHoursSuite(logs)
+    );
+  }
+
+  public async runBusinessContactInfoTestOnly(): Promise<AuthTestResult> {
+    return this.runTest(
+      'auth_40_business_contact_info_epic2_task_2_2_8',
+      'Epic 2 Task 2.2.8: Business Contact Information Flow & Security',
+      'Verify business contact management (phone, email, website), strict separation from personal user profile/account credentials, IDOR defense, server-side phone normalization, email validation, URL safety, mass-assignment blocking, partial updates, and clearing contact info',
+      async (logs) => this.executeBusinessContactInfoSuite(logs)
+    );
   }
 
   public async runProfileTestOnly(): Promise<AuthTestResult> {
@@ -9137,6 +9171,437 @@ export class AuthTestRunnerService {
     logs.push('=== ALL 10 BUSINESS LOCATION FLOW & SECURITY CHECKS PASSED ===');
   }
 
+  private async executeBusinessOpeningHoursSuite(logs: string[]): Promise<void> {
+    logs.push('=== STARTING EPIC 2 TASK 2.2.7: BUSINESS OPENING HOURS FLOW & SECURITY VERIFICATION ===');
+    const timestamp = Date.now();
+    const userAgent = 'BusinessOpeningHoursTester/1.0';
+    const clientIp = '127.0.0.1';
+
+    // 1. Setup: Owner Alice and Attacker Bob
+    const ownerEmail = `biz_hours_alice_${timestamp}@example.com`;
+    const attackerEmail = `biz_hours_bob_${timestamp}@example.com`;
+    const password = 'StrongPassword123!';
+
+    await authService.registerClient({
+      name: 'Hours Owner Alice',
+      email: ownerEmail,
+      password,
+      clientType: 'business'
+    }, clientIp, userAgent);
+    const owner = db.getUserByEmail(ownerEmail)!;
+    owner.status = 'ACTIVE';
+    owner.emailVerifiedAt = new Date().toISOString();
+    db.updateUser(owner.id, { status: 'ACTIVE', emailVerifiedAt: owner.emailVerifiedAt });
+
+    await authService.registerClient({
+      name: 'Hours Attacker Bob',
+      email: attackerEmail,
+      password,
+      clientType: 'business'
+    }, clientIp, userAgent);
+    const attacker = db.getUserByEmail(attackerEmail)!;
+    attacker.status = 'ACTIVE';
+    attacker.emailVerifiedAt = new Date().toISOString();
+    db.updateUser(attacker.id, { status: 'ACTIVE', emailVerifiedAt: attacker.emailVerifiedAt });
+
+    const bizResult = await businessService.createBusiness(owner.id, {
+      name: `Alice Cafe ${timestamp}`
+    }, clientIp, userAgent);
+    const businessId = bizResult.business.id;
+
+    logs.push(`[SETUP] Created Business "${bizResult.business.name}" (ID: ${businessId}) owned by Alice (${owner.id})`);
+
+    // 2. CHECK 1: Authenticated Owner sets weekly opening hours
+    const weeklySchedule = [
+      { day: 'Monday', isOpen: true, periods: [{ open: '08:00', close: '17:00' }] },
+      { day: 'Tuesday', isOpen: true, periods: [{ open: '08:00', close: '17:00' }] },
+      { day: 'Wednesday', isOpen: true, periods: [{ open: '08:00', close: '17:00' }] },
+      { day: 'Thursday', isOpen: true, periods: [{ open: '08:00', close: '17:00' }] },
+      { day: 'Friday', isOpen: true, periods: [{ open: '08:00', close: '18:00' }] },
+      { day: 'Saturday', isOpen: true, periods: [{ open: '09:00', close: '15:00' }] },
+      { day: 'Sunday', isOpen: false }
+    ];
+
+    const update1 = await businessService.updateBusinessOpeningHours(
+      owner.id,
+      businessId,
+      { openingHours: weeklySchedule },
+      clientIp,
+      userAgent
+    );
+
+    if (!update1.success || !update1.openingHours || update1.openingHours.length !== 7) {
+      throw new Error(`Failed to save weekly opening hours: expected 7 days, got ${update1.openingHours?.length}`);
+    }
+
+    const sunday = update1.openingHours.find(d => d.day === 'Sunday');
+    if (!sunday || sunday.isOpen !== false || sunday.hours !== 'Closed') {
+      throw new Error('Expected Sunday to be explicitly closed with hours="Closed"');
+    }
+
+    const monday = update1.openingHours.find(d => d.day === 'Monday');
+    if (!monday || !monday.isOpen || monday.periods?.[0]?.open !== '08:00' || monday.periods?.[0]?.close !== '17:00') {
+      throw new Error('Expected Monday to be open from 08:00 to 17:00');
+    }
+    logs.push('[CHECK 1 PASSED] Authenticated owner successfully saved weekly opening-hours schedule (7 days, Mon-Sat open, Sun closed)');
+
+    // 3. CHECK 2: Unauthenticated / Invalid User Access Rejected
+    let unauthBlocked = false;
+    try {
+      await businessService.updateBusinessOpeningHours(
+        'non_existent_user_id',
+        businessId,
+        { openingHours: weeklySchedule },
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      if (err.statusCode === 403 || err.message.includes('not authorized')) {
+        unauthBlocked = true;
+      }
+    }
+    if (!unauthBlocked) {
+      throw new Error('Expected unauthenticated user modification to be blocked');
+    }
+    logs.push('[CHECK 2 PASSED] Unauthenticated / invalid user opening hours modification strictly rejected (403)');
+
+    // 4. CHECK 3: IDOR Protection: Attacker Bob cannot modify Alice's opening hours
+    let idorBlocked = false;
+    try {
+      await businessService.updateBusinessOpeningHours(
+        attacker.id,
+        businessId,
+        {
+          openingHours: [
+            { day: 'Monday', isOpen: true, periods: [{ open: '00:00', close: '23:59' }] }
+          ]
+        },
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      if (err.statusCode === 403 && (err.code === 'FORBIDDEN_NOT_OWNER' || err.message.includes('not authorized'))) {
+        idorBlocked = true;
+      }
+    }
+    if (!idorBlocked) {
+      throw new Error('CRITICAL VULNERABILITY: Non-owner Bob was permitted to modify Alice business opening hours (IDOR)!');
+    }
+    logs.push('[CHECK 3 PASSED] Cross-business IDOR protection verified: non-owner Bob strictly rejected (403)');
+
+    // 5. CHECK 4: IDOR Protection: Attacker Bob cannot clear Alice's opening hours
+    let idorClearBlocked = false;
+    try {
+      await businessService.clearBusinessOpeningHours(
+        attacker.id,
+        businessId,
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      if (err.statusCode === 403) {
+        idorClearBlocked = true;
+      }
+    }
+    if (!idorClearBlocked) {
+      throw new Error('CRITICAL VULNERABILITY: Non-owner Bob was permitted to clear Alice business opening hours (IDOR)!');
+    }
+    logs.push('[CHECK 4 PASSED] IDOR opening hours clearing protection verified: non-owner strictly rejected (403)');
+
+    // 6. CHECK 5: Invalid Weekday Rejected
+    let invalidWeekdayBlocked = false;
+    try {
+      await businessService.updateBusinessOpeningHours(
+        owner.id,
+        businessId,
+        {
+          openingHours: [
+            { day: 'Funday' as any, isOpen: true, periods: [{ open: '09:00', close: '17:00' }] }
+          ]
+        },
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      if (err.statusCode === 400 || err.code === 'VALIDATION_ERROR') {
+        invalidWeekdayBlocked = true;
+      }
+    }
+    if (!invalidWeekdayBlocked) {
+      throw new Error('Expected invalid weekday "Funday" to be rejected with 400');
+    }
+    logs.push('[CHECK 5 PASSED] Invalid weekday ("Funday") strictly rejected with 400 validation error');
+
+    // 7. CHECK 6: Malformed Time Format Rejected
+    let malformedTimeBlocked = false;
+    try {
+      await businessService.updateBusinessOpeningHours(
+        owner.id,
+        businessId,
+        {
+          openingHours: [
+            { day: 'Monday', isOpen: true, periods: [{ open: '9:00', close: '17:00' }] } // missing leading zero
+          ]
+        },
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      if (err.statusCode === 400 || err.code === 'VALIDATION_ERROR') {
+        malformedTimeBlocked = true;
+      }
+    }
+    if (!malformedTimeBlocked) {
+      throw new Error('Expected malformed time "9:00" without leading zero to be rejected');
+    }
+
+    let invalidHourBlocked = false;
+    try {
+      await businessService.updateBusinessOpeningHours(
+        owner.id,
+        businessId,
+        {
+          openingHours: [
+            { day: 'Monday', isOpen: true, periods: [{ open: '25:00', close: '17:00' }] } // 25:00 is invalid
+          ]
+        },
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      if (err.statusCode === 400 || err.code === 'VALIDATION_ERROR') {
+        invalidHourBlocked = true;
+      }
+    }
+    if (!invalidHourBlocked) {
+      throw new Error('Expected invalid time "25:00" to be rejected');
+    }
+    logs.push('[CHECK 6 PASSED] Malformed time representations ("9:00", "25:00") strictly rejected with 400');
+
+    // 8. CHECK 7: Invalid Interval Rejected (Zero-duration or closing precedes opening)
+    let zeroIntervalBlocked = false;
+    try {
+      await businessService.updateBusinessOpeningHours(
+        owner.id,
+        businessId,
+        {
+          openingHours: [
+            { day: 'Monday', isOpen: true, periods: [{ open: '09:00', close: '09:00' }] } // zero duration
+          ]
+        },
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      if (err.statusCode === 400 || err.code === 'VALIDATION_ERROR') {
+        zeroIntervalBlocked = true;
+      }
+    }
+    if (!zeroIntervalBlocked) {
+      throw new Error('Expected zero duration interval 09:00 -> 09:00 to be rejected');
+    }
+
+    let backwardIntervalBlocked = false;
+    try {
+      await businessService.updateBusinessOpeningHours(
+        owner.id,
+        businessId,
+        {
+          openingHours: [
+            { day: 'Monday', isOpen: true, periods: [{ open: '17:00', close: '09:00' }] } // closing precedes opening without crossMidnight
+          ]
+        },
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      if (err.statusCode === 400 || err.code === 'VALIDATION_ERROR') {
+        backwardIntervalBlocked = true;
+      }
+    }
+    if (!backwardIntervalBlocked) {
+      throw new Error('Expected backward interval 17:00 -> 09:00 without crossMidnight to be rejected');
+    }
+    logs.push('[CHECK 7 PASSED] Invalid intervals (0-duration 09:00->09:00 and backward 17:00->09:00) strictly rejected with 400');
+
+    // 9. CHECK 8: Duplicate Day Entries in Same Schedule Rejected
+    let duplicateDayBlocked = false;
+    try {
+      await businessService.updateBusinessOpeningHours(
+        owner.id,
+        businessId,
+        {
+          openingHours: [
+            { day: 'Monday', isOpen: true, periods: [{ open: '09:00', close: '12:00' }] },
+            { day: 'Monday', isOpen: true, periods: [{ open: '13:00', close: '17:00' }] } // duplicate Monday entry
+          ]
+        },
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      if (err.statusCode === 400 || err.code === 'VALIDATION_ERROR') {
+        duplicateDayBlocked = true;
+      }
+    }
+    if (!duplicateDayBlocked) {
+      throw new Error('Expected duplicate day entries for Monday to be rejected with 400');
+    }
+    logs.push('[CHECK 8 PASSED] Duplicate day entries in same schedule strictly rejected with 400');
+
+    // 10. CHECK 9: Overlapping Periods on Same Day Rejected
+    let overlappingPeriodsBlocked = false;
+    try {
+      await businessService.updateBusinessOpeningHours(
+        owner.id,
+        businessId,
+        {
+          openingHours: [
+            {
+              day: 'Monday',
+              isOpen: true,
+              periods: [
+                { open: '09:00', close: '14:00' },
+                { open: '12:00', close: '18:00' } // overlaps from 12:00 to 14:00
+              ]
+            }
+          ]
+        },
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      if (err.statusCode === 400 || err.code === 'VALIDATION_ERROR') {
+        overlappingPeriodsBlocked = true;
+      }
+    }
+    if (!overlappingPeriodsBlocked) {
+      throw new Error('Expected overlapping periods on Monday to be rejected with 400');
+    }
+    logs.push('[CHECK 9 PASSED] Overlapping periods on same day (09:00-14:00 and 12:00-18:00) strictly rejected with 400');
+
+    // 11. CHECK 10: Multiple Valid Split Shifts / Periods Supported and Formatted
+    const splitShifts = await businessService.updateBusinessOpeningHours(
+      owner.id,
+      businessId,
+      {
+        openingHours: [
+          {
+            day: 'Monday',
+            isOpen: true,
+            periods: [
+              { open: '09:00', close: '13:00' },
+              { open: '15:00', close: '20:00' }
+            ]
+          }
+        ]
+      },
+      clientIp,
+      userAgent
+    );
+    const savedSplit = splitShifts.openingHours[0];
+    if (savedSplit.periods?.length !== 2 || savedSplit.periods[0].close !== '13:00' || savedSplit.periods[1].open !== '15:00') {
+      throw new Error('Expected split shift with 2 periods to be persisted accurately');
+    }
+    if (!savedSplit.hours || !savedSplit.hours.includes('9:00 AM') || !savedSplit.hours.includes('8:00 PM')) {
+      throw new Error(`Expected human-friendly 12h display string for split shifts, got: "${savedSplit.hours}"`);
+    }
+    logs.push('[CHECK 10 PASSED] Split shifts (09:00-13:00 and 15:00-20:00) successfully persisted and formatted');
+
+    // 12. CHECK 11: Cross-Midnight Shift Handled Correctly
+    const overnightShift = await businessService.updateBusinessOpeningHours(
+      owner.id,
+      businessId,
+      {
+        openingHours: [
+          {
+            day: 'Friday',
+            isOpen: true,
+            periods: [
+              { open: '22:00', close: '02:00', crossMidnight: true }
+            ]
+          }
+        ]
+      },
+      clientIp,
+      userAgent
+    );
+    const savedOvernight = overnightShift.openingHours[0];
+    if (savedOvernight.periods?.[0]?.open !== '22:00' || savedOvernight.periods?.[0]?.close !== '02:00') {
+      throw new Error('Expected overnight cross-midnight period 22:00 -> 02:00 to be persisted');
+    }
+    logs.push('[CHECK 11 PASSED] Overnight cross-midnight shift (22:00 -> 02:00) cleanly supported and persisted');
+
+    // 13. CHECK 12: Mass-Assignment Blocking
+    let massAssignmentBlocked = false;
+    try {
+      await businessService.updateBusinessOpeningHours(
+        owner.id,
+        businessId,
+        {
+          openingHours: [{ day: 'Monday', isOpen: true, periods: [{ open: '09:00', close: '17:00' }] }],
+          isVerified: true,
+          rating: 5.0,
+          ownerId: attacker.id
+        },
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      if (err.statusCode === 403 && err.code === 'PRIVILEGE_ESCALATION_BLOCKED') {
+        massAssignmentBlocked = true;
+      }
+    }
+    if (!massAssignmentBlocked) {
+      throw new Error('CRITICAL SECURITY FLAW: Mass-assignment of protected fields during opening hours update was not blocked!');
+    }
+    logs.push('[CHECK 12 PASSED] Mass-assignment attempts (isVerified, rating, ownerId injection) strictly blocked (403)');
+
+    // 14. CHECK 13: Unrelated Fields Untouched
+    const freshBiz = db.getBusinessById(businessId);
+    if (!freshBiz || freshBiz.name !== `Alice Cafe ${timestamp}` || freshBiz.ownerId !== owner.id || freshBiz.isVerified) {
+      throw new Error('Unrelated fields on business entity were corrupted during opening hours modifications');
+    }
+    logs.push('[CHECK 13 PASSED] Unrelated business entity fields (name, ownerId, verification) verified completely uncorrupted');
+
+    // 15. CHECK 14: Public Retrieval Endpoint
+    const publicData = await businessService.getBusinessOpeningHours(businessId);
+    if (!publicData.success || !Array.isArray(publicData.openingHours) || publicData.openingHours.length === 0) {
+      throw new Error('Public getBusinessOpeningHours failed to retrieve schedule');
+    }
+    logs.push('[CHECK 14 PASSED] Public opening hours retrieval verified');
+
+    // 16. CHECK 15: Complete Removal / Clearing of Opening Hours
+    const clearRes = await businessService.clearBusinessOpeningHours(
+      owner.id,
+      businessId,
+      clientIp,
+      userAgent
+    );
+    if (clearRes.business.openingHours !== undefined && clearRes.business.openingHours !== null) {
+      throw new Error('Expected business openingHours to be cleared after removal');
+    }
+    const dbAfterClear = db.getBusinessById(businessId);
+    if (dbAfterClear?.openingHours) {
+      throw new Error('Database entity still retains openingHours after clearing');
+    }
+    logs.push('[CHECK 15 PASSED] Complete opening hours clearing by owner verified and entity cleared in DB');
+
+    // 17. CHECK 16: Idempotent Clearing
+    const secondClear = await businessService.clearBusinessOpeningHours(
+      owner.id,
+      businessId,
+      clientIp,
+      userAgent
+    );
+    if (secondClear.business.openingHours !== undefined && secondClear.business.openingHours !== null) {
+      throw new Error('Idempotent opening hours clearing failed');
+    }
+    logs.push('[CHECK 16 PASSED] Idempotent opening hours removal verified: clearing non-existent schedule succeeds gracefully');
+
+    logs.push('=== ALL 16 BUSINESS OPENING HOURS FLOW & SECURITY CHECKS PASSED ===');
+  }
+
   public async run18SecurityAttacks(): Promise<{
     total: number;
     passed: number;
@@ -9380,6 +9845,274 @@ export class AuthTestRunnerService {
     };
   }
 
+
+  private async executeBusinessContactInfoSuite(logs: string[]): Promise<void> {
+    logs.push('=== STARTING EPIC 2 TASK 2.2.8: BUSINESS CONTACT INFORMATION FLOW & SECURITY VERIFICATION ===');
+    const timestamp = Date.now();
+    const userAgent = 'BusinessContactTester/1.0';
+    const clientIp = '127.0.0.1';
+
+    // Setup: Merchant A and Merchant B users + Businesses
+    const merchantAEmail = `contact_owner_${timestamp}@boostmarket.test`;
+    const merchantAPhone = '+2348011111111';
+    const merchantBEmail = `contact_attacker_${timestamp}@boostmarket.test`;
+    const merchantBPhone = '+2348022222222';
+    const password = 'StrongPassword2026!#';
+
+    await authService.registerClient({
+      name: 'Merchant A Owner',
+      email: merchantAEmail,
+      phone: merchantAPhone,
+      password,
+      clientType: 'business'
+    }, clientIp, userAgent);
+
+    const userA = db.getUserByEmail(merchantAEmail)!;
+    userA.status = 'ACTIVE';
+    userA.emailVerifiedAt = new Date().toISOString();
+    db.updateUser(userA.id, { status: 'ACTIVE', emailVerifiedAt: userA.emailVerifiedAt });
+
+    await authService.registerClient({
+      name: 'Merchant B Attacker',
+      email: merchantBEmail,
+      phone: merchantBPhone,
+      password,
+      clientType: 'business'
+    }, clientIp, userAgent);
+
+    const userB = db.getUserByEmail(merchantBEmail)!;
+    userB.status = 'ACTIVE';
+    userB.emailVerifiedAt = new Date().toISOString();
+    db.updateUser(userB.id, { status: 'ACTIVE', emailVerifiedAt: userB.emailVerifiedAt });
+
+    const bizResultA = await businessService.createBusiness(userA.id, {
+      name: `Contact Biz A ${timestamp}`
+    }, clientIp, userAgent);
+    const bizA = bizResultA.business;
+
+    const bizResultB = await businessService.createBusiness(userB.id, {
+      name: `Contact Biz B ${timestamp}`
+    }, clientIp, userAgent);
+    const bizB = bizResultB.business;
+
+    logs.push(`[SETUP] Created User A (${userA.id}), Biz A (${bizA.id}), User B (${userB.id}), Biz B (${bizB.id})`);
+
+    // CHECK 1: Update business contact info with valid phone, email, and website
+    logs.push('[CHECK 1] Testing authenticated owner updating business contact info');
+    const updateRes = await businessService.updateBusinessContactInfo(
+      userA.id,
+      bizA.id,
+      {
+        phone: '0803 123 4567', // Nigerian local format, should be normalized to +2348031234567
+        email: 'SUPPORT@BizA-Store.com', // Should be normalized to lowercase
+        website: 'biza-store.com' // Should auto-prepend https://
+      },
+      clientIp,
+      userAgent
+    );
+
+    if (!updateRes.success) throw new Error('Check 1 failed: updateBusinessContactInfo returned unsuccessful');
+    if (updateRes.contact.phone !== '+2348031234567') {
+      throw new Error(`Check 1 failed: expected normalized phone +2348031234567, got ${updateRes.contact.phone}`);
+    }
+    if (updateRes.contact.email !== 'support@biza-store.com') {
+      throw new Error(`Check 1 failed: expected lowercase email support@biza-store.com, got ${updateRes.contact.email}`);
+    }
+    if (updateRes.contact.website !== 'https://biza-store.com/') {
+      throw new Error(`Check 1 failed: expected normalized website https://biza-store.com/, got ${updateRes.contact.website}`);
+    }
+    logs.push('[CHECK 1 PASSED] Owner successfully updated business contact info with proper normalization');
+
+    // CHECK 2: Conceptual separation check: personal user credentials & profile remain untouched
+    logs.push('[CHECK 2] Verifying complete conceptual separation from user personal credentials & profile');
+    const freshUserA = db.getUserById(userA.id)!;
+    const freshProfileA = db.getProfileByUserId(userA.id);
+
+    if (freshUserA.email !== merchantAEmail) {
+      throw new Error(`Check 2 failed: user personal email was mutated! Expected ${merchantAEmail}, got ${freshUserA.email}`);
+    }
+    if (freshUserA.phone !== merchantAPhone) {
+      throw new Error(`Check 2 failed: user personal phone was mutated! Expected ${merchantAPhone}, got ${freshUserA.phone}`);
+    }
+    if (freshProfileA && freshProfileA.phone && freshProfileA.phone === '+2348031234567') {
+      throw new Error(`Check 2 failed: client personal profile phone was overwritten with business phone!`);
+    }
+    logs.push('[CHECK 2 PASSED] Strict separation confirmed: user account credentials & personal profile remain untouched');
+
+    // CHECK 3: IDOR Protection: User B attempts to modify Biz A contact info
+    logs.push('[CHECK 3] Testing IDOR defense: cross-business unauthorized modification attempt');
+    let idorBlocked = false;
+    try {
+      await businessService.updateBusinessContactInfo(
+        userB.id,
+        bizA.id,
+        { email: 'hacked@attacker.com' },
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      if (err.statusCode === 403 || err.code === 'FORBIDDEN_NOT_OWNER') {
+        idorBlocked = true;
+      }
+    }
+    if (!idorBlocked) throw new Error('Check 3 failed: cross-business contact modification was not blocked with 403');
+    logs.push('[CHECK 3 PASSED] IDOR protection confirmed: non-owner modification rejected with 403 Forbidden');
+
+    // CHECK 4: Mass-Assignment & Privilege Escalation Protection
+    logs.push('[CHECK 4] Testing mass-assignment & privilege escalation defense');
+    let massAssignmentBlocked = false;
+    try {
+      await businessService.updateBusinessContactInfo(
+        userA.id,
+        bizA.id,
+        {
+          phone: '+2348031234567',
+          isVerified: true, // protected field
+          tier: 'ENTERPRISE' // protected field
+        },
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      if (err.statusCode === 403 && err.code === 'PRIVILEGE_ESCALATION_BLOCKED') {
+        massAssignmentBlocked = true;
+      }
+    }
+    if (!massAssignmentBlocked) throw new Error('Check 4 failed: mass assignment of protected fields was not blocked with 403');
+    logs.push('[CHECK 4 PASSED] Mass-assignment protection confirmed: attempted injection of protected fields blocked');
+
+    // CHECK 5: Invalid Phone Number Rejection
+    logs.push('[CHECK 5] Testing invalid phone number format rejection');
+    let invalidPhoneBlocked = false;
+    try {
+      await businessService.updateBusinessContactInfo(
+        userA.id,
+        bizA.id,
+        { phone: 'not-a-valid-phone-123' },
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      if (err.statusCode === 400) {
+        invalidPhoneBlocked = true;
+      }
+    }
+    if (!invalidPhoneBlocked) throw new Error('Check 5 failed: invalid phone number was not rejected with 400 Bad Request');
+    logs.push('[CHECK 5 PASSED] Invalid phone number properly rejected');
+
+    // CHECK 6: Invalid Email Format Rejection
+    logs.push('[CHECK 6] Testing invalid business contact email format rejection');
+    let invalidEmailBlocked = false;
+    try {
+      await businessService.updateBusinessContactInfo(
+        userA.id,
+        bizA.id,
+        { email: 'not-an-email' },
+        clientIp,
+        userAgent
+      );
+    } catch (err: any) {
+      if (err.statusCode === 400) {
+        invalidEmailBlocked = true;
+      }
+    }
+    if (!invalidEmailBlocked) throw new Error('Check 6 failed: invalid contact email was not rejected with 400 Bad Request');
+    logs.push('[CHECK 6 PASSED] Invalid business contact email properly rejected');
+
+    // CHECK 7: Unsafe URL Scheme Rejection (XSS / Protocol injection)
+    logs.push('[CHECK 7] Testing unsafe URL scheme rejection (javascript:, file:, data:)');
+    const unsafeUrls = ['javascript:alert(1)', 'data:text/html,<script>alert(1)</script>', 'file:///etc/passwd'];
+    for (const badUrl of unsafeUrls) {
+      let unsafeUrlBlocked = false;
+      try {
+        await businessService.updateBusinessContactInfo(
+          userA.id,
+          bizA.id,
+          { website: badUrl },
+          clientIp,
+          userAgent
+        );
+      } catch (err: any) {
+        if (err.statusCode === 400) {
+          unsafeUrlBlocked = true;
+        }
+      }
+      if (!unsafeUrlBlocked) throw new Error(`Check 7 failed: unsafe URL scheme "${badUrl}" was not rejected with 400`);
+    }
+    logs.push('[CHECK 7 PASSED] Unsafe website protocol schemes successfully blocked');
+
+    // CHECK 8: Partial Updates (updating phone leaves email and website unchanged)
+    logs.push('[CHECK 8] Testing partial update behavior');
+    const partialRes = await businessService.updateBusinessContactInfo(
+      userA.id,
+      bizA.id,
+      { phone: '+234 809 999 8888' },
+      clientIp,
+      userAgent
+    );
+    if (partialRes.contact.phone !== '+2348099998888') throw new Error('Check 8 failed: phone not updated');
+    if (partialRes.contact.email !== 'support@biza-store.com') throw new Error('Check 8 failed: email was erased during partial update');
+    if (partialRes.contact.website !== 'https://biza-store.com/') throw new Error('Check 8 failed: website was erased during partial update');
+    logs.push('[CHECK 8 PASSED] Partial update verified: unmodified contact fields preserved');
+
+    // CHECK 9: Clearing an individual field via empty string or null
+    logs.push('[CHECK 9] Testing clearing an individual contact field (null/empty string)');
+    const clearPhoneRes = await businessService.updateBusinessContactInfo(
+      userA.id,
+      bizA.id,
+      { phone: null },
+      clientIp,
+      userAgent
+    );
+    if (clearPhoneRes.contact.phone !== undefined && clearPhoneRes.contact.phone !== '') {
+      throw new Error('Check 9 failed: phone was not cleared');
+    }
+    if (clearPhoneRes.contact.email !== 'support@biza-store.com') {
+      throw new Error('Check 9 failed: email was affected when clearing phone');
+    }
+    logs.push('[CHECK 9 PASSED] Individual contact field cleared successfully');
+
+    // CHECK 10: Clearing all contact information
+    logs.push('[CHECK 10] Testing clearing all business contact details');
+    const clearAllRes = await businessService.clearBusinessContactInfo(
+      userA.id,
+      bizA.id,
+      clientIp,
+      userAgent
+    );
+    if (!clearAllRes.success) throw new Error('Check 10 failed: clearBusinessContactInfo returned unsuccessful');
+    if (clearAllRes.contact.phone || clearAllRes.contact.email || clearAllRes.contact.website) {
+      throw new Error('Check 10 failed: contact fields were not completely cleared');
+    }
+    logs.push('[CHECK 10 PASSED] All business contact details cleared successfully');
+
+    // CHECK 11: Public Retrieval of Contact Information
+    logs.push('[CHECK 11] Testing public retrieval of business contact information');
+    // Set contact again on Biz B
+    await businessService.updateBusinessContactInfo(
+      userB.id,
+      bizB.id,
+      {
+        phone: '+2348022222222',
+        email: 'sales@bizb.ng',
+        website: 'https://bizb.ng'
+      },
+      clientIp,
+      userAgent
+    );
+
+    const publicContact = await businessService.getBusinessContactInfo(bizB.id);
+    if (!publicContact.success) throw new Error('Check 11 failed: public contact retrieval failed');
+    if (publicContact.contact.phone !== '+2348022222222') throw new Error('Check 11 failed: phone mismatch in public retrieval');
+    if (publicContact.contact.email !== 'sales@bizb.ng') throw new Error('Check 11 failed: email mismatch in public retrieval');
+    if (publicContact.contact.website !== 'https://bizb.ng/') throw new Error('Check 11 failed: website mismatch in public retrieval');
+    if ((publicContact.contact as any).ownerId || (publicContact.contact as any).passwordHash) {
+      throw new Error('Check 11 failed: public contact retrieval exposed internal fields');
+    }
+    logs.push('[CHECK 11 PASSED] Public contact info retrieval verified without leaking internal fields');
+
+    logs.push('=== ALL 11 BUSINESS CONTACT INFORMATION FLOW & SECURITY CHECKS PASSED ===');
+  }
 
   private async runTest(
     id: string,

@@ -8,7 +8,7 @@
  * - Type-safe endpoint wrappers
  */
 
-import { UserProfile, AccountSecurityState, ClientProfile, ClientContactInfo, Business, CategoryConfig, BusinessCategory, LocationCoordinates } from '../types';
+import { UserProfile, AccountSecurityState, ClientProfile, ClientContactInfo, Business, CategoryConfig, BusinessCategory, LocationCoordinates, OpeningHour, BusinessContactInfo, UpdateBusinessContactPayload } from '../types';
 
 export class ApiError extends Error {
   public status: number;
@@ -1078,6 +1078,91 @@ export const businessApi = {
       business: Business;
       message?: string;
     }>(`/api/businesses/${encodeURIComponent(businessId)}/location`, {
+      method: 'DELETE'
+    });
+  },
+
+  /**
+   * Get business opening hours (Epic 2 Feature 2.2 Task 2.2.7)
+   */
+  async getOpeningHours(businessId: string) {
+    return fetchWithAuth<{
+      success: boolean;
+      businessId: string;
+      openingHours: OpeningHour[];
+      error?: string;
+    }>(`/api/businesses/${encodeURIComponent(businessId)}/opening-hours`, {
+      method: 'GET'
+    });
+  },
+
+  /**
+   * Update business opening hours (Epic 2 Feature 2.2 Task 2.2.7)
+   */
+  async updateOpeningHours(businessId: string, openingHours: OpeningHour[]) {
+    return fetchWithAuth<{
+      success: boolean;
+      business: Business;
+      openingHours: OpeningHour[];
+      message?: string;
+    }>(`/api/businesses/${encodeURIComponent(businessId)}/opening-hours`, {
+      method: 'PUT',
+      body: JSON.stringify({ openingHours })
+    });
+  },
+
+  /**
+   * Clear business opening hours (Epic 2 Feature 2.2 Task 2.2.7)
+   */
+  async clearOpeningHours(businessId: string) {
+    return fetchWithAuth<{
+      success: boolean;
+      business: Business;
+      message?: string;
+    }>(`/api/businesses/${encodeURIComponent(businessId)}/opening-hours`, {
+      method: 'DELETE'
+    });
+  },
+
+  /**
+   * Get business contact information (Epic 2 Feature 2.2 Task 2.2.8)
+   */
+  async getContactInfo(businessId: string) {
+    return fetchWithAuth<{
+      success: boolean;
+      businessId: string;
+      contact: BusinessContactInfo;
+      error?: string;
+    }>(`/api/businesses/${encodeURIComponent(businessId)}/contact`, {
+      method: 'GET'
+    });
+  },
+
+  /**
+   * Update business contact information (Epic 2 Feature 2.2 Task 2.2.8)
+   */
+  async updateContactInfo(businessId: string, data: UpdateBusinessContactPayload) {
+    return fetchWithAuth<{
+      success: boolean;
+      business: Business;
+      contact: BusinessContactInfo;
+      message?: string;
+    }>(`/api/businesses/${encodeURIComponent(businessId)}/contact`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  },
+
+  /**
+   * Clear all business contact information (Epic 2 Feature 2.2 Task 2.2.8)
+   */
+  async clearContactInfo(businessId: string) {
+    return fetchWithAuth<{
+      success: boolean;
+      business: Business;
+      contact: BusinessContactInfo;
+      message?: string;
+    }>(`/api/businesses/${encodeURIComponent(businessId)}/contact`, {
       method: 'DELETE'
     });
   }

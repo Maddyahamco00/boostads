@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { sanitizeString } from './authValidators';
+import { validatePhoneNumber } from '../../lib/phoneUtils';
 
 /**
  * Safely sanitizes business description text:
@@ -287,3 +288,230 @@ export function generateBusinessSlug(name: string): string {
     .replace(/^-+|-+$/g, '');
   return clean || 'biz';
 }
+
+/**
+ * Epic 2 Feature 2.2 Task 2.2.7: Business Opening Hours Validation
+ */
+export const TIME_REGEX = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+
+export const VALID_WEEKDAYS = [
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+  'Sunday'
+] as const;
+
+export type ValidWeekday = (typeof VALID_WEEKDAYS)[number];
+
+export const TimePeriodSchema = z.object({
+  open: z.string({ message: 'Opening time is required' })
+    .regex(TIME_REGEX, 'Invalid opening time. Expected 24-hour format HH:mm (e.g., 09:00)'),
+  close: z.string({ message: 'Closing time is required' })
+    .regex(TIME_REGEX, 'Invalid closing time. Expected 24-hour format HH:mm (e.g., 17:00)'),
+  crossMidnight: z.boolean().optional()
+}).strict().refine((data) => {
+  // Reject identical open and close times (0 duration interval)
+  if (data.open === data.close) {
+    return false;
+  }
+  // Unless cross-midnight is explicitly enabled, opening time must precede closing time
+  if (!data.crossMidnight) {
+    return data.open < data.close;
+  }
+  return true;
+}, {
+  message: 'Invalid interval: closing time must be after opening time (or enable cross-midnight for overnight hours)'
+});
+
+export type TimePeriodInput = z.infer<typeof TimePeriodSchema>;
+
+export const DayOpeningHoursSchema = z.object({
+  day: z.enum(VALID_WEEKDAYS),
+  isOpen: z.boolean({ message: 'isOpen flag is required' }),
+  periods: z.array(TimePeriodSchema).max(3, 'At most 3 opening periods permitted per day').optional()
+}).strict().superRefine((data, ctx) => {
+  if (data.isOpen) {
+    if (!data.periods || data.periods.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Open day '${data.day}' must have at least one opening period`,
+        path: ['periods']
+      });
+      return;
+    }
+
+    // Check for overlapping periods on the same day
+    const intervals: { start: number; end: number }[] = [];
+    for (const p of data.periods) {
+      const [oh, om] = p.open.split(':').map(Number);
+      const [ch, cm] = p.close.split(':').map(Number);
+      const openMin = oh * 60 + om;
+      const closeMin = ch * 60 + cm;
+
+      if (p.crossMidnight && closeMin < openMin) {
+        intervals.push({ start: openMin, end: 1440 });
+        intervals.push({ start: 0, end: closeMin });
+      } else {
+        intervals.push({ start: openMin, end: closeMin });
+      }
+    }
+
+    // Check pairwise overlap
+    for (let i = 0; i < intervals.length; i++) {
+      for (let j = i + 1; j < intervals.length; j++) {
+        const a = intervals[i];
+        const b = intervals[j];
+        if (a.start < b.end && b.start < a.end) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `Overlapping opening periods are not permitted on ${data.day}`,
+            path: ['periods']
+          });
+          return;
+        }
+      }
+    }
+  }
+});
+
+export type DayOpeningHoursInput = z.infer<typeof DayOpeningHoursSchema>;
+
+export const OpeningHoursArraySchema = z.array(DayOpeningHoursSchema)
+  .min(1, 'Opening hours must contain at least one day')
+  .max(7, 'Opening hours cannot exceed 7 days')
+  .refine((days) => {
+    const dayNames = days.map(d => d.day);
+    return new Set(dayNames).size === dayNames.length;
+  }, {
+    message: 'Duplicate day entries are not permitted in the opening hours schedule'
+  });
+
+export const UpdateOpeningHoursSchema = z.object({
+  openingHours: OpeningHoursArraySchema
+}).strict();
+
+export type UpdateOpeningHoursInput = z.infer<typeof UpdateOpeningHoursSchema>;
+
+/**
+ * Epic 2 Feature 2.2 Task 2.2.8: Business Contact Information Validation & Normalization
+ * 
+ * Rules:
+ * - phone: Optional string, validated & normalized via E.164 utility (Nigerian & international formats)
+ * - email: Optional string, validated email address (distinct from user login email)
+ * - website: Optional string, HTTP/HTTPS only, rejects unsafe protocols (javascript, data, file)
+ * - Empty string or null clears the respective field
+ * - strict() ensures rejection of unapproved / mass-assignment fields
+ */
+
+export function validateAndNormalizeBusinessPhone(rawPhone?: string | null): string | null | undefined {
+  if (rawPhone === undefined) return undefined;
+  if (rawPhone === null || rawPhone.trim() === '') return null;
+
+  const result = validatePhoneNumber(rawPhone);
+  if (!result.valid) {
+    throw new Error(result.error || 'Invalid phone number format. Please provide a valid phone number.');
+  }
+  return result.normalized || null;
+}
+
+export function validateAndNormalizeBusinessEmail(rawEmail?: string | null): string | null | undefined {
+  if (rawEmail === undefined) return undefined;
+  if (rawEmail === null || rawEmail.trim() === '') return null;
+
+  const trimmed = rawEmail.trim().toLowerCase();
+
+  // Reject control characters or null bytes
+  if (/[\u0000-\u001F\u007F]/.test(trimmed)) {
+    throw new Error('Business contact email cannot contain control characters.');
+  }
+
+  if (trimmed.length > 150) {
+    throw new Error('Business contact email cannot exceed 150 characters.');
+  }
+
+  // Standard email format check
+  const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+  if (!emailRegex.test(trimmed)) {
+    throw new Error('Please provide a valid business contact email address.');
+  }
+
+  return trimmed;
+}
+
+export function validateAndNormalizeBusinessWebsite(rawWebsite?: string | null): string | null | undefined {
+  if (rawWebsite === undefined) return undefined;
+  if (rawWebsite === null || rawWebsite.trim() === '') return null;
+
+  const trimmed = rawWebsite.trim();
+
+  // Reject control characters, null bytes, HTML tags
+  if (/[\u0000-\u001F\u007F<>]/.test(trimmed)) {
+    throw new Error('Business website URL contains invalid characters or markup.');
+  }
+
+  if (trimmed.length > 500) {
+    throw new Error('Business website URL cannot exceed 500 characters.');
+  }
+
+  // Reject unsafe protocol schemes (javascript:, data:, file:, vbscript:, blob:, etc.)
+  if (/^(?:javascript|data|file|vbscript|blob|about|mailto|tel):/i.test(trimmed)) {
+    throw new Error('Invalid website URL: unsafe protocols are not permitted.');
+  }
+
+  // Auto-prepend https:// if protocol is omitted
+  let candidate = trimmed;
+  if (!/^https?:\/\//i.test(candidate)) {
+    if (candidate.startsWith('//')) {
+      candidate = `https:${candidate}`;
+    } else {
+      candidate = `https://${candidate}`;
+    }
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(candidate);
+  } catch {
+    throw new Error('Please provide a valid business website URL.');
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('Website URL must use HTTP or HTTPS protocol.');
+  }
+
+  // Reject embedded credentials (e.g. https://user:pass@host)
+  if (parsed.username || parsed.password) {
+    throw new Error('Website URL must not contain user credentials.');
+  }
+
+  // Hostname must be present and contain a valid domain or localhost
+  if (!parsed.hostname || (!parsed.hostname.includes('.') && parsed.hostname !== 'localhost')) {
+    throw new Error('Website URL must contain a valid domain name (e.g., https://example.com).');
+  }
+
+  return parsed.toString();
+}
+
+export const UpdateBusinessContactSchema = z.object({
+  phone: z
+    .string({ message: 'Phone must be a string' })
+    .max(50, 'Phone number cannot exceed 50 characters')
+    .optional()
+    .nullable(),
+  email: z
+    .string({ message: 'Email must be a string' })
+    .max(150, 'Email cannot exceed 150 characters')
+    .optional()
+    .nullable(),
+  website: z
+    .string({ message: 'Website must be a string' })
+    .max(500, 'Website URL cannot exceed 500 characters')
+    .optional()
+    .nullable()
+}).strict();
+
+export type UpdateBusinessContactInput = z.infer<typeof UpdateBusinessContactSchema>;
+

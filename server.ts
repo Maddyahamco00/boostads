@@ -1374,6 +1374,46 @@ async function startServer() {
     }
   });
 
+  app.get('/api/tests/business-opening-hours', async (req, res) => {
+    try {
+      const result = await authTestRunnerService.runBusinessOpeningHoursTestOnly();
+      res.json({ success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  app.post('/api/tests/business-opening-hours', async (req, res) => {
+    try {
+      const result = await authTestRunnerService.runBusinessOpeningHoursTestOnly();
+      res.json({ success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  app.get('/api/tests/business-contact-info', async (req, res) => {
+    try {
+      const result = await authTestRunnerService.runBusinessContactInfoTestOnly();
+      res.json({ success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  app.post('/api/tests/business-contact-info', async (req, res) => {
+    try {
+      const result = await authTestRunnerService.runBusinessContactInfoTestOnly();
+      res.json({ success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
   // Dedicated Client Password Change & Security Controls Test Runner
   app.post('/api/tests/password-security', async (req, res) => {
     try {
@@ -3288,6 +3328,189 @@ async function startServer() {
         });
       }
       const message = err instanceof Error ? err.message : 'Failed to remove business location';
+      return res.status(400).json({ success: false, error: message });
+    }
+  });
+
+  // ==========================================
+  // Epic 2 Feature 2.2 Task 2.2.7: Business Opening Hours
+  // ==========================================
+  app.get('/api/businesses/:id/opening-hours', async (req: express.Request, res: express.Response) => {
+    try {
+      const businessId = req.params.id;
+      const result = await businessService.getBusinessOpeningHours(businessId);
+      return res.status(200).json(result);
+    } catch (err: unknown) {
+      if (err instanceof BusinessServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code
+        });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to fetch business opening hours';
+      return res.status(400).json({ success: false, error: message });
+    }
+  });
+
+  const handleBusinessOpeningHoursUpdate = async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const currentUser = req.user;
+      if (!currentUser) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'unknown';
+      const businessId = req.params.id;
+
+      const result = await businessService.updateBusinessOpeningHours(
+        currentUser.id,
+        businessId,
+        req.body,
+        clientIp,
+        userAgent
+      );
+
+      return res.status(200).json(result);
+    } catch (err: unknown) {
+      if (err instanceof BusinessServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code,
+          details: err.details
+        });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to update business opening hours';
+      return res.status(400).json({ success: false, error: message });
+    }
+  };
+
+  app.put('/api/businesses/:id/opening-hours', authenticate, handleBusinessOpeningHoursUpdate);
+  app.patch('/api/businesses/:id/opening-hours', authenticate, handleBusinessOpeningHoursUpdate);
+  app.post('/api/businesses/:id/opening-hours', authenticate, handleBusinessOpeningHoursUpdate);
+
+  app.delete('/api/businesses/:id/opening-hours', authenticate, async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const currentUser = req.user;
+      if (!currentUser) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'unknown';
+      const businessId = req.params.id;
+
+      const result = await businessService.clearBusinessOpeningHours(
+        currentUser.id,
+        businessId,
+        clientIp,
+        userAgent
+      );
+
+      return res.status(200).json(result);
+    } catch (err: unknown) {
+      if (err instanceof BusinessServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code,
+          details: err.details
+        });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to remove business opening hours';
+      return res.status(400).json({ success: false, error: message });
+    }
+  });
+
+  // ==========================================
+  // Epic 2 Feature 2.2 Task 2.2.8: Business Contact Information
+  // ==========================================
+  app.get('/api/businesses/:id/contact', async (req: express.Request, res: express.Response) => {
+    try {
+      const businessId = req.params.id;
+      const result = await businessService.getBusinessContactInfo(businessId);
+      return res.status(200).json(result);
+    } catch (err: unknown) {
+      if (err instanceof BusinessServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code
+        });
+      }
+      return res.status(404).json({ success: false, error: 'Business not found' });
+    }
+  });
+
+  const handleBusinessContactUpdate = async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const currentUser = req.user;
+      if (!currentUser) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'unknown';
+      const businessId = req.params.id;
+
+      const result = await businessService.updateBusinessContactInfo(
+        currentUser.id,
+        businessId,
+        req.body,
+        clientIp,
+        userAgent
+      );
+
+      return res.status(200).json(result);
+    } catch (err: unknown) {
+      if (err instanceof BusinessServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code,
+          details: err.details
+        });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to update business contact information';
+      return res.status(400).json({ success: false, error: message });
+    }
+  };
+
+  app.put('/api/businesses/:id/contact', authenticate, handleBusinessContactUpdate);
+  app.patch('/api/businesses/:id/contact', authenticate, handleBusinessContactUpdate);
+  app.post('/api/businesses/:id/contact', authenticate, handleBusinessContactUpdate);
+
+  app.delete('/api/businesses/:id/contact', authenticate, async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const currentUser = req.user;
+      if (!currentUser) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'unknown';
+      const businessId = req.params.id;
+
+      const result = await businessService.clearBusinessContactInfo(
+        currentUser.id,
+        businessId,
+        clientIp,
+        userAgent
+      );
+
+      return res.status(200).json(result);
+    } catch (err: unknown) {
+      if (err instanceof BusinessServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code,
+          details: err.details
+        });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to remove business contact information';
       return res.status(400).json({ success: false, error: message });
     }
   });

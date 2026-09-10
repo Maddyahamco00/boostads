@@ -8,8 +8,8 @@ import { db, DatabaseUniqueConstraintError, DatabaseValidationError } from '../d
 import { authService } from './authService';
 import { auditService } from './auditService';
 import { storageService } from './storageService';
-import { CreateBusinessSchema, UpdateBusinessDescriptionSchema, UpdateBusinessCategoriesSchema, UpdateBusinessLocationSchema, PROTECTED_BUSINESS_FIELDS } from '../validators/businessValidators';
-import { Business, CategoryConfig, BusinessCategory, LocationCoordinates } from '../../types';
+import { CreateBusinessSchema, UpdateBusinessDescriptionSchema, UpdateBusinessCategoriesSchema, UpdateBusinessLocationSchema, UpdateOpeningHoursSchema, OpeningHoursArraySchema, UpdateBusinessContactSchema, validateAndNormalizeBusinessPhone, validateAndNormalizeBusinessEmail, validateAndNormalizeBusinessWebsite, PROTECTED_BUSINESS_FIELDS } from '../validators/businessValidators';
+import { Business, CategoryConfig, BusinessCategory, LocationCoordinates, OpeningHour, formatOpeningHourDisplay, BusinessContactInfo } from '../../types';
 
 export class BusinessServiceError extends Error {
   public statusCode: number;
@@ -1122,6 +1122,467 @@ export class BusinessService {
       success: true,
       business: updatedBusiness,
       message: 'Business location removed.'
+    };
+  }
+
+  /**
+   * Epic 2 Feature 2.2 Task 2.2.7: Get Business Opening Hours (Public)
+   */
+  public async getBusinessOpeningHours(businessId: string): Promise<{
+    success: boolean;
+    businessId: string;
+    openingHours: OpeningHour[];
+  }> {
+    const business = db.getBusinessById(businessId);
+    if (!business) {
+      throw new BusinessServiceError('Business not found.', 404, 'BUSINESS_NOT_FOUND');
+    }
+
+    return {
+      success: true,
+      businessId: business.id,
+      openingHours: business.openingHours || []
+    };
+  }
+
+  /**
+   * Epic 2 Feature 2.2 Task 2.2.7: Update Business Opening Hours (Owner Only)
+   */
+  public async updateBusinessOpeningHours(
+    userId: string,
+    businessId: string,
+    payload: any,
+    clientIp: string = '127.0.0.1',
+    userAgent: string = 'browser'
+  ): Promise<{
+    success: boolean;
+    business: Business;
+    openingHours: OpeningHour[];
+    message: string;
+  }> {
+    // 1. Verify user authentication and status
+    const user = db.getUserById(userId);
+    if (!user || user.status === 'SUSPENDED') {
+      throw new BusinessServiceError('User is not authorized or account is suspended.', 403, 'USER_SUSPENDED');
+    }
+
+    // 2. Fetch business
+    const business = db.getBusinessById(businessId);
+    if (!business) {
+      throw new BusinessServiceError('Business not found.', 404, 'BUSINESS_NOT_FOUND');
+    }
+
+    // 3. Verify ownership (anti-IDOR)
+    const isOwner = business.ownerId === userId;
+    const isSuperAdmin = user.role === 'SUPER_ADMIN';
+    if (!isOwner && !isSuperAdmin) {
+      authService.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+        userId,
+        userEmail: user.email,
+        ipAddress: clientIp,
+        userAgent,
+        details: {
+          reason: 'Cross-business opening hours modification attempt blocked (IDOR)',
+          targetBusinessId: businessId,
+          actualOwnerId: business.ownerId,
+          action: 'UPDATE_BUSINESS_OPENING_HOURS'
+        }
+      });
+      throw new BusinessServiceError('Forbidden: You are not authorized to modify this business.', 403, 'FORBIDDEN_NOT_OWNER');
+    }
+
+    // 4. Mass-assignment protection: check for forbidden fields
+    if (payload && typeof payload === 'object') {
+      const extraProtectedFields = [
+        ...PROTECTED_BUSINESS_FIELDS,
+        'name', 'logo', 'logoUrl', 'coverImageUrl', 'coverImageKey', 'logoKey',
+        'description', 'categories', 'categoryIds', 'businessCategories',
+        'location', 'phone', 'whatsapp', 'email', 'website', 'contactInformation'
+      ];
+      for (const field of extraProtectedFields) {
+        if (field in (payload as any)) {
+          authService.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+            userId,
+            userEmail: user.email,
+            ipAddress: clientIp,
+            userAgent,
+            details: {
+              reason: 'Attempted modification of protected field during opening hours update',
+              businessId,
+              attemptedField: field,
+              action: 'UPDATE_BUSINESS_OPENING_HOURS'
+            }
+          });
+          throw new BusinessServiceError(
+            `Unauthorized attempt to set protected field: "${field}".`,
+            403,
+            'PRIVILEGE_ESCALATION_BLOCKED'
+          );
+        }
+      }
+    }
+
+    // Extract schedule array
+    let scheduleArray: any;
+    if (Array.isArray(payload)) {
+      scheduleArray = payload;
+    } else if (payload && typeof payload === 'object' && Array.isArray(payload.openingHours)) {
+      scheduleArray = payload.openingHours;
+    } else {
+      throw new BusinessServiceError(
+        'Invalid opening hours format. Expected an array of day opening hours.',
+        400,
+        'VALIDATION_ERROR'
+      );
+    }
+
+    // 5. Validate schema
+    const parsed = OpeningHoursArraySchema.safeParse(scheduleArray);
+    if (!parsed.success) {
+      const firstIssue = parsed.error.issues[0];
+      throw new BusinessServiceError(
+        firstIssue?.message || 'Invalid opening hours data.',
+        400,
+        'VALIDATION_ERROR',
+        parsed.error.issues
+      );
+    }
+
+    // 6. Build clean, sanitized opening hours items
+    const cleanOpeningHours: OpeningHour[] = parsed.data.map(dayItem => {
+      if (!dayItem.isOpen) {
+        return {
+          day: dayItem.day,
+          isOpen: false,
+          hours: 'Closed',
+          periods: []
+        };
+      }
+      const periods = (dayItem.periods || []).map(p => ({
+        open: p.open,
+        close: p.close,
+        ...(p.crossMidnight ? { crossMidnight: true } : {})
+      }));
+      const displayHours = formatOpeningHourDisplay({
+        day: dayItem.day,
+        isOpen: true,
+        periods
+      });
+      return {
+        day: dayItem.day,
+        isOpen: true,
+        hours: displayHours,
+        periods
+      };
+    });
+
+    // 7. Persist to database
+    const updatedBusiness = db.updateBusiness(business.id, {
+      openingHours: cleanOpeningHours
+    });
+
+    // 8. Audit log
+    auditService.log('BUSINESS_OPENING_HOURS_UPDATED', business.id, userId, 'merchant', {
+      daysCount: cleanOpeningHours.length,
+      openDaysCount: cleanOpeningHours.filter(d => d.isOpen).length
+    });
+
+    return {
+      success: true,
+      business: updatedBusiness,
+      openingHours: cleanOpeningHours,
+      message: 'Business opening hours updated successfully.'
+    };
+  }
+
+  /**
+   * Epic 2 Feature 2.2 Task 2.2.7: Clear Business Opening Hours
+   */
+  public async clearBusinessOpeningHours(
+    userId: string,
+    businessId: string,
+    clientIp: string = '127.0.0.1',
+    userAgent: string = 'browser'
+  ): Promise<{
+    success: boolean;
+    business: Business;
+    message: string;
+  }> {
+    const user = db.getUserById(userId);
+    if (!user || user.status === 'SUSPENDED') {
+      throw new BusinessServiceError('User is not authorized or account is suspended.', 403, 'USER_SUSPENDED');
+    }
+
+    const business = db.getBusinessById(businessId);
+    if (!business) {
+      throw new BusinessServiceError('Business not found.', 404, 'BUSINESS_NOT_FOUND');
+    }
+
+    const isOwner = business.ownerId === userId;
+    const isSuperAdmin = user.role === 'SUPER_ADMIN';
+    if (!isOwner && !isSuperAdmin) {
+      authService.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+        userId,
+        userEmail: user.email,
+        ipAddress: clientIp,
+        userAgent,
+        details: {
+          reason: 'Cross-business opening hours deletion attempt blocked (IDOR)',
+          targetBusinessId: businessId,
+          actualOwnerId: business.ownerId,
+          action: 'CLEAR_BUSINESS_OPENING_HOURS'
+        }
+      });
+      throw new BusinessServiceError('Forbidden: You are not authorized to modify this business.', 403, 'FORBIDDEN_NOT_OWNER');
+    }
+
+    const updatedBusiness = db.updateBusiness(business.id, {
+      openingHours: null as any
+    });
+
+    auditService.log('BUSINESS_OPENING_HOURS_CLEARED', business.id, userId, 'merchant', {});
+
+    return {
+      success: true,
+      business: updatedBusiness,
+      message: 'Business opening hours removed.'
+    };
+  }
+
+  /**
+   * Epic 2 Feature 2.2 Task 2.2.8: Get Business Contact Information
+   * Public retrieval of business contact information (completely separated from user's personal profile)
+   */
+  public async getBusinessContactInfo(businessId: string): Promise<{
+    success: boolean;
+    businessId: string;
+    contact: BusinessContactInfo;
+  }> {
+    const business = db.getBusinessById(businessId);
+    if (!business) {
+      throw new BusinessServiceError('Business not found.', 404, 'BUSINESS_NOT_FOUND');
+    }
+
+    return {
+      success: true,
+      businessId: business.id,
+      contact: {
+        phone: business.phone,
+        email: business.email,
+        website: business.website
+      }
+    };
+  }
+
+  /**
+   * Epic 2 Feature 2.2 Task 2.2.8: Update Business Contact Information
+   * Allows business owner to manage business-level contact details (phone, email, website).
+   * Enforces server-side IDOR defense, strict mass-assignment rejection, phone normalization,
+   * email format validation, and safe URL protocol checks.
+   */
+  public async updateBusinessContactInfo(
+    userId: string,
+    businessId: string,
+    payload: any,
+    clientIp: string = '127.0.0.1',
+    userAgent: string = 'browser'
+  ): Promise<{
+    success: boolean;
+    business: Business;
+    contact: BusinessContactInfo;
+    message: string;
+  }> {
+    // 1. Verify user exists and is active
+    const user = db.getUserById(userId);
+    if (!user) {
+      throw new BusinessServiceError('User not found.', 404, 'USER_NOT_FOUND');
+    }
+
+    if (user.status === 'SUSPENDED') {
+      throw new BusinessServiceError('User is suspended.', 403, 'USER_SUSPENDED');
+    }
+
+    // 2. Verify business exists
+    const business = db.getBusinessById(businessId);
+    if (!business) {
+      throw new BusinessServiceError('Business not found.', 404, 'BUSINESS_NOT_FOUND');
+    }
+
+    // 3. IDOR Defense: Business ownership check
+    const isOwner = business.ownerId === userId;
+    const isSuperAdmin = user.role === 'SUPER_ADMIN';
+
+    if (!isOwner && !isSuperAdmin) {
+      authService.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+        userId,
+        userEmail: user.email,
+        ipAddress: clientIp,
+        userAgent,
+        details: {
+          reason: 'Cross-business contact info modification attempt blocked (IDOR)',
+          targetBusinessId: businessId,
+          actualOwnerId: business.ownerId,
+          action: 'UPDATE_BUSINESS_CONTACT_INFO'
+        }
+      });
+      throw new BusinessServiceError('Forbidden: You are not authorized to modify this business.', 403, 'FORBIDDEN_NOT_OWNER');
+    }
+
+    // 4. Mass-assignment & Protected fields protection
+    if (payload && typeof payload === 'object') {
+      const extraProtectedFields = [
+        ...PROTECTED_BUSINESS_FIELDS,
+        'name', 'slug', 'logo', 'logoUrl', 'coverImageUrl', 'coverImageKey', 'logoKey',
+        'description', 'categories', 'categoryIds', 'businessCategories', 'subcategories',
+        'location', 'openingHours', 'products', 'services', 'portfolioItems', 'user', 'profile'
+      ];
+      for (const field of extraProtectedFields) {
+        if (field in payload) {
+          authService.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+            userId,
+            userEmail: user.email,
+            ipAddress: clientIp,
+            userAgent,
+            details: {
+              reason: 'Attempted modification of protected field during business contact update',
+              businessId,
+              attemptedField: field,
+              action: 'UPDATE_BUSINESS_CONTACT_INFO'
+            }
+          });
+          throw new BusinessServiceError(
+            `Unauthorized attempt to set protected field: "${field}".`,
+            403,
+            'PRIVILEGE_ESCALATION_BLOCKED'
+          );
+        }
+      }
+    }
+
+    // 5. Validate schema
+    const schemaValidation = UpdateBusinessContactSchema.safeParse(payload || {});
+    if (!schemaValidation.success) {
+      const firstIssue = schemaValidation.error.issues[0];
+      throw new BusinessServiceError(
+        firstIssue?.message || 'Invalid business contact data.',
+        400,
+        'VALIDATION_ERROR',
+        schemaValidation.error.issues
+      );
+    }
+
+    // 6. Validate & normalize individual fields
+    const updates: Partial<Business> = {};
+
+    if (payload.phone !== undefined) {
+      try {
+        const normalizedPhone = validateAndNormalizeBusinessPhone(payload.phone);
+        updates.phone = normalizedPhone === null ? '' : normalizedPhone;
+      } catch (err: any) {
+        throw new BusinessServiceError(err.message || 'Invalid phone number.', 400, 'VALIDATION_ERROR');
+      }
+    }
+
+    if (payload.email !== undefined) {
+      try {
+        const normalizedEmail = validateAndNormalizeBusinessEmail(payload.email);
+        updates.email = normalizedEmail === null ? '' : normalizedEmail;
+      } catch (err: any) {
+        throw new BusinessServiceError(err.message || 'Invalid contact email.', 400, 'VALIDATION_ERROR');
+      }
+    }
+
+    if (payload.website !== undefined) {
+      try {
+        const normalizedWebsite = validateAndNormalizeBusinessWebsite(payload.website);
+        updates.website = normalizedWebsite === null ? '' : normalizedWebsite;
+      } catch (err: any) {
+        throw new BusinessServiceError(err.message || 'Invalid website URL.', 400, 'VALIDATION_ERROR');
+      }
+    }
+
+    // 7. Update business record
+    const updatedBusiness = db.updateBusiness(business.id, updates);
+
+    // 8. Security audit logging
+    auditService.log('BUSINESS_CONTACT_UPDATED', business.id, userId, 'merchant', {
+      updatedFields: Object.keys(updates),
+      hasPhone: !!updatedBusiness.phone,
+      hasEmail: !!updatedBusiness.email,
+      hasWebsite: !!updatedBusiness.website
+    });
+
+    return {
+      success: true,
+      business: updatedBusiness,
+      contact: {
+        phone: updatedBusiness.phone,
+        email: updatedBusiness.email,
+        website: updatedBusiness.website
+      },
+      message: 'Business contact information updated successfully.'
+    };
+  }
+
+  /**
+   * Epic 2 Feature 2.2 Task 2.2.8: Clear Business Contact Information
+   */
+  public async clearBusinessContactInfo(
+    userId: string,
+    businessId: string,
+    clientIp: string = '127.0.0.1',
+    userAgent: string = 'browser'
+  ): Promise<{
+    success: boolean;
+    business: Business;
+    contact: BusinessContactInfo;
+    message: string;
+  }> {
+    const user = db.getUserById(userId);
+    if (!user || user.status === 'SUSPENDED') {
+      throw new BusinessServiceError('User is not authorized or account is suspended.', 403, 'USER_SUSPENDED');
+    }
+
+    const business = db.getBusinessById(businessId);
+    if (!business) {
+      throw new BusinessServiceError('Business not found.', 404, 'BUSINESS_NOT_FOUND');
+    }
+
+    const isOwner = business.ownerId === userId;
+    const isSuperAdmin = user.role === 'SUPER_ADMIN';
+    if (!isOwner && !isSuperAdmin) {
+      authService.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+        userId,
+        userEmail: user.email,
+        ipAddress: clientIp,
+        userAgent,
+        details: {
+          reason: 'Cross-business contact deletion attempt blocked (IDOR)',
+          targetBusinessId: businessId,
+          actualOwnerId: business.ownerId,
+          action: 'CLEAR_BUSINESS_CONTACT_INFO'
+        }
+      });
+      throw new BusinessServiceError('Forbidden: You are not authorized to modify this business.', 403, 'FORBIDDEN_NOT_OWNER');
+    }
+
+    const updatedBusiness = db.updateBusiness(business.id, {
+      phone: '',
+      email: '',
+      website: ''
+    });
+
+    auditService.log('BUSINESS_CONTACT_CLEARED', business.id, userId, 'merchant', {});
+
+    return {
+      success: true,
+      business: updatedBusiness,
+      contact: {
+        phone: undefined,
+        email: undefined,
+        website: undefined
+      },
+      message: 'Business contact information cleared successfully.'
     };
   }
 }

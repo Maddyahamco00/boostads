@@ -23,6 +23,7 @@ import {
   VerificationToken,
   SecurityAuditEvent,
   Business,
+  OpeningHour,
   Product,
   Service,
   PortfolioItem,
@@ -2768,9 +2769,68 @@ export class DatabaseStore {
       }
     }
 
+    if (updates.openingHours !== undefined) {
+      if (Array.isArray(updates.openingHours)) {
+        business.openingHours = JSON.parse(JSON.stringify(updates.openingHours));
+      } else {
+        delete business.openingHours;
+      }
+    }
+
+    if (updates.phone !== undefined) {
+      if (updates.phone && typeof updates.phone === 'string' && updates.phone.trim()) {
+        business.phone = updates.phone.trim();
+      } else {
+        delete business.phone;
+      }
+    }
+
+    if (updates.email !== undefined) {
+      if (updates.email && typeof updates.email === 'string' && updates.email.trim()) {
+        business.email = updates.email.trim().toLowerCase();
+      } else {
+        delete business.email;
+      }
+    }
+
+    if (updates.website !== undefined) {
+      if (updates.website && typeof updates.website === 'string' && updates.website.trim()) {
+        business.website = updates.website.trim();
+      } else {
+        delete business.website;
+      }
+    }
+
     business.updatedAt = new Date().toISOString();
     this.businesses.set(business.id, business);
     return business;
+  }
+
+  public getBusinessContactInfo(businessId: string): { phone?: string; email?: string; website?: string } | undefined {
+    const biz = this.businesses.get(businessId);
+    if (!biz) return undefined;
+    return {
+      phone: biz.phone,
+      email: biz.email,
+      website: biz.website
+    };
+  }
+
+  public updateBusinessContactInfo(businessId: string, contact: { phone?: string | null; email?: string | null; website?: string | null }): Business {
+    return this.updateBusiness(businessId, {
+      phone: contact.phone === null ? '' : contact.phone,
+      email: contact.email === null ? '' : contact.email,
+      website: contact.website === null ? '' : contact.website
+    });
+  }
+
+  public getBusinessOpeningHours(businessId: string): OpeningHour[] | undefined {
+    const biz = this.businesses.get(businessId);
+    return biz?.openingHours;
+  }
+
+  public updateBusinessOpeningHours(businessId: string, hours: OpeningHour[] | undefined): Business {
+    return this.updateBusiness(businessId, { openingHours: hours });
   }
 
   public getBusinessById(id: string): Business | undefined {

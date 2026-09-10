@@ -23,6 +23,8 @@ import {
   CreditCard,
   CheckCircle2,
   Phone,
+  Mail,
+  Globe,
   ArrowUpRight,
   Camera,
   Trash2,
@@ -33,11 +35,14 @@ import {
   X,
   Search,
   MapPin,
-  Navigation
+  Navigation,
+  Clock,
+  Calendar,
+  Copy
 } from 'lucide-react';
 import { AdvertisementCard } from './AdvertisementCard';
 import { businessApi } from '../lib/api';
-import { NIGERIAN_STATES, LocationCoordinates } from '../types';
+import { NIGERIAN_STATES, LocationCoordinates, DAYS_OF_WEEK, OpeningHour, TimePeriod, formatOpeningHourDisplay, formatTime12h } from '../types';
 
 export const MerchantDashboardView: React.FC = () => {
   const { 
@@ -145,6 +150,129 @@ export const MerchantDashboardView: React.FC = () => {
       setServiceAreaKm('');
     }
   }, [userBiz?.location, isEditingLocation]);
+
+  // Business Opening Hours Management States (Epic 2 Feature 2.2 Task 2.2.7)
+  const defaultWeeklySchedule = (): OpeningHour[] => [
+    { day: 'Monday', isOpen: true, periods: [{ open: '09:00', close: '17:00' }] },
+    { day: 'Tuesday', isOpen: true, periods: [{ open: '09:00', close: '17:00' }] },
+    { day: 'Wednesday', isOpen: true, periods: [{ open: '09:00', close: '17:00' }] },
+    { day: 'Thursday', isOpen: true, periods: [{ open: '09:00', close: '17:00' }] },
+    { day: 'Friday', isOpen: true, periods: [{ open: '09:00', close: '17:00' }] },
+    { day: 'Saturday', isOpen: true, periods: [{ open: '10:00', close: '16:00' }] },
+    { day: 'Sunday', isOpen: false, periods: [] }
+  ];
+
+  const [isEditingHours, setIsEditingHours] = useState(false);
+  const [hoursSchedule, setHoursSchedule] = useState<OpeningHour[]>(defaultWeeklySchedule());
+  const [isSavingHours, setIsSavingHours] = useState(false);
+  const [hoursMessage, setHoursMessage] = useState<{ text: string; isError: boolean } | null>(null);
+
+  useEffect(() => {
+    if (!isEditingHours) {
+      if (Array.isArray(userBiz?.openingHours) && userBiz.openingHours.length > 0) {
+        const currentMap = new Map(userBiz.openingHours.map(item => [item.day, item]));
+        const populated: OpeningHour[] = DAYS_OF_WEEK.map(day => {
+          const existing = currentMap.get(day);
+          if (existing) {
+            return {
+              day,
+              isOpen: existing.isOpen,
+              hours: existing.hours || '',
+              periods: existing.periods && existing.periods.length > 0
+                ? existing.periods.map(p => ({ ...p }))
+                : (existing.isOpen ? [{ open: '09:00', close: '17:00' }] : [])
+            };
+          }
+          return { day, isOpen: false, periods: [] };
+        });
+        setHoursSchedule(populated);
+      } else {
+        setHoursSchedule(defaultWeeklySchedule());
+      }
+    }
+  }, [userBiz?.openingHours, isEditingHours]);
+
+  const toggleDayOpen = (dayIndex: number) => {
+    setHoursSchedule(prev => {
+      const next = [...prev];
+      const target = { ...next[dayIndex] };
+      target.isOpen = !target.isOpen;
+      if (target.isOpen && (!target.periods || target.periods.length === 0)) {
+        target.periods = [{ open: '09:00', close: '17:00' }];
+      } else if (!target.isOpen) {
+        target.periods = [];
+      }
+      next[dayIndex] = target;
+      return next;
+    });
+  };
+
+  const updatePeriod = (
+    dayIndex: number,
+    periodIndex: number,
+    field: 'open' | 'close' | 'crossMidnight',
+    value: any
+  ) => {
+    setHoursSchedule(prev => {
+      const next = [...prev];
+      const target = { ...next[dayIndex] };
+      const nextPeriods = (target.periods || []).map((p, idx) => {
+        if (idx === periodIndex) {
+          return { ...p, [field]: value };
+        }
+        return p;
+      });
+      target.periods = nextPeriods;
+      next[dayIndex] = target;
+      return next;
+    });
+  };
+
+  const addPeriod = (dayIndex: number) => {
+    setHoursSchedule(prev => {
+      const next = [...prev];
+      const target = { ...next[dayIndex] };
+      const periods = target.periods ? [...target.periods] : [];
+      if (periods.length < 2) {
+        periods.push({ open: '18:00', close: '21:00' });
+      }
+      target.periods = periods;
+      next[dayIndex] = target;
+      return next;
+    });
+  };
+
+  const removePeriod = (dayIndex: number, periodIndex: number) => {
+    setHoursSchedule(prev => {
+      const next = [...prev];
+      const target = { ...next[dayIndex] };
+      const nextPeriods = (target.periods || []).filter((_, idx) => idx !== periodIndex);
+      target.periods = nextPeriods;
+      if (nextPeriods.length === 0) {
+        target.isOpen = false;
+      }
+      next[dayIndex] = target;
+      return next;
+    });
+  };
+
+  const copyMondayToWeekdays = () => {
+    setHoursSchedule(prev => {
+      const monday = prev.find(d => d.day === 'Monday');
+      if (!monday) return prev;
+      return prev.map(d => {
+        if (['Tuesday', 'Wednesday', 'Thursday', 'Friday'].includes(d.day)) {
+          return {
+            ...d,
+            isOpen: monday.isOpen,
+            periods: (monday.periods || []).map(p => ({ ...p }))
+          };
+        }
+        return d;
+      });
+    });
+    setHoursMessage({ text: 'Monday schedule copied to Tuesday through Friday.', isError: false });
+  };
 
   // Form states for adding product/service
   const [newProdName, setNewProdName] = useState('');
@@ -606,6 +734,162 @@ export const MerchantDashboardView: React.FC = () => {
       setLocationMessage({ text: msg, isError: true });
     } finally {
       setIsSavingLocation(false);
+    }
+  };
+
+  const handleSaveHours = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!userBiz) return;
+    setHoursMessage(null);
+
+    // Validate client-side
+    for (const d of hoursSchedule) {
+      if (d.isOpen) {
+        if (!d.periods || d.periods.length === 0) {
+          setHoursMessage({ text: `Please specify opening hours for ${d.day}, or set it to Closed.`, isError: true });
+          return;
+        }
+        for (const p of d.periods) {
+          if (!p.open || !p.close) {
+            setHoursMessage({ text: `Opening and closing times are required for ${d.day}.`, isError: true });
+            return;
+          }
+          if (p.open === p.close) {
+            setHoursMessage({ text: `Opening and closing times cannot be identical on ${d.day}.`, isError: true });
+            return;
+          }
+          if (!p.crossMidnight && p.open >= p.close) {
+            setHoursMessage({ text: `Closing time must be after opening time for ${d.day} (or check 'Overnight').`, isError: true });
+            return;
+          }
+        }
+      }
+    }
+
+    setIsSavingHours(true);
+    try {
+      const res = await businessApi.updateOpeningHours(userBiz.id, hoursSchedule);
+      if (res.success && res.business) {
+        setIsEditingHours(false);
+        setHoursMessage({ text: res.message || 'Opening hours updated successfully.', isError: false });
+        await refreshData();
+      } else {
+        setHoursMessage({ text: (res as any).error || res.message || 'Failed to update opening hours.', isError: true });
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'An error occurred while updating opening hours.';
+      setHoursMessage({ text: msg, isError: true });
+    } finally {
+      setIsSavingHours(false);
+    }
+  };
+
+  const handleClearHours = async () => {
+    if (!userBiz) return;
+    if (!window.confirm('Are you sure you want to remove all business opening hours?')) return;
+    setIsSavingHours(true);
+    setHoursMessage(null);
+    try {
+      const res = await businessApi.clearOpeningHours(userBiz.id);
+      if (res.success && res.business) {
+        setIsEditingHours(false);
+        setHoursMessage({ text: res.message || 'Opening hours removed.', isError: false });
+        await refreshData();
+      } else {
+        setHoursMessage({ text: (res as any).error || res.message || 'Failed to remove opening hours.', isError: true });
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'An error occurred while removing opening hours.';
+      setHoursMessage({ text: msg, isError: true });
+    } finally {
+      setIsSavingHours(false);
+    }
+  };
+
+  // Business Contact Information State (Epic 2 Feature 2.2 Task 2.2.8)
+  const [isEditingContact, setIsEditingContact] = useState(false);
+  const [contactPhoneInput, setContactPhoneInput] = useState('');
+  const [contactEmailInput, setContactEmailInput] = useState('');
+  const [contactWebsiteInput, setContactWebsiteInput] = useState('');
+  const [isSavingContact, setIsSavingContact] = useState(false);
+  const [contactMessage, setContactMessage] = useState<{ text: string; isError: boolean } | null>(null);
+
+  useEffect(() => {
+    if (!isEditingContact && userBiz) {
+      setContactPhoneInput(userBiz.phone || '');
+      setContactEmailInput(userBiz.email || '');
+      setContactWebsiteInput(userBiz.website || '');
+    }
+  }, [userBiz?.phone, userBiz?.email, userBiz?.website, isEditingContact]);
+
+  const handleSaveContact = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!userBiz) return;
+    setContactMessage(null);
+    setIsSavingContact(true);
+
+    try {
+      const res = await businessApi.updateContactInfo(userBiz.id, {
+        phone: contactPhoneInput.trim(),
+        email: contactEmailInput.trim(),
+        website: contactWebsiteInput.trim()
+      });
+
+      if (res.success) {
+        setContactMessage({
+          text: res.message || 'Business contact information saved successfully.',
+          isError: false
+        });
+        setIsEditingContact(false);
+        await refreshData();
+      } else {
+        setContactMessage({
+          text: (res as any).error || res.message || 'Failed to update business contact information.',
+          isError: true
+        });
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to update business contact information.';
+      setContactMessage({
+        text: msg,
+        isError: true
+      });
+    } finally {
+      setIsSavingContact(false);
+    }
+  };
+
+  const handleClearContact = async () => {
+    if (!userBiz) return;
+    setContactMessage(null);
+    setIsSavingContact(true);
+
+    try {
+      const res = await businessApi.clearContactInfo(userBiz.id);
+      if (res.success) {
+        setContactMessage({
+          text: res.message || 'Business contact information cleared successfully.',
+          isError: false
+        });
+        setContactPhoneInput('');
+        setContactEmailInput('');
+        setContactWebsiteInput('');
+        setIsEditingContact(false);
+        await refreshData();
+      } else {
+        setContactMessage({
+          text: (res as any).error || res.message || 'Failed to clear business contact information.',
+          isError: true
+        });
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to clear business contact information.';
+      setContactMessage({
+        text: msg,
+        isError: true
+      });
+    } finally {
+      setIsSavingContact(false);
     }
   };
 
@@ -1493,6 +1777,529 @@ export const MerchantDashboardView: React.FC = () => {
                 <p id="business-location-empty" className="text-sm text-slate-400 dark:text-slate-500 italic">
                   No location specified yet.
                   {isOwner && ' Click "Add Location" above to set where your business operates.'}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Business Opening Hours Card (Epic 2 Feature 2.2 Task 2.2.7) */}
+      <div id="business-hours-card" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-5">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm transition-colors">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                <Clock className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                  Business Hours
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Define your weekly operating schedule in local business time (24h format HH:mm)
+                </p>
+              </div>
+            </div>
+
+            {isOwner && !isEditingHours && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  id="edit-business-hours-btn"
+                  onClick={() => {
+                    setIsEditingHours(true);
+                    setHoursMessage(null);
+                  }}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 transition-colors cursor-pointer"
+                >
+                  Edit Hours
+                </button>
+                {userBiz?.openingHours && userBiz.openingHours.length > 0 && (
+                  <button
+                    type="button"
+                    id="clear-business-hours-btn"
+                    onClick={handleClearHours}
+                    disabled={isSavingHours}
+                    className="px-2.5 py-1.5 text-xs font-semibold rounded-lg text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer disabled:opacity-50"
+                    title="Remove all opening hours"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {hoursMessage && (
+            <div
+              id="business-hours-feedback"
+              className={`mt-4 p-3 rounded-xl text-xs flex items-center gap-2 ${
+                hoursMessage.isError
+                  ? 'bg-rose-50 dark:bg-rose-950/50 text-rose-800 dark:text-rose-200 border border-rose-200 dark:border-rose-900'
+                  : 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-200 border border-emerald-200 dark:border-emerald-900'
+              }`}
+            >
+              {hoursMessage.isError ? (
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400" />
+              ) : (
+                <Check className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+              )}
+              <span>{hoursMessage.text}</span>
+            </div>
+          )}
+
+          {isEditingHours ? (
+            <form id="business-hours-edit-form" onSubmit={handleSaveHours} className="mt-5 space-y-4">
+              <div className="flex items-center justify-between pb-2">
+                <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                  Toggle each day to set open/closed status and daily operating periods:
+                </span>
+                <button
+                  type="button"
+                  id="copy-monday-hours-btn"
+                  onClick={copyMondayToWeekdays}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors cursor-pointer"
+                  title="Copy Monday's schedule to Tuesday through Friday"
+                >
+                  <Copy className="w-3 h-3" />
+                  <span>Copy Mon to Weekdays</span>
+                </button>
+              </div>
+
+              <div className="divide-y divide-slate-100 dark:divide-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
+                {hoursSchedule.map((dayItem, dayIdx) => {
+                  const dayName = dayItem.day;
+                  const isOpen = dayItem.isOpen;
+                  const periods = dayItem.periods || [];
+
+                  return (
+                    <div
+                      key={dayName}
+                      id={`hours-row-${dayName.toLowerCase()}`}
+                      className={`p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors ${
+                        isOpen ? 'bg-white dark:bg-slate-900' : 'bg-slate-50/50 dark:bg-slate-900/40'
+                      }`}
+                    >
+                      {/* Day Name & Open/Closed Switch */}
+                      <div className="flex items-center gap-3 w-40 shrink-0">
+                        <button
+                          type="button"
+                          id={`toggle-day-${dayName.toLowerCase()}`}
+                          onClick={() => toggleDayOpen(dayIdx)}
+                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                            isOpen ? 'bg-emerald-600' : 'bg-slate-300 dark:bg-slate-700'
+                          }`}
+                          role="switch"
+                          aria-checked={isOpen}
+                        >
+                          <span
+                            aria-hidden="true"
+                            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                              isOpen ? 'translate-x-5' : 'translate-x-0'
+                            }`}
+                          />
+                        </button>
+                        <span className={`text-sm font-semibold ${isOpen ? 'text-slate-900 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}`}>
+                          {dayName}
+                        </span>
+                      </div>
+
+                      {/* Periods or Closed Label */}
+                      <div className="flex-1 flex flex-col gap-2">
+                        {isOpen ? (
+                          periods.map((period, periodIdx) => (
+                            <div key={periodIdx} className="flex flex-wrap items-center gap-2">
+                              <div className="flex items-center gap-1.5">
+                                <label className="sr-only">Opening time</label>
+                                <input
+                                  type="time"
+                                  id={`time-${dayName.toLowerCase()}-${periodIdx}-open`}
+                                  value={period.open}
+                                  onChange={(e) => updatePeriod(dayIdx, periodIdx, 'open', e.target.value)}
+                                  className="px-2.5 py-1 text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                  required
+                                />
+                                <span className="text-xs text-slate-400 font-bold">–</span>
+                                <label className="sr-only">Closing time</label>
+                                <input
+                                  type="time"
+                                  id={`time-${dayName.toLowerCase()}-${periodIdx}-close`}
+                                  value={period.close}
+                                  onChange={(e) => updatePeriod(dayIdx, periodIdx, 'close', e.target.value)}
+                                  className="px-2.5 py-1 text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                  required
+                                />
+                              </div>
+
+                              {/* Cross midnight indicator / toggle */}
+                              <label className="inline-flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400 cursor-pointer ml-1">
+                                <input
+                                  type="checkbox"
+                                  checked={!!period.crossMidnight}
+                                  onChange={(e) => updatePeriod(dayIdx, periodIdx, 'crossMidnight', e.target.checked)}
+                                  className="rounded border-slate-300 dark:border-slate-700 text-indigo-600 focus:ring-indigo-500"
+                                />
+                                <span>Overnight</span>
+                              </label>
+
+                              {/* Remove period if more than 1 period */}
+                              {periods.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => removePeriod(dayIdx, periodIdx)}
+                                  className="p-1 text-slate-400 hover:text-rose-500 transition-colors cursor-pointer"
+                                  title="Remove period"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+
+                              {/* Add 2nd period button */}
+                              {periods.length === 1 && periodIdx === 0 && (
+                                <button
+                                  type="button"
+                                  id={`add-period-${dayName.toLowerCase()}`}
+                                  onClick={() => addPeriod(dayIdx)}
+                                  className="text-[11px] font-medium text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-0.5 ml-2 cursor-pointer"
+                                >
+                                  <Plus className="w-3 h-3" />
+                                  <span>Add Split Shift</span>
+                                </button>
+                              )}
+                            </div>
+                          ))
+                        ) : (
+                          <span className="text-xs font-medium text-slate-400 dark:text-slate-500 italic">
+                            Closed
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Form Action Controls */}
+              <div className="flex items-center justify-end gap-3 pt-3">
+                <button
+                  type="button"
+                  id="cancel-business-hours-btn"
+                  onClick={() => {
+                    setIsEditingHours(false);
+                    setHoursMessage(null);
+                  }}
+                  disabled={isSavingHours}
+                  className="px-4 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  id="save-business-hours-btn"
+                  disabled={isSavingHours}
+                  className="px-4 py-2 text-xs font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {isSavingHours ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Saving Schedule...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Save Business Hours</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          ) : (
+            <div id="business-hours-display" className="mt-4">
+              {userBiz?.openingHours && userBiz.openingHours.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {userBiz.openingHours.map((dayItem) => {
+                    const isOpen = dayItem.isOpen;
+                    const displayHours = dayItem.hours || formatOpeningHourDisplay(dayItem);
+
+                    return (
+                      <div
+                        key={dayItem.day}
+                        id={`hours-display-${dayItem.day.toLowerCase()}`}
+                        className={`p-3 rounded-xl border transition-colors ${
+                          isOpen
+                            ? 'bg-slate-50/70 dark:bg-slate-800/40 border-slate-200/80 dark:border-slate-800'
+                            : 'bg-slate-50/30 dark:bg-slate-900/30 border-dashed border-slate-200/50 dark:border-slate-800/50 opacity-75'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                            {dayItem.day}
+                          </span>
+                          <span
+                            className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                              isOpen
+                                ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
+                                : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+                            }`}
+                          >
+                            {isOpen ? 'Open' : 'Closed'}
+                          </span>
+                        </div>
+                        <div className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                          {displayHours}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p id="business-hours-empty" className="text-sm text-slate-400 dark:text-slate-500 italic">
+                  No opening hours defined yet.
+                  {isOwner && ' Click "Edit Hours" above to define when your business is open and closed.'}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Business Contact Information Card (Epic 2 Feature 2.2 Task 2.2.8) */}
+      <div id="business-contact-card" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-5">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm transition-colors">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center">
+                <Phone className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                  Business Contact Information
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Public customer-facing contact channels (phone, email, and website)
+                </p>
+              </div>
+            </div>
+
+            {isOwner && !isEditingContact && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  id="edit-business-contact-btn"
+                  onClick={() => {
+                    setIsEditingContact(true);
+                    setContactMessage(null);
+                    setContactPhoneInput(userBiz?.phone || '');
+                    setContactEmailInput(userBiz?.email || '');
+                    setContactWebsiteInput(userBiz?.website || '');
+                  }}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-sm flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  Edit Contact Info
+                </button>
+                {(userBiz?.phone || userBiz?.email || userBiz?.website) && (
+                  <button
+                    type="button"
+                    id="clear-business-contact-btn"
+                    onClick={handleClearContact}
+                    disabled={isSavingContact}
+                    className="px-2.5 py-1.5 text-xs font-semibold rounded-xl border border-rose-200 dark:border-rose-900/60 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1"
+                    title="Clear all contact details"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Clear</span>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Feedback Message */}
+          {contactMessage && (
+            <div
+              id="business-contact-message"
+              className={`mt-4 p-3 rounded-xl text-xs font-medium flex items-center gap-2 ${
+                contactMessage.isError
+                  ? 'bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                  : 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+              }`}
+            >
+              {contactMessage.isError ? (
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
+              ) : (
+                <Check className="w-4 h-4 shrink-0 text-emerald-500" />
+              )}
+              <span>{contactMessage.text}</span>
+            </div>
+          )}
+
+          {isEditingContact ? (
+            <form id="business-contact-edit-form" onSubmit={handleSaveContact} className="mt-5 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Business Phone */}
+                <div>
+                  <label htmlFor="business-contact-phone-input" className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Business Phone Number
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                      <Phone className="w-3.5 h-3.5" />
+                    </div>
+                    <input
+                      type="tel"
+                      id="business-contact-phone-input"
+                      value={contactPhoneInput}
+                      onChange={(e) => setContactPhoneInput(e.target.value)}
+                      placeholder="e.g. 0803 123 4567 or +234 803 123 4567"
+                      className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">
+                    Accepts Nigerian domestic and international E.164 formats.
+                  </p>
+                </div>
+
+                {/* Business Email */}
+                <div>
+                  <label htmlFor="business-contact-email-input" className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Business Contact Email
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                      <Mail className="w-3.5 h-3.5" />
+                    </div>
+                    <input
+                      type="email"
+                      id="business-contact-email-input"
+                      value={contactEmailInput}
+                      onChange={(e) => setContactEmailInput(e.target.value)}
+                      placeholder="e.g. contact@business.com"
+                      className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">
+                    Public contact address for inquiries (distinct from your login email).
+                  </p>
+                </div>
+
+                {/* Business Website */}
+                <div>
+                  <label htmlFor="business-contact-website-input" className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Business Website
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                      <Globe className="w-3.5 h-3.5" />
+                    </div>
+                    <input
+                      type="text"
+                      id="business-contact-website-input"
+                      value={contactWebsiteInput}
+                      onChange={(e) => setContactWebsiteInput(e.target.value)}
+                      placeholder="e.g. https://mybusiness.com"
+                      className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">
+                    Standard web URL (HTTP or HTTPS protocol required).
+                  </p>
+                </div>
+              </div>
+
+              {/* Form Action Controls */}
+              <div className="flex items-center justify-end gap-3 pt-3">
+                <button
+                  type="button"
+                  id="cancel-business-contact-btn"
+                  onClick={() => {
+                    setIsEditingContact(false);
+                    setContactMessage(null);
+                  }}
+                  disabled={isSavingContact}
+                  className="px-4 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  id="save-business-contact-btn"
+                  disabled={isSavingContact}
+                  className="px-4 py-2 text-xs font-semibold rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-sm flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {isSavingContact ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <span>Save Contact Info</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          ) : (
+            <div className="mt-4">
+              {userBiz?.phone || userBiz?.email || userBiz?.website ? (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {/* Phone Display */}
+                  <div
+                    id="contact-display-phone"
+                    className="p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40"
+                  >
+                    <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 mb-1">
+                      <Phone className="w-3.5 h-3.5 text-blue-500" />
+                      <span className="text-[11px] font-semibold uppercase tracking-wider">Phone</span>
+                    </div>
+                    <div className="text-xs font-medium text-slate-800 dark:text-slate-200 break-all">
+                      {userBiz.phone || <span className="text-slate-400 italic">Not specified</span>}
+                    </div>
+                  </div>
+
+                  {/* Email Display */}
+                  <div
+                    id="contact-display-email"
+                    className="p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40"
+                  >
+                    <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 mb-1">
+                      <Mail className="w-3.5 h-3.5 text-blue-500" />
+                      <span className="text-[11px] font-semibold uppercase tracking-wider">Contact Email</span>
+                    </div>
+                    <div className="text-xs font-medium text-slate-800 dark:text-slate-200 break-all">
+                      {userBiz.email || <span className="text-slate-400 italic">Not specified</span>}
+                    </div>
+                  </div>
+
+                  {/* Website Display */}
+                  <div
+                    id="contact-display-website"
+                    className="p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40"
+                  >
+                    <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 mb-1">
+                      <Globe className="w-3.5 h-3.5 text-blue-500" />
+                      <span className="text-[11px] font-semibold uppercase tracking-wider">Website</span>
+                    </div>
+                    <div className="text-xs font-medium text-slate-800 dark:text-slate-200 break-all">
+                      {userBiz.website ? (
+                        <a
+                          href={userBiz.website}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 inline-flex"
+                        >
+                          <span className="truncate">{userBiz.website}</span>
+                          <ArrowUpRight className="w-3 h-3 shrink-0" />
+                        </a>
+                      ) : (
+                        <span className="text-slate-400 italic">Not specified</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p id="business-contact-empty" className="text-sm text-slate-400 dark:text-slate-500 italic">
+                  No business contact information provided yet.
+                  {isOwner && ' Click "Edit Contact Info" above to add your public phone, email, and website.'}
                 </p>
               )}
             </div>

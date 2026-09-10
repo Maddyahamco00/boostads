@@ -246,10 +246,68 @@ export interface EmailLog {
   status: 'sent' | 'failed';
 }
 
+export const DAYS_OF_WEEK = [
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+  'Sunday'
+] as const;
+
+export type WeekdayName = (typeof DAYS_OF_WEEK)[number];
+
+export interface TimePeriod {
+  open: string;  // "HH:mm" machine-readable 24h format, e.g. "09:00"
+  close: string; // "HH:mm" machine-readable 24h format, e.g. "17:00"
+  crossMidnight?: boolean; // Overnight shift across midnight, e.g. 22:00 -> 02:00
+}
+
 export interface OpeningHour {
-  day: string;
-  hours: string;
+  day: WeekdayName | string;
   isOpen: boolean;
+  hours?: string;       // Human-readable summary, e.g. "09:00 AM - 05:00 PM" or "Closed"
+  periods?: TimePeriod[]; // Structured 0 to 2 daily shifts
+}
+
+/**
+ * Format 24-hour HH:mm time string into human-friendly 12-hour AM/PM string
+ */
+export function formatTime12h(time24: string): string {
+  if (!time24 || typeof time24 !== 'string' || !time24.includes(':')) return time24;
+  const parts = time24.split(':');
+  const h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  if (isNaN(h) || isNaN(m)) return time24;
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  const mPad = m < 10 ? `0${m}` : `${m}`;
+  return `${h12}:${mPad} ${ampm}`;
+}
+
+/**
+ * Format structured periods into human-readable string
+ */
+export function formatOpeningHourDisplay(item: OpeningHour): string {
+  if (!item.isOpen || !item.periods || item.periods.length === 0) {
+    return 'Closed';
+  }
+  return item.periods
+    .map(p => `${formatTime12h(p.open)} - ${formatTime12h(p.close)}`)
+    .join(', ');
+}
+
+export interface BusinessContactInfo {
+  phone?: string;
+  email?: string;
+  website?: string;
+}
+
+export interface UpdateBusinessContactPayload {
+  phone?: string | null;
+  email?: string | null;
+  website?: string | null;
 }
 
 export interface SocialLinks {
