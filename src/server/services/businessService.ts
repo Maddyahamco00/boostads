@@ -9,7 +9,7 @@ import { authService } from './authService';
 import { auditService } from './auditService';
 import { storageService } from './storageService';
 import { CreateBusinessSchema, UpdateBusinessDescriptionSchema, UpdateBusinessCategoriesSchema, UpdateBusinessLocationSchema, UpdateOpeningHoursSchema, OpeningHoursArraySchema, UpdateBusinessContactSchema, validateAndNormalizeBusinessPhone, validateAndNormalizeBusinessEmail, validateAndNormalizeBusinessWebsite, PROTECTED_BUSINESS_FIELDS } from '../validators/businessValidators';
-import { Business, CategoryConfig, BusinessCategory, LocationCoordinates, OpeningHour, formatOpeningHourDisplay, BusinessContactInfo } from '../../types';
+import { Business, CategoryConfig, BusinessCategory, LocationCoordinates, OpeningHour, formatOpeningHourDisplay, BusinessContactInfo, PublicBusinessProfile } from '../../types';
 
 export class BusinessServiceError extends Error {
   public statusCode: number;
@@ -1583,6 +1583,94 @@ export class BusinessService {
         website: undefined
       },
       message: 'Business contact information cleared successfully.'
+    };
+  }
+
+  /**
+   * Epic 2 Feature 2.2 Task 2.2.9: Get Public Business Profile
+   * 
+   * Strict public access specifications:
+   * - Publicly readable by anyone without authentication.
+   * - Resolves business by stable slug or ID.
+   * - Validates business exists and owner account is active (not suspended or deactivated).
+   * - Returns ONLY approved public business fields (DTO projection).
+   * - Strictly eliminates all sensitive data:
+   *   - No ownerId, passwords, password hashes, auth tokens, session details.
+   *   - No storage keys (logoKey, coverImageKey).
+   *   - No private owner phone/email (only business-level contact configured).
+   *   - No internal analytics/revenue stats, billing info, or administrative metadata.
+   *   - No unverified badges (isVerified is false unless verified).
+   *   - No fake products, reviews, or ratings.
+   */
+  public async getPublicBusinessProfile(idOrSlug: string): Promise<{
+    success: boolean;
+    business: PublicBusinessProfile;
+  }> {
+    if (!idOrSlug || !idOrSlug.trim()) {
+      throw new BusinessServiceError('Business identifier or slug is required.', 400, 'INVALID_IDENTIFIER');
+    }
+
+    const trimmed = idOrSlug.trim();
+    const business = db.getBusinessByIdOrSlug(trimmed);
+
+    if (!business) {
+      throw new BusinessServiceError('Business not found.', 404, 'BUSINESS_NOT_FOUND');
+    }
+
+    // Business Visibility Rule: Verify owner status if owner exists
+    if (business.ownerId) {
+      const owner = db.getUserById(business.ownerId);
+      if (owner && (owner.status === 'SUSPENDED' || owner.status === 'DISABLED' || owner.status === 'DELETED')) {
+        throw new BusinessServiceError('This business is currently unavailable.', 404, 'BUSINESS_UNAVAILABLE');
+      }
+    }
+
+    // Safely record view count in background without exposing stats to public
+    try {
+      if (!business.stats) {
+        business.stats = { views: 1, leads: 0, conversions: 0, totalRevenue: 0 };
+      } else {
+        business.stats.views = (business.stats.views || 0) + 1;
+      }
+    } catch {
+      // Non-fatal metric update
+    }
+
+    // Project strictly approved public fields
+    const publicProfile: PublicBusinessProfile = {
+      id: business.id,
+      slug: business.slug,
+      name: business.name,
+      tagline: business.tagline || undefined,
+      description: business.description || undefined,
+      logoUrl: business.logoUrl || undefined,
+      coverImageUrl: business.coverImageUrl || undefined,
+      category: business.category || undefined,
+      categoryLabel: business.categoryLabel || undefined,
+      categories: business.categories && business.categories.length > 0 ? business.categories : undefined,
+      location: business.location ? {
+        city: business.location.city,
+        state: business.location.state,
+        country: business.location.country,
+        address: business.location.isServiceAreaOnly ? undefined : (business.location.address || undefined),
+        lga: business.location.lga || undefined,
+        postalCode: business.location.isServiceAreaOnly ? undefined : (business.location.postalCode || undefined),
+        serviceAreaKm: business.location.serviceAreaKm || undefined,
+        isServiceAreaOnly: business.location.isServiceAreaOnly || undefined,
+        lat: business.location.lat,
+        lng: business.location.lng,
+      } : undefined,
+      openingHours: business.openingHours && business.openingHours.length > 0 ? business.openingHours : undefined,
+      phone: business.phone || undefined,
+      email: business.email || undefined,
+      website: business.website || undefined,
+      isVerified: Boolean(business.isVerified),
+      createdAt: business.createdAt
+    };
+
+    return {
+      success: true,
+      business: publicProfile
     };
   }
 }

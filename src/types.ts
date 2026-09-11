@@ -358,6 +358,42 @@ export interface Business {
   updatedAt?: string;
 }
 
+/**
+ * Public Business Profile (Epic 2 Feature 2.2 Task 2.2.9)
+ * Strictly sanitized public projection of a business for unauthenticated discovery.
+ * Explicitly excludes: ownerId, storage keys, private credentials, internal stats, admin flags.
+ */
+export interface PublicBusinessProfile {
+  id: string;
+  slug: string;
+  name: string;
+  tagline?: string;
+  description?: string;
+  logoUrl?: string;
+  coverImageUrl?: string;
+  category?: BusinessCategoryType;
+  categoryLabel?: string;
+  categories?: (BusinessCategoryType | string)[];
+  location?: {
+    city: string;
+    state: string;
+    country: string;
+    address?: string;
+    lga?: string;
+    postalCode?: string;
+    serviceAreaKm?: number;
+    isServiceAreaOnly?: boolean;
+    lat?: number;
+    lng?: number;
+  };
+  openingHours?: OpeningHour[];
+  phone?: string;
+  email?: string;
+  website?: string;
+  isVerified?: boolean;
+  createdAt?: string;
+}
+
 export interface Product {
   id: string;
   businessId: string;

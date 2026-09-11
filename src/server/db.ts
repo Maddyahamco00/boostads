@@ -2801,6 +2801,34 @@ export class DatabaseStore {
       }
     }
 
+    if (updates.tagline !== undefined) {
+      if (updates.tagline && typeof updates.tagline === 'string' && updates.tagline.trim()) {
+        business.tagline = updates.tagline.trim();
+      } else {
+        delete business.tagline;
+      }
+    }
+
+    if (updates.isVerified !== undefined) {
+      business.isVerified = Boolean(updates.isVerified);
+    }
+
+    if (updates.categories !== undefined) {
+      if (Array.isArray(updates.categories)) {
+        business.categories = [...updates.categories];
+      } else {
+        delete business.categories;
+      }
+    }
+
+    if (updates.category !== undefined) {
+      business.category = updates.category;
+    }
+
+    if (updates.categoryLabel !== undefined) {
+      business.categoryLabel = updates.categoryLabel;
+    }
+
     business.updatedAt = new Date().toISOString();
     this.businesses.set(business.id, business);
     return business;
@@ -2835,6 +2863,24 @@ export class DatabaseStore {
 
   public getBusinessById(id: string): Business | undefined {
     return this.businesses.get(id);
+  }
+
+  public getBusinessBySlug(slug: string): Business | undefined {
+    if (!slug) return undefined;
+    const normalized = slug.trim().toLowerCase();
+    for (const b of this.businesses.values()) {
+      if (b.slug && b.slug.toLowerCase() === normalized) {
+        return b;
+      }
+    }
+    return undefined;
+  }
+
+  public getBusinessByIdOrSlug(idOrSlug: string): Business | undefined {
+    if (!idOrSlug) return undefined;
+    const direct = this.businesses.get(idOrSlug);
+    if (direct) return direct;
+    return this.getBusinessBySlug(idOrSlug);
   }
 
   public getBusinessByOwnerId(ownerId: string): Business | undefined {

@@ -8,7 +8,7 @@
  * - Type-safe endpoint wrappers
  */
 
-import { UserProfile, AccountSecurityState, ClientProfile, ClientContactInfo, Business, CategoryConfig, BusinessCategory, LocationCoordinates, OpeningHour, BusinessContactInfo, UpdateBusinessContactPayload } from '../types';
+import { UserProfile, AccountSecurityState, ClientProfile, ClientContactInfo, Business, CategoryConfig, BusinessCategory, LocationCoordinates, OpeningHour, BusinessContactInfo, UpdateBusinessContactPayload, PublicBusinessProfile } from '../types';
 
 export class ApiError extends Error {
   public status: number;
@@ -1165,6 +1165,27 @@ export const businessApi = {
     }>(`/api/businesses/${encodeURIComponent(businessId)}/contact`, {
       method: 'DELETE'
     });
+  },
+
+  /**
+   * Get public business profile by slug or ID (Epic 2 Feature 2.2 Task 2.2.9)
+   * Public unauthenticated read returning sanitized business fields.
+   */
+  async getPublicProfile(idOrSlug: string) {
+    const res = await fetch(`/api/businesses/public/${encodeURIComponent(idOrSlug)}`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new ApiError(data.error || 'Business profile not found.', res.status, data.code);
+    }
+    return data as {
+      success: boolean;
+      business: PublicBusinessProfile;
+    };
   }
 };
 

@@ -1414,6 +1414,27 @@ async function startServer() {
     }
   });
 
+  // Dedicated Public Business Page Test Runner (Epic 2 Task 2.2.9)
+  app.get('/api/tests/business-public-page', async (req, res) => {
+    try {
+      const result = await authTestRunnerService.runPublicBusinessPageTestOnly();
+      res.json({ success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  app.post('/api/tests/business-public-page', async (req, res) => {
+    try {
+      const result = await authTestRunnerService.runPublicBusinessPageTestOnly();
+      res.json({ success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
   // Dedicated Client Password Change & Security Controls Test Runner
   app.post('/api/tests/password-security', async (req, res) => {
     try {
@@ -2425,36 +2446,63 @@ async function startServer() {
     res.json({ success: true, businesses: list, total: list.length });
   });
 
-  app.get('/api/businesses/:idOrSlug', (req, res) => {
-    const { idOrSlug } = req.params;
-    let business = db.businesses.get(idOrSlug);
-    if (!business) {
-      business = Array.from(db.businesses.values()).find(b => b.slug === idOrSlug);
+  // Epic 2 Feature 2.2 Task 2.2.9: Dedicated Public Business Profile Endpoint
+  app.get('/api/businesses/public/:idOrSlug', async (req: express.Request, res: express.Response) => {
+    try {
+      const { idOrSlug } = req.params;
+      const result = await businessService.getPublicBusinessProfile(idOrSlug);
+      return res.status(200).json(result);
+    } catch (err: unknown) {
+      if (err instanceof BusinessServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code
+        });
+      }
+      return res.status(500).json({
+        success: false,
+        error: 'An unexpected error occurred while fetching the public business profile.',
+        code: 'INTERNAL_SERVER_ERROR'
+      });
     }
+  });
 
-    if (!business) {
-      return res.status(404).json({ success: false, error: 'Business not found' });
+  app.get('/api/businesses/:idOrSlug', async (req: express.Request, res: express.Response) => {
+    try {
+      const { idOrSlug } = req.params;
+      const profileResult = await businessService.getPublicBusinessProfile(idOrSlug);
+      const business = profileResult.business;
+
+      // Attach related entities (if any exist)
+      const products = Array.from(db.products.values()).filter(p => p.businessId === business.id);
+      const services = Array.from(db.services.values()).filter(s => s.businessId === business.id);
+      const portfolio = Array.from(db.portfolioItems.values()).filter(pf => pf.businessId === business.id);
+      const ads = Array.from(db.advertisements.values()).filter(ad => ad.businessId === business.id && ad.status === 'active');
+      const reviews = Array.from(db.reviews.values()).filter(r => r.businessId === business.id);
+
+      return res.json({
+        success: true,
+        business,
+        products,
+        services,
+        portfolio,
+        ads,
+        reviews
+      });
+    } catch (err: unknown) {
+      if (err instanceof BusinessServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code
+        });
+      }
+      return res.status(500).json({
+        success: false,
+        error: 'An unexpected error occurred while fetching business details.'
+      });
     }
-
-    // Attach related entities
-    const products = Array.from(db.products.values()).filter(p => p.businessId === business!.id);
-    const services = Array.from(db.services.values()).filter(s => s.businessId === business!.id);
-    const portfolio = Array.from(db.portfolioItems.values()).filter(pf => pf.businessId === business!.id);
-    const ads = Array.from(db.advertisements.values()).filter(ad => ad.businessId === business!.id && ad.status === 'active');
-    const reviews = Array.from(db.reviews.values()).filter(r => r.businessId === business!.id);
-
-    // Increment profile views
-    business.stats.views += 1;
-
-    res.json({
-      success: true,
-      business,
-      products,
-      services,
-      portfolio,
-      ads,
-      reviews
-    });
   });
 
   /**

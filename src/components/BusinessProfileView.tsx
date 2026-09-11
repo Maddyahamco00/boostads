@@ -3,601 +3,543 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
-  Star, 
   ShieldCheck, 
   MapPin, 
   Phone, 
-  MessageSquare, 
+  Mail, 
+  Globe, 
+  Clock, 
   ArrowLeft, 
-  ShoppingBag, 
-  Wrench, 
-  Image as ImageIcon, 
-  Flame,
-  Send,
-  AlertTriangle,
-  X,
-  Share2,
-  ExternalLink,
-  Sparkles
+  Share2, 
+  Check, 
+  ExternalLink, 
+  Building2, 
+  AlertCircle,
+  Calendar
 } from 'lucide-react';
-import { Business, Product, Service, PortfolioItem, Advertisement, Review } from '../types';
-import { AdvertisementCard } from './AdvertisementCard';
+import { 
+  PublicBusinessProfile, 
+  DAYS_OF_WEEK, 
+  formatOpeningHourDisplay, 
+  OpeningHour 
+} from '../types';
 
-export const BusinessProfileView: React.FC = () => {
+export interface BusinessProfileViewProps {
+  initialBusiness?: PublicBusinessProfile | null;
+  slug?: string;
+  isStandalonePage?: boolean;
+}
+
+export const BusinessProfileView: React.FC<BusinessProfileViewProps> = ({
+  initialBusiness,
+  slug,
+  isStandalonePage = false
+}) => {
   const { 
     selectedBusinessId, 
     businesses, 
     setActiveView, 
-    startChatWithBusiness, 
-    openReportModal,
-    currentUser,
-    refreshData,
-    categories
+    categories 
   } = useApp();
 
-  const [businessData, setBusinessData] = useState<{
-    business: Business | null;
-    products: Product[];
-    services: Service[];
-    portfolio: PortfolioItem[];
-    ads: Advertisement[];
-    reviews: Review[];
-  }>({
-    business: null,
-    products: [],
-    services: [],
-    portfolio: [],
-    ads: [],
-    reviews: []
-  });
+  const [business, setBusiness] = useState<PublicBusinessProfile | null>(initialBusiness || null);
+  const [isLoading, setIsLoading] = useState<boolean>(!initialBusiness);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [copyFeedback, setCopyFeedback] = useState<boolean>(false);
 
-  const [activeTab, setActiveTab] = useState<'ads' | 'products' | 'services' | 'portfolio' | 'reviews'>('ads');
-  const [selectedMediaLightbox, setSelectedMediaLightbox] = useState<string | null>(null);
-  
-  // Review submission state
-  const [newRating, setNewRating] = useState<number>(5);
-  const [newReviewText, setNewReviewText] = useState<string>('');
-  const [isSubmittingReview, setIsSubmittingReview] = useState<boolean>(false);
+  const targetIdentifier = slug || selectedBusinessId;
 
   useEffect(() => {
-    if (!selectedBusinessId) return;
-    fetch(`/api/businesses/${selectedBusinessId}`)
-      .then(r => r.json())
-      .then(res => {
-        if (res.success) {
-          setBusinessData({
-            business: res.business,
-            products: res.products || [],
-            services: res.services || [],
-            portfolio: res.portfolio || [],
-            ads: res.ads || [],
-            reviews: res.reviews || []
-          });
+    if (initialBusiness) {
+      setBusiness(initialBusiness);
+      setIsLoading(false);
+      return;
+    }
+
+    if (!targetIdentifier) {
+      // Fallback to first business in context if available in SPA mode
+      if (businesses.length > 0) {
+        const fallbackBiz = businesses[0];
+        setBusiness({
+          id: fallbackBiz.id,
+          slug: fallbackBiz.slug,
+          name: fallbackBiz.name,
+          tagline: fallbackBiz.tagline,
+          description: fallbackBiz.description,
+          logoUrl: fallbackBiz.logoUrl,
+          coverImageUrl: fallbackBiz.coverImageUrl,
+          category: fallbackBiz.category,
+          categoryLabel: fallbackBiz.categoryLabel,
+          categories: fallbackBiz.categories,
+          location: fallbackBiz.location ? {
+            city: fallbackBiz.location.city,
+            state: fallbackBiz.location.state,
+            country: fallbackBiz.location.country,
+            address: fallbackBiz.location.isServiceAreaOnly ? undefined : fallbackBiz.location.address,
+            lga: fallbackBiz.location.lga,
+            postalCode: fallbackBiz.location.isServiceAreaOnly ? undefined : fallbackBiz.location.postalCode,
+            serviceAreaKm: fallbackBiz.location.serviceAreaKm,
+            isServiceAreaOnly: fallbackBiz.location.isServiceAreaOnly,
+            lat: fallbackBiz.location.lat,
+            lng: fallbackBiz.location.lng,
+          } : undefined,
+          openingHours: fallbackBiz.openingHours,
+          phone: fallbackBiz.phone,
+          email: fallbackBiz.email,
+          website: fallbackBiz.website,
+          isVerified: Boolean(fallbackBiz.isVerified),
+          createdAt: fallbackBiz.createdAt
+        });
+        setIsLoading(false);
+      } else {
+        setIsLoading(false);
+        setErrorMessage('No business profile specified.');
+      }
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage(null);
+
+    fetch(`/api/businesses/public/${encodeURIComponent(targetIdentifier)}`)
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || 'Business profile not found.');
         }
+        setBusiness(data.business);
       })
-      .catch(err => console.error('Failed to load business details:', err));
-  }, [selectedBusinessId]);
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : 'Unable to load business profile.';
+        setErrorMessage(msg);
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
+  }, [targetIdentifier, initialBusiness, businesses]);
 
-  const biz = businessData.business || businesses.find(b => b.id === selectedBusinessId) || businesses[0];
+  const handleShare = async () => {
+    if (!business) return;
+    const shareUrl = typeof window !== 'undefined' 
+      ? `${window.location.origin}/business/${encodeURIComponent(business.slug || business.id)}`
+      : '';
 
-  if (!biz) {
+    if (navigator.clipboard && shareUrl) {
+      try {
+        await navigator.clipboard.writeText(shareUrl);
+        setCopyFeedback(true);
+        setTimeout(() => setCopyFeedback(false), 2500);
+      } catch {
+        // Fallback if clipboard API restricted
+      }
+    }
+  };
+
+  const handleBack = () => {
+    if (isStandalonePage) {
+      if (typeof window !== 'undefined' && window.history.length > 1) {
+        window.history.back();
+      } else {
+        window.location.href = '/';
+      }
+    } else {
+      setActiveView('discover');
+    }
+  };
+
+  // Determine current day for opening hours highlight
+  const currentDayName = DAYS_OF_WEEK[new Date().getDay() === 0 ? 6 : new Date().getDay() - 1];
+  const todayHours = business?.openingHours?.find(h => h.day.toLowerCase() === currentDayName.toLowerCase());
+
+  if (isLoading) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-16 text-center text-slate-500">
-        <p>Business profile not found.</p>
+      <div id="public-business-loading" className="min-h-[60vh] flex flex-col items-center justify-center p-6 text-slate-500">
+        <div className="w-10 h-10 border-3 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin mb-4" />
+        <p className="text-sm font-medium text-slate-600 dark:text-slate-400">Loading business profile...</p>
+      </div>
+    );
+  }
+
+  if (errorMessage || !business) {
+    return (
+      <div id="public-business-not-found" className="max-w-3xl mx-auto px-4 py-20 text-center">
+        <div className="w-16 h-16 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-400 flex items-center justify-center mx-auto mb-4">
+          <AlertCircle className="w-8 h-8" />
+        </div>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight mb-2">
+          Business Profile Not Found
+        </h1>
+        <p className="text-sm text-slate-600 dark:text-slate-400 max-w-md mx-auto mb-6">
+          {errorMessage || 'The business profile you are looking for does not exist or is currently unavailable on Boost Market.'}
+        </p>
         <button
-          onClick={() => setActiveView('discover')}
-          className="mt-4 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-xs cursor-pointer"
+          id="public-business-return-btn"
+          onClick={handleBack}
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition-colors shadow-sm cursor-pointer"
         >
-          Return to Advertisements
+          <ArrowLeft className="w-4 h-4" />
+          <span>Return to Discovery Feed</span>
         </button>
       </div>
     );
   }
 
-  const handleReviewSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newReviewText.trim()) return;
-    setIsSubmittingReview(true);
-    try {
-      const res = await fetch('/api/reviews/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          businessId: biz.id,
-          authorId: currentUser.id,
-          authorName: currentUser.name,
-          authorAvatar: currentUser.avatarUrl,
-          rating: newRating,
-          comment: newReviewText.trim()
-        })
-      });
-      const data = await res.json();
-      if (data.success && data.review) {
-        setBusinessData(prev => ({
-          ...prev,
-          reviews: [data.review, ...prev.reviews],
-          business: data.business || prev.business
-        }));
-        setNewReviewText('');
-        refreshData();
-      }
-    } catch (err) {
-      console.error('Failed to submit review:', err);
-    } finally {
-      setIsSubmittingReview(false);
-    }
-  };
+  const categoryNames = business.categories && business.categories.length > 0
+    ? business.categories.map(cId => categories.find(c => c.id === cId)?.name || cId)
+    : business.categoryLabel || business.category ? [business.categoryLabel || business.category!] : [];
 
   return (
-    <div id="business-profile-view" className="min-h-screen pb-20 text-slate-900 dark:text-slate-100 transition-colors">
+    <div id="public-business-page" className="min-h-screen pb-20 text-slate-900 dark:text-slate-100 transition-colors">
       
-      {/* Back Button Navigation */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
-        <button
-          onClick={() => setActiveView('discover')}
-          className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-indigo-600 dark:hover:text-cyan-400 transition-colors cursor-pointer"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <span>Back to Discovery Feed</span>
-        </button>
+      {/* Top Navigation Bar */}
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-6 pb-2">
+        <div className="flex items-center justify-between gap-4">
+          <button
+            id="public-business-back-btn"
+            onClick={handleBack}
+            className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors cursor-pointer py-1"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>Back to Discovery Feed</span>
+          </button>
+
+          <button
+            id="public-business-share-btn"
+            onClick={handleShare}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors cursor-pointer"
+            title="Copy link to public profile"
+          >
+            {copyFeedback ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-emerald-600" />
+                <span className="text-emerald-600">Copied URL</span>
+              </>
+            ) : (
+              <>
+                <Share2 className="w-3.5 h-3.5 text-slate-500" />
+                <span>Share Profile</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
-      {/* Hero Header Banner */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4">
-        <div className="relative rounded-3xl overflow-hidden glass-panel border border-slate-200/80 dark:border-slate-800 shadow-xl">
+      {/* Main Container */}
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 mt-2">
+        <div className="rounded-3xl overflow-hidden border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
           
           {/* Cover Photo */}
-          <div className="h-48 sm:h-72 w-full relative bg-slate-900">
-            <img
-              src={biz.coverImageUrl || 'https://images.unsplash.com/photo-1557804506-669a67965ba0?w=1200&auto=format&fit=crop&q=80'}
-              alt={biz.name}
-              className="w-full h-full object-cover"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/20 to-transparent" />
-            
-            {/* Action buttons on cover */}
-            <div className="absolute top-4 right-4 flex items-center gap-2">
-              <button
-                onClick={() => openReportModal('business', biz.id, biz.name)}
-                className="p-2.5 rounded-xl bg-slate-900/60 backdrop-blur-md text-white hover:text-rose-400 border border-white/20 transition-colors cursor-pointer"
-                title="Report Business"
+          <div className="relative w-full h-44 sm:h-64 md:h-72 bg-gradient-to-r from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-900 overflow-hidden">
+            {business.coverImageUrl ? (
+              <img
+                id="public-business-cover"
+                src={business.coverImageUrl}
+                alt={`${business.name} Cover`}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div 
+                id="public-business-cover-placeholder" 
+                className="w-full h-full flex items-center justify-center text-slate-400 dark:text-slate-600"
               >
-                <AlertTriangle className="w-4 h-4" />
-              </button>
-            </div>
+                <Building2 className="w-12 h-12 opacity-30" />
+              </div>
+            )}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
           </div>
 
-          {/* Business Info Bar */}
+          {/* Business Identity Header */}
           <div className="px-6 sm:px-8 pb-8 pt-0 relative">
-            <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 -mt-14 sm:-mt-16">
+            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 -mt-12 sm:-mt-16 mb-6">
               
-              {/* Logo and Identity */}
+              {/* Logo & Core Identity */}
               <div className="flex items-end gap-4">
-                <img
-                  src={biz.logoUrl || 'https://images.unsplash.com/photo-1549298916-b41d501d3772?w=200&auto=format&fit=crop&q=80'}
-                  alt={biz.name}
-                  className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl object-cover border-4 border-white dark:border-slate-900 shadow-xl bg-white shrink-0"
-                />
+                <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl border-4 border-white dark:border-slate-900 shadow-md bg-white dark:bg-slate-800 shrink-0 overflow-hidden flex items-center justify-center">
+                  {business.logoUrl ? (
+                    <img
+                      id="public-business-logo"
+                      src={business.logoUrl}
+                      alt={`${business.name} Logo`}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <span className="text-2xl font-black text-slate-400 dark:text-slate-500">
+                      {business.name.charAt(0).toUpperCase()}
+                    </span>
+                  )}
+                </div>
+
                 <div className="mb-1">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <h1 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight">
-                      {biz.name}
+                    <h1 
+                      id="public-business-name" 
+                      className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight"
+                    >
+                      {business.name}
                     </h1>
-                    {biz.isVerified && (
-                      <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-cyan-300 border border-indigo-200 dark:border-indigo-800 flex items-center gap-1">
-                        <ShieldCheck className="w-3.5 h-3.5 text-indigo-600 dark:text-cyan-400" />
+
+                    {/* Verification badge ONLY if verified is genuinely true */}
+                    {business.isVerified && (
+                      <span 
+                        id="public-business-verified-badge"
+                        className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
+                      >
+                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                         <span>Verified Business</span>
                       </span>
                     )}
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-                    {biz.categories && biz.categories.length > 0 ? (
-                      biz.categories.map((catId, idx) => {
-                        const catConfig = categories.find(c => c.id === catId);
-                        const label = catConfig?.name || catId;
-                        return (
-                          <span
-                            key={catId}
-                            className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                              idx === 0
-                                ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-cyan-300 border border-indigo-200 dark:border-indigo-800'
-                                : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
-                            }`}
-                          >
-                            {label}
-                          </span>
-                        );
-                      })
-                    ) : (
-                      <span className="text-xs font-bold text-indigo-600 dark:text-cyan-400 uppercase tracking-wider">
-                        {biz.categoryLabel || biz.category || 'General Business'}
-                      </span>
-                    )}
-                  </div>
+                  {business.tagline && (
+                    <p id="public-business-tagline" className="text-sm font-medium text-slate-600 dark:text-slate-300 mt-1">
+                      {business.tagline}
+                    </p>
+                  )}
 
-                  <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400 mt-1.5 flex-wrap">
-                    {biz.location ? (
-                      <span className="flex items-center gap-1 font-medium">
-                        <MapPin className="w-3.5 h-3.5 text-indigo-500" />
-                        <span>
-                          {[
-                            biz.location.address,
-                            biz.location.lga,
-                            biz.location.city,
-                            biz.location.state
-                          ].filter(Boolean).join(', ')}
+                  {/* Categories */}
+                  {categoryNames.length > 0 && (
+                    <div id="public-business-categories" className="flex flex-wrap items-center gap-1.5 mt-2">
+                      {categoryNames.map((label, idx) => (
+                        <span
+                          key={idx}
+                          className="px-2.5 py-0.5 rounded-md text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+                        >
+                          {label}
                         </span>
-                        {biz.location.isServiceAreaOnly && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200">
-                            Service Area Only
-                          </span>
-                        )}
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-1 text-slate-400">
-                        <MapPin className="w-3.5 h-3.5" />
-                        <span>Nigeria</span>
-                      </span>
-                    )}
-                    <span className="flex items-center gap-1 text-amber-500 font-bold">
-                      <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                      {biz.rating || 5.0} ({biz.reviewCount || 0} reviews)
-                    </span>
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* Direct CTAs */}
-              <div className="flex items-center gap-2.5 flex-wrap">
-                {biz.whatsapp && (
-                  <a
-                    href={`https://wa.me/${biz.whatsapp.replace(/[^0-9]/g, '')}?text=Hello%20${encodeURIComponent(biz.name)},%20I%20found%20your%20business%20on%20Boost%20Market!`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-2 shadow-xs transition-colors"
-                  >
-                    <MessageSquare className="w-4 h-4" />
-                    <span>WhatsApp Business</span>
-                  </a>
-                )}
-
-                {biz.phone && (
-                  <a
-                    href={`tel:${biz.phone}`}
-                    className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition-colors"
-                    title="Call Business"
-                  >
-                    <Phone className="w-4 h-4 text-indigo-600 dark:text-cyan-400" />
-                  </a>
-                )}
-
-                <button
-                  onClick={() => startChatWithBusiness(biz.id, `Hello ${biz.name}!`)}
-                  className="px-4 py-2.5 rounded-xl btn-advertise text-xs font-bold flex items-center gap-2 cursor-pointer shadow-md"
-                >
-                  <Send className="w-3.5 h-3.5" />
-                  <span>Send Inquiry</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Description */}
-            {biz.description ? (
-              <p className="mt-6 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed border-t border-slate-100 dark:border-slate-800 pt-4 whitespace-pre-line">
-                {biz.description}
-              </p>
-            ) : null}
-
-            {/* Subcategories tags */}
-            {biz.subcategories && biz.subcategories.length > 0 && (
-              <div className="mt-4 flex flex-wrap gap-1.5">
-                {biz.subcategories.map((sub, idx) => (
-                  <span key={idx} className="text-xs px-2.5 py-1 rounded-lg glass-pill text-slate-600 dark:text-slate-300 font-medium">
-                    #{sub}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Tabs Navigation */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8">
-        <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 overflow-x-auto pb-2 text-xs font-bold">
-          
-          <button
-            onClick={() => setActiveTab('ads')}
-            className={`pb-2.5 px-4 flex items-center gap-2 border-b-2 transition-colors whitespace-nowrap cursor-pointer ${
-              activeTab === 'ads'
-                ? 'border-indigo-600 text-indigo-600 dark:text-cyan-400 font-bold'
-                : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <Flame className="w-4 h-4 text-amber-500" />
-            <span>Active Advertisements ({businessData.ads.length})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('products')}
-            className={`pb-2.5 px-4 flex items-center gap-2 border-b-2 transition-colors whitespace-nowrap cursor-pointer ${
-              activeTab === 'products'
-                ? 'border-indigo-600 text-indigo-600 dark:text-cyan-400 font-bold'
-                : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <ShoppingBag className="w-4 h-4" />
-            <span>Products ({businessData.products.length})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('services')}
-            className={`pb-2.5 px-4 flex items-center gap-2 border-b-2 transition-colors whitespace-nowrap cursor-pointer ${
-              activeTab === 'services'
-                ? 'border-indigo-600 text-indigo-600 dark:text-cyan-400 font-bold'
-                : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <Wrench className="w-4 h-4" />
-            <span>Services ({businessData.services.length})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('portfolio')}
-            className={`pb-2.5 px-4 flex items-center gap-2 border-b-2 transition-colors whitespace-nowrap cursor-pointer ${
-              activeTab === 'portfolio'
-                ? 'border-indigo-600 text-indigo-600 dark:text-cyan-400 font-bold'
-                : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <ImageIcon className="w-4 h-4" />
-            <span>Portfolio ({businessData.portfolio.length})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('reviews')}
-            className={`pb-2.5 px-4 flex items-center gap-2 border-b-2 transition-colors whitespace-nowrap cursor-pointer ${
-              activeTab === 'reviews'
-                ? 'border-indigo-600 text-indigo-600 dark:text-cyan-400 font-bold'
-                : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <Star className="w-4 h-4" />
-            <span>Reviews ({businessData.reviews.length})</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Tab Contents */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
-        
-        {/* 1. ADVERTISEMENTS */}
-        {activeTab === 'ads' && (
-          <div>
-            {businessData.ads.length === 0 ? (
-              <div className="glass-card rounded-2xl p-12 text-center text-slate-400 text-xs">
-                No active advertisements currently running for this business.
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                {businessData.ads.map(ad => (
-                  <AdvertisementCard 
-                    key={ad.id}
-                    ad={ad}
-                    business={biz}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* 2. PRODUCTS CATALOG */}
-        {activeTab === 'products' && (
-          <div>
-            {businessData.products.length === 0 ? (
-              <div className="glass-card rounded-2xl p-12 text-center text-slate-400 text-xs">
-                No products currently listed in catalog.
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                {businessData.products.map(p => (
-                  <div key={p.id} className="glass-card rounded-2xl overflow-hidden shadow-xs flex flex-col justify-between p-5">
-                    <div>
-                      <img src={p.imageUrls[0]} alt={p.name} className="w-full h-44 object-cover rounded-xl mb-4" />
-                      <div className="flex items-center justify-between">
-                        <span className="text-[11px] text-indigo-600 dark:text-cyan-400 font-bold uppercase">{p.category}</span>
-                        {p.inStock ? (
-                          <span className="text-[10px] text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-md font-bold">In Stock</span>
-                        ) : (
-                          <span className="text-[10px] text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 px-2 py-0.5 rounded-md font-bold">Sold Out</span>
-                        )}
-                      </div>
-                      <h3 className="font-bold text-slate-900 dark:text-white text-base mt-1.5">{p.name}</h3>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{p.description}</p>
-                      <div className="mt-3 text-base font-black text-slate-900 dark:text-white">
-                        ₦{p.price.toLocaleString()}
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => startChatWithBusiness(biz.id, `I would like to order product: ${p.name} (₦${p.price.toLocaleString()})`)}
-                      className="mt-4 w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+              {/* Public Contact Quick-Action */}
+              {(business.phone || business.email || business.website) && (
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  {business.phone && (
+                    <a
+                      id="public-business-quick-phone"
+                      href={`tel:${business.phone}`}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors shadow-sm"
                     >
-                      <ShoppingBag className="w-4 h-4" />
-                      <span>Inquire to Order</span>
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* 3. SERVICES */}
-        {activeTab === 'services' && (
-          <div>
-            {businessData.services.length === 0 ? (
-              <div className="glass-card rounded-2xl p-12 text-center text-slate-400 text-xs">
-                No services currently listed.
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                {businessData.services.map(s => (
-                  <div key={s.id} className="glass-card rounded-2xl overflow-hidden p-5 flex flex-col justify-between">
-                    <div>
-                      <img src={s.imageUrls[0]} alt={s.name} className="w-full h-44 object-cover rounded-xl mb-4" />
-                      <div className="flex items-center justify-between">
-                        <span className="text-[11px] text-indigo-600 dark:text-cyan-400 font-bold uppercase">{s.category}</span>
-                        <span className="text-[10px] uppercase font-bold text-slate-600 dark:text-slate-300 glass-pill px-2 py-0.5 rounded-md">{s.deliveryMode}</span>
-                      </div>
-                      <h3 className="font-bold text-slate-900 dark:text-white text-base mt-1.5">{s.name}</h3>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{s.description}</p>
-                      <div className="mt-3 text-base font-black text-slate-900 dark:text-white">
-                        Starting from ₦{s.startingPrice.toLocaleString()}
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => startChatWithBusiness(biz.id, `I need quotation for service: ${s.name}`)}
-                      className="mt-4 w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                      <Phone className="w-3.5 h-3.5" />
+                      <span>Call Business</span>
+                    </a>
+                  )}
+                  {business.email && (
+                    <a
+                      id="public-business-quick-email"
+                      href={`mailto:${business.email}`}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-bold transition-colors"
                     >
-                      <Wrench className="w-4 h-4" />
-                      <span>Request Quotation</span>
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* 4. PORTFOLIO */}
-        {activeTab === 'portfolio' && (
-          <div>
-            {businessData.portfolio.length === 0 ? (
-              <div className="glass-card rounded-2xl p-12 text-center text-slate-400 text-xs">
-                No portfolio media uploaded yet.
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                {businessData.portfolio.map(pf => (
-                  <div 
-                    key={pf.id}
-                    onClick={() => setSelectedMediaLightbox(pf.mediaUrl)}
-                    className="glass-card rounded-2xl overflow-hidden cursor-pointer hover:border-indigo-500 transition-all"
-                  >
-                    <div className="relative h-48 w-full bg-slate-900">
-                      <img src={pf.mediaUrl} alt={pf.title} className="w-full h-full object-cover" />
-                      <div className="absolute top-2 right-2 px-2.5 py-1 rounded-lg bg-slate-900/80 text-[10px] text-white font-bold border border-white/20">
-                        {pf.category}
-                      </div>
-                    </div>
-                    <div className="p-4">
-                      <h3 className="font-bold text-slate-900 dark:text-white text-xs">{pf.title}</h3>
-                      {pf.description && <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{pf.description}</p>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* 5. REVIEWS */}
-        {activeTab === 'reviews' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 space-y-3">
-              {businessData.reviews.length === 0 ? (
-                <div className="glass-card rounded-2xl p-12 text-center text-slate-400 text-xs">
-                  No reviews yet. Share your experience below.
+                      <Mail className="w-3.5 h-3.5" />
+                      <span>Send Email</span>
+                    </a>
+                  )}
                 </div>
-              ) : (
-                businessData.reviews.map(r => (
-                  <div key={r.id} className="glass-card rounded-2xl p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2.5">
-                        <img src={r.authorAvatar || 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=200&auto=format&fit=crop&q=80'} alt={r.authorName} className="w-8 h-8 rounded-full object-cover" />
-                        <div>
-                          <div className="text-xs font-bold text-slate-900 dark:text-white">{r.authorName}</div>
-                          <div className="text-[10px] text-slate-400">{new Date(r.createdAt).toLocaleDateString()}</div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-0.5">
-                        {[...Array(5)].map((_, i) => (
-                          <Star key={i} className={`w-3.5 h-3.5 ${i < r.rating ? 'fill-amber-400 text-amber-400' : 'text-slate-300 dark:text-slate-700'}`} />
-                        ))}
-                      </div>
-                    </div>
-                    <p className="mt-2.5 text-xs text-slate-600 dark:text-slate-300 leading-relaxed">{r.comment}</p>
-                  </div>
-                ))
               )}
             </div>
 
-            {/* Leave a review form */}
-            <div className="glass-card rounded-2xl p-5 self-start">
-              <h3 className="font-bold text-slate-900 dark:text-white text-sm mb-3">Leave a Review</h3>
-              <form onSubmit={handleReviewSubmit} className="space-y-3 text-xs">
-                <div>
-                  <label className="block text-slate-600 dark:text-slate-400 font-semibold mb-1">Rating</label>
-                  <div className="flex items-center gap-1.5">
-                    {[1, 2, 3, 4, 5].map(star => (
-                      <button
-                        type="button"
-                        key={star}
-                        onClick={() => setNewRating(star)}
-                        className="cursor-pointer p-0.5"
-                      >
-                        <Star className={`w-5 h-5 ${star <= newRating ? 'fill-amber-400 text-amber-400' : 'text-slate-300 dark:text-slate-700'}`} />
-                      </button>
-                    ))}
+            <div className="border-t border-slate-100 dark:border-slate-800/60 pt-6">
+              
+              {/* Business Description Section */}
+              {business.description && (
+                <div id="public-business-description-section" className="mb-8">
+                  <h2 className="text-xs uppercase tracking-wider font-bold text-slate-400 dark:text-slate-500 mb-2">
+                    About This Business
+                  </h2>
+                  <p className="text-sm sm:text-base text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-line">
+                    {business.description}
+                  </p>
+                </div>
+              )}
+
+              {/* Business Details Grid: Location, Hours, Contact */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-2">
+                
+                {/* 1. Location */}
+                <div id="public-business-location-card" className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-800 flex flex-col">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                      <MapPin className="w-4 h-4" />
+                    </div>
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                      Location
+                    </h3>
                   </div>
+
+                  {business.location ? (
+                    <div className="text-xs text-slate-600 dark:text-slate-300 space-y-1.5 flex-1">
+                      {business.location.isServiceAreaOnly ? (
+                        <div className="p-2.5 rounded-lg bg-emerald-50/60 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 border border-emerald-100 dark:border-emerald-900/40">
+                          <p className="font-semibold">Service Area Only</p>
+                          <p className="mt-0.5">
+                            Serving {business.location.city}, {business.location.state}
+                            {business.location.serviceAreaKm ? ` within ${business.location.serviceAreaKm} km` : ''}
+                          </p>
+                        </div>
+                      ) : (
+                        <>
+                          {business.location.address && (
+                            <p className="font-medium text-slate-800 dark:text-slate-200">
+                              {business.location.address}
+                            </p>
+                          )}
+                          <p>
+                            {business.location.city}, {business.location.state}
+                          </p>
+                          <p className="text-slate-500 dark:text-slate-400">
+                            {business.location.country} {business.location.postalCode ? `• ${business.location.postalCode}` : ''}
+                          </p>
+                        </>
+                      )}
+
+                      {/* Map External Search Link */}
+                      <div className="pt-2">
+                        <a
+                          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                            [business.location.address, business.location.city, business.location.state, business.location.country]
+                              .filter(Boolean)
+                              .join(', ')
+                          )}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 hover:underline font-semibold"
+                        >
+                          <span>Open in Google Maps</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-400 italic">No physical location specified.</p>
+                  )}
                 </div>
 
-                <div>
-                  <label className="block text-slate-600 dark:text-slate-400 font-semibold mb-1">Your Feedback</label>
-                  <textarea
-                    rows={3}
-                    value={newReviewText}
-                    onChange={(e) => setNewReviewText(e.target.value)}
-                    placeholder="Write your honest experience with this advertiser..."
-                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-xs"
-                    required
-                  />
+                {/* 2. Opening Hours */}
+                <div id="public-business-hours-card" className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-800 flex flex-col">
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-400 flex items-center justify-center shrink-0">
+                        <Clock className="w-4 h-4" />
+                      </div>
+                      <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                        Opening Hours
+                      </h3>
+                    </div>
+
+                    {todayHours && (
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        todayHours.isOpen 
+                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' 
+                          : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300'
+                      }`}>
+                        {todayHours.isOpen ? 'Open Today' : 'Closed Today'}
+                      </span>
+                    )}
+                  </div>
+
+                  {business.openingHours && business.openingHours.length > 0 ? (
+                    <div className="text-xs space-y-1 flex-1">
+                      {DAYS_OF_WEEK.map(day => {
+                        const h = business.openingHours?.find(oh => oh.day.toLowerCase() === day.toLowerCase());
+                        const isToday = day.toLowerCase() === currentDayName.toLowerCase();
+                        return (
+                          <div 
+                            key={day} 
+                            className={`flex items-center justify-between py-1 px-1.5 rounded ${
+                              isToday ? 'bg-white dark:bg-slate-700/60 font-semibold text-slate-900 dark:text-white shadow-xs' : 'text-slate-600 dark:text-slate-400'
+                            }`}
+                          >
+                            <span className="w-24 shrink-0">{day}</span>
+                            <span className="text-right truncate">
+                              {h ? formatOpeningHourDisplay(h) : 'Closed'}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-400 italic">No opening hours configured.</p>
+                  )}
                 </div>
 
-                <button
-                  type="submit"
-                  disabled={isSubmittingReview}
-                  className="w-full py-2.5 rounded-xl btn-advertise font-bold text-xs flex items-center justify-center gap-1.5 shadow-md cursor-pointer disabled:opacity-50"
-                >
-                  <Send className="w-3.5 h-3.5" />
-                  <span>{isSubmittingReview ? 'Submitting...' : 'Post Review'}</span>
-                </button>
-              </form>
+                {/* 3. Business Contact Information */}
+                <div id="public-business-contact-card" className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-800 flex flex-col">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-8 h-8 rounded-lg bg-cyan-100 dark:bg-cyan-950/60 text-cyan-700 dark:text-cyan-400 flex items-center justify-center shrink-0">
+                      <Phone className="w-4 h-4" />
+                    </div>
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                      Business Contact
+                    </h3>
+                  </div>
+
+                  {business.phone || business.email || business.website ? (
+                    <div className="text-xs space-y-3 flex-1">
+                      {business.phone && (
+                        <div>
+                          <span className="text-[11px] font-semibold text-slate-400 block mb-0.5">Phone Number</span>
+                          <a
+                            id="public-business-phone-link"
+                            href={`tel:${business.phone}`}
+                            className="font-medium text-slate-800 dark:text-slate-200 hover:text-emerald-600 dark:hover:text-emerald-400 flex items-center gap-1.5"
+                          >
+                            <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span>{business.phone}</span>
+                          </a>
+                        </div>
+                      )}
+
+                      {business.email && (
+                        <div>
+                          <span className="text-[11px] font-semibold text-slate-400 block mb-0.5">Official Email</span>
+                          <a
+                            id="public-business-email-link"
+                            href={`mailto:${business.email}`}
+                            className="font-medium text-slate-800 dark:text-slate-200 hover:text-emerald-600 dark:hover:text-emerald-400 flex items-center gap-1.5 break-all"
+                          >
+                            <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span>{business.email}</span>
+                          </a>
+                        </div>
+                      )}
+
+                      {business.website && (
+                        <div>
+                          <span className="text-[11px] font-semibold text-slate-400 block mb-0.5">Official Website</span>
+                          <a
+                            id="public-business-website-link"
+                            href={business.website.startsWith('http') ? business.website : `https://${business.website}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="font-medium text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1.5 break-all"
+                          >
+                            <Globe className="w-3.5 h-3.5 shrink-0" />
+                            <span>{business.website.replace(/^https?:\/\//i, '')}</span>
+                            <ExternalLink className="w-3 h-3 shrink-0 ml-0.5" />
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-400 italic">No contact details published.</p>
+                  )}
+                </div>
+
+              </div>
+
             </div>
-          </div>
-        )}
 
-      </div>
-
-      {/* Lightbox Modal */}
-      {selectedMediaLightbox && (
-        <div 
-          onClick={() => setSelectedMediaLightbox(null)}
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
-        >
-          <div className="relative max-w-4xl max-h-[90vh]">
-            <button 
-              onClick={() => setSelectedMediaLightbox(null)}
-              className="absolute -top-10 right-0 text-white hover:text-slate-300 cursor-pointer"
-            >
-              <X className="w-6 h-6" />
-            </button>
-            <img src={selectedMediaLightbox} alt="Enlarged Media" className="max-h-[85vh] rounded-2xl object-contain shadow-2xl" />
           </div>
+
+          {/* Platform Identity Footer */}
+          <div className="bg-slate-50 dark:bg-slate-950/40 border-t border-slate-100 dark:border-slate-800/60 px-6 sm:px-8 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-400">
+            <span>Boost Market Business Presence</span>
+            <span>Discover more local businesses on Boost Market</span>
+          </div>
+
         </div>
-      )}
+      </div>
 
     </div>
   );

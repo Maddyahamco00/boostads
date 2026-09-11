@@ -6532,7 +6532,24 @@ export class AuthTestRunnerService {
       async (logs) => this.executeBusinessContactInfoSuite(logs)
     ));
 
+    // Test 41: Epic 2 Task 2.2.9 — Public Business Page & Security Verification
+    results.push(await this.runTest(
+      'auth_41_public_business_page_epic2_task_2_2_9',
+      'Epic 2 Task 2.2.9: Public Business Page & Security Verification',
+      'Verify unauthenticated public business page data retrieval, slug lookup, strict field projection (DTO), non-exposure of private owner/account data, password hashes, internal IDs, inactive/suspended owner business rejection, and missing optional fields handling',
+      async (logs) => this.executePublicBusinessPageSuite(logs)
+    ));
+
     return results;
+  }
+
+  public async runPublicBusinessPageTestOnly(): Promise<AuthTestResult> {
+    return this.runTest(
+      'auth_41_public_business_page_epic2_task_2_2_9',
+      'Epic 2 Task 2.2.9: Public Business Page & Security Verification',
+      'Verify unauthenticated public business page data retrieval, slug lookup, strict field projection (DTO), non-exposure of private owner/account data, password hashes, internal IDs, inactive/suspended owner business rejection, and missing optional fields handling',
+      async (logs) => this.executePublicBusinessPageSuite(logs)
+    );
   }
 
   public async runBusinessOpeningHoursTestOnly(): Promise<AuthTestResult> {
@@ -10112,6 +10129,276 @@ export class AuthTestRunnerService {
     logs.push('[CHECK 11 PASSED] Public contact info retrieval verified without leaking internal fields');
 
     logs.push('=== ALL 11 BUSINESS CONTACT INFORMATION FLOW & SECURITY CHECKS PASSED ===');
+  }
+
+  private async executePublicBusinessPageSuite(logs: string[]): Promise<void> {
+    logs.push('=== STARTING EPIC 2 TASK 2.2.9: PUBLIC BUSINESS PAGE & SECURITY VERIFICATION ===');
+    const timestamp = Date.now();
+    const userAgent = 'PublicBusinessTester/1.0';
+    const clientIp = '127.0.0.1';
+
+    // 1. Setup: Register client owner and create comprehensive business
+    const ownerEmail = `pubowner_${timestamp}@boostmarket.test`;
+    const regResult = await authService.registerClient({
+      name: 'Chief Obinna Eze',
+      email: ownerEmail,
+      password: 'SecurePassword123!#',
+      phone: '+2348099998888'
+    }, clientIp, userAgent);
+
+    const owner = db.getUserById(regResult.user.id);
+    if (!owner) throw new Error('Setup failed: owner not found in db');
+    owner.status = 'ACTIVE';
+
+    const bizCreate = await businessService.createBusiness(
+      owner.id,
+      { name: `Obinna Innovations ${timestamp}` },
+      clientIp,
+      userAgent
+    );
+    const bizId = bizCreate.business.id;
+    const bizSlug = bizCreate.business.slug;
+    logs.push(`[SETUP] Created business "${bizCreate.business.name}" with ID: ${bizId}, slug: ${bizSlug}`);
+
+    // Update comprehensive business profile fields
+    db.updateBusiness(bizId, {
+      tagline: 'Leading technology consulting and digital transformation in West Africa',
+      description: 'Obinna Innovations delivers high-impact enterprise software, cloud infrastructure, and AI engineering services.',
+      logoUrl: 'https://images.boostmarket.test/logos/obinna-logo.webp',
+      logoKey: 'internal-storage-key-secret-logo-12345',
+      coverImageUrl: 'https://images.boostmarket.test/covers/obinna-banner.webp',
+      coverImageKey: 'internal-storage-key-secret-cover-67890',
+      categories: ['tech_development', 'professional'],
+      category: 'tech_development',
+      categoryLabel: 'Technology & IT Services',
+      location: {
+        city: 'Abuja',
+        state: 'FCT',
+        country: 'Nigeria',
+        address: 'Plot 450 Constitution Avenue, Central Business District',
+        lga: 'Municipal',
+        postalCode: '900001',
+        isServiceAreaOnly: false,
+        lat: 9.05785,
+        lng: 7.49508
+      },
+      openingHours: [
+        {
+          day: 'Monday',
+          isOpen: true,
+          periods: [{ open: '08:30', close: '17:30' }]
+        },
+        {
+          day: 'Tuesday',
+          isOpen: true,
+          periods: [{ open: '08:30', close: '17:30' }]
+        },
+        {
+          day: 'Sunday',
+          isOpen: false,
+          periods: []
+        }
+      ],
+      phone: '+2348033334444',
+      email: 'hello@obinnainnovations.ng',
+      website: 'https://obinnainnovations.ng'
+    });
+
+    // CHECK 1: Public unauthenticated access by slug
+    logs.push('[CHECK 1] Testing unauthenticated public retrieval by slug...');
+    const pubBySlug = await businessService.getPublicBusinessProfile(bizSlug);
+    if (!pubBySlug.success || !pubBySlug.business) {
+      throw new Error('Check 1 failed: could not retrieve public business by slug');
+    }
+    if (pubBySlug.business.slug !== bizSlug) {
+      throw new Error(`Check 1 failed: slug mismatch (expected ${bizSlug}, got ${pubBySlug.business.slug})`);
+    }
+    if (pubBySlug.business.name !== `Obinna Innovations ${timestamp}`) {
+      throw new Error('Check 1 failed: business name mismatch');
+    }
+    if (pubBySlug.business.tagline !== 'Leading technology consulting and digital transformation in West Africa') {
+      throw new Error('Check 1 failed: tagline mismatch');
+    }
+    if (!pubBySlug.business.description?.includes('Obinna Innovations delivers')) {
+      throw new Error('Check 1 failed: description mismatch');
+    }
+    logs.push('[CHECK 1 PASSED] Public profile successfully retrieved by slug');
+
+    // CHECK 2: Public unauthenticated access by business ID
+    logs.push('[CHECK 2] Testing unauthenticated public retrieval by business ID...');
+    const pubById = await businessService.getPublicBusinessProfile(bizId);
+    if (!pubById.success || !pubById.business) {
+      throw new Error('Check 2 failed: could not retrieve public business by ID');
+    }
+    if (pubById.business.id !== bizId || pubById.business.slug !== bizSlug) {
+      throw new Error('Check 2 failed: ID/slug mismatch in ID lookup');
+    }
+    logs.push('[CHECK 2 PASSED] Public profile successfully retrieved by ID');
+
+    // CHECK 3: Strict Field Projection (DTO) & Security Leakage Review
+    logs.push('[CHECK 3] Running strict public security & data-leakage audit on public DTO...');
+    const leakedFields: string[] = [];
+    const rawPublicObj = pubBySlug.business as any;
+
+    if (rawPublicObj.ownerId !== undefined) leakedFields.push('ownerId');
+    if (rawPublicObj.logoKey !== undefined) leakedFields.push('logoKey');
+    if (rawPublicObj.coverImageKey !== undefined) leakedFields.push('coverImageKey');
+    if (rawPublicObj.password !== undefined) leakedFields.push('password');
+    if (rawPublicObj.passwordHash !== undefined) leakedFields.push('passwordHash');
+    if (rawPublicObj.security !== undefined) leakedFields.push('security');
+    if (rawPublicObj.sessions !== undefined) leakedFields.push('sessions');
+    if (rawPublicObj.failedLoginAttempts !== undefined) leakedFields.push('failedLoginAttempts');
+    if (rawPublicObj.twoFactor !== undefined) leakedFields.push('twoFactor');
+    if (rawPublicObj.stats !== undefined) leakedFields.push('stats');
+    if (rawPublicObj.tier !== undefined) leakedFields.push('tier');
+    if (rawPublicObj.products !== undefined) leakedFields.push('products');
+    if (rawPublicObj.reviews !== undefined) leakedFields.push('reviews');
+    if (rawPublicObj.rating !== undefined) leakedFields.push('rating');
+
+    if (leakedFields.length > 0) {
+      throw new Error(`Check 3 failed: Public DTO leaked sensitive fields: ${leakedFields.join(', ')}`);
+    }
+    logs.push('[CHECK 3 PASSED] Zero sensitive fields leaked. DTO is strictly sanitized.');
+
+    // CHECK 4: Isolation of Owner Personal Account vs Business Public Contact
+    logs.push('[CHECK 4] Verifying owner personal email/phone are NOT exposed in public response...');
+    if (pubBySlug.business.phone !== '+2348033334444') {
+      throw new Error('Check 4 failed: Public business phone mismatch');
+    }
+    if (pubBySlug.business.phone === owner.phone) {
+      throw new Error('Check 4 failed: Public phone unexpectedly matches owner personal phone');
+    }
+    if (pubBySlug.business.email !== 'hello@obinnainnovations.ng') {
+      throw new Error('Check 4 failed: Public business email mismatch');
+    }
+    if (pubBySlug.business.email === owner.email) {
+      throw new Error('Check 4 failed: Public email leaked owner personal email');
+    }
+    logs.push('[CHECK 4 PASSED] Business contact information isolated from personal owner account.');
+
+    // CHECK 5: Clean handling of minimal business with optional fields omitted
+    logs.push('[CHECK 5] Testing minimal business with optional fields omitted...');
+    const minBizCreate = await businessService.createBusiness(
+      owner.id,
+      { name: `Minimal Clean Biz ${timestamp}` },
+      clientIp,
+      userAgent
+    );
+    const minPub = await businessService.getPublicBusinessProfile(minBizCreate.business.slug);
+    if (!minPub.success) throw new Error('Check 5 failed: minimal business retrieval failed');
+    if (minPub.business.description !== undefined) throw new Error('Check 5 failed: unconfigured description should be undefined');
+    if (minPub.business.logoUrl !== undefined) throw new Error('Check 5 failed: unconfigured logoUrl should be undefined');
+    if (minPub.business.coverImageUrl !== undefined) throw new Error('Check 5 failed: unconfigured coverImageUrl should be undefined');
+    if (minPub.business.phone !== undefined) throw new Error('Check 5 failed: unconfigured phone should be undefined');
+    if (minPub.business.email !== undefined) throw new Error('Check 5 failed: unconfigured email should be undefined');
+    if (minPub.business.website !== undefined) throw new Error('Check 5 failed: unconfigured website should be undefined');
+    if (minPub.business.location !== undefined) throw new Error('Check 5 failed: unconfigured location should be undefined');
+    if (minPub.business.openingHours !== undefined) throw new Error('Check 5 failed: unconfigured openingHours should be undefined');
+    logs.push('[CHECK 5 PASSED] Minimal business handles missing optional fields cleanly without errors or fake data.');
+
+    // CHECK 6: Verification Badge Integrity
+    logs.push('[CHECK 6] Verifying verification badge integrity...');
+    if (minPub.business.isVerified !== false) {
+      throw new Error('Check 6 failed: unverified business must have isVerified === false');
+    }
+    db.updateBusiness(bizId, { isVerified: true });
+    const verifiedPub = await businessService.getPublicBusinessProfile(bizSlug);
+    if (verifiedPub.business.isVerified !== true) {
+      throw new Error('Check 6 failed: genuinely verified business must reflect isVerified === true');
+    }
+    db.updateBusiness(bizId, { isVerified: false });
+    logs.push('[CHECK 6 PASSED] Verification status reflects ground truth without fake badges.');
+
+    // CHECK 7: Nonexistent Business Slug
+    logs.push('[CHECK 7] Testing nonexistent slug error handling...');
+    let nonExistentFailed = false;
+    try {
+      await businessService.getPublicBusinessProfile(`non-existent-slug-${timestamp}-xyz`);
+    } catch (err: any) {
+      nonExistentFailed = true;
+      if (err.statusCode !== 404 || err.code !== 'BUSINESS_NOT_FOUND') {
+        throw new Error(`Check 7 failed: expected 404 BUSINESS_NOT_FOUND, got ${err.statusCode} ${err.code}`);
+      }
+    }
+    if (!nonExistentFailed) throw new Error('Check 7 failed: nonexistent slug did not throw error');
+    logs.push('[CHECK 7 PASSED] Nonexistent business slug correctly returns 404.');
+
+    // CHECK 8: Empty / Whitespace Identifier
+    logs.push('[CHECK 8] Testing empty or whitespace identifier rejection...');
+    let emptyIdFailed = false;
+    try {
+      await businessService.getPublicBusinessProfile('   ');
+    } catch (err: any) {
+      emptyIdFailed = true;
+      if (err.statusCode !== 400 || err.code !== 'INVALID_IDENTIFIER') {
+        throw new Error(`Check 8 failed: expected 400 INVALID_IDENTIFIER, got ${err.statusCode} ${err.code}`);
+      }
+    }
+    if (!emptyIdFailed) throw new Error('Check 8 failed: empty identifier did not throw error');
+    logs.push('[CHECK 8 PASSED] Empty identifier correctly rejected with 400.');
+
+    // CHECK 9: Business Visibility / Suspended Owner Protection
+    logs.push('[CHECK 9] Testing business visibility when owner account is suspended...');
+    owner.status = 'SUSPENDED';
+    let suspendedFailed = false;
+    try {
+      await businessService.getPublicBusinessProfile(bizSlug);
+    } catch (err: any) {
+      suspendedFailed = true;
+      if (err.statusCode !== 404 || err.code !== 'BUSINESS_UNAVAILABLE') {
+        throw new Error(`Check 9 failed: expected 404 BUSINESS_UNAVAILABLE, got ${err.statusCode} ${err.code}`);
+      }
+    }
+    if (!suspendedFailed) throw new Error('Check 9 failed: suspended owner business remained publicly accessible');
+    owner.status = 'ACTIVE'; // restore
+    const restoredPub = await businessService.getPublicBusinessProfile(bizSlug);
+    if (!restoredPub.success) throw new Error('Check 9 failed: restored owner business could not be retrieved');
+    logs.push('[CHECK 9 PASSED] Suspended owner business properly hidden from public with 404 BUSINESS_UNAVAILABLE.');
+
+    // CHECK 10: Service Area Only Location Privacy Protection
+    logs.push('[CHECK 10] Testing location privacy protection when isServiceAreaOnly is true...');
+    db.updateBusiness(bizId, {
+      location: {
+        city: 'Kaduna',
+        state: 'Kaduna',
+        country: 'Nigeria',
+        address: 'Secret Private Residential Villa 9',
+        postalCode: '800283',
+        isServiceAreaOnly: true,
+        serviceAreaKm: 40
+      }
+    });
+    const serviceAreaPub = await businessService.getPublicBusinessProfile(bizSlug);
+    if (!serviceAreaPub.business.location?.isServiceAreaOnly) {
+      throw new Error('Check 10 failed: isServiceAreaOnly should be true');
+    }
+    if (serviceAreaPub.business.location.address !== undefined) {
+      throw new Error('Check 10 failed: address should be omitted when isServiceAreaOnly is true');
+    }
+    if (serviceAreaPub.business.location.postalCode !== undefined) {
+      throw new Error('Check 10 failed: postalCode should be omitted when isServiceAreaOnly is true');
+    }
+    if (serviceAreaPub.business.location.city !== 'Kaduna' || serviceAreaPub.business.location.state !== 'Kaduna') {
+      throw new Error('Check 10 failed: city/state should remain visible');
+    }
+    logs.push('[CHECK 10 PASSED] Service-area-only address privacy preserved.');
+
+    // CHECK 11: Views Increment In Background Without Exposing Stats Object
+    logs.push('[CHECK 11] Checking view tracking and stats field non-exposure...');
+    const rawBizInDb = db.getBusinessById(bizId);
+    const prevViews = rawBizInDb?.stats?.views || 0;
+    await businessService.getPublicBusinessProfile(bizSlug);
+    const updatedRawBiz = db.getBusinessById(bizId);
+    if ((updatedRawBiz?.stats?.views || 0) <= prevViews) {
+      throw new Error('Check 11 failed: view counter did not increment');
+    }
+    const publicProfileCheck = await businessService.getPublicBusinessProfile(bizSlug);
+    if ((publicProfileCheck.business as any).stats !== undefined) {
+      throw new Error('Check 11 failed: stats object leaked in public DTO');
+    }
+    logs.push('[CHECK 11 PASSED] Profile views safely tracked without exposing internal stats.');
+
+    logs.push('=== ALL 11 PUBLIC BUSINESS PAGE & SECURITY CHECKS PASSED ===');
   }
 
   private async runTest(
