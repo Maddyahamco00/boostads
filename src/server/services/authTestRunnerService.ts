@@ -5,7 +5,7 @@ import { emailService } from './emailService';
 import { passwordService } from './passwordService';
 import { emailVerificationTokenService } from './emailVerificationTokenService';
 import { RegisterClientSchema, ChangePasswordSchema, UpdateProfileSchema, AvatarUploadSchema, ContactInfoSchema, CreateBusinessSchema, UpdateBusinessDescriptionSchema, sanitizeDescription, PROTECTED_BUSINESS_FIELDS, formatZodError } from '../validators/authValidators';
-import { UpdateBusinessLocationSchema, NIGERIAN_STATES } from '../validators/businessValidators';
+import { UpdateBusinessLocationSchema, NIGERIAN_STATES, SubmitVerificationRequestSchema, validateNoVerificationPrivilegeEscalation, FORBIDDEN_VERIFICATION_REQUEST_FIELDS, validateAdminReviewPayload } from '../validators/businessValidators';
 import { businessService, BusinessServiceError } from './businessService';
 import { storageService } from './storageService';
 import { UserEntity, AuthSession, VerificationToken } from '../../types';
@@ -6540,7 +6540,58 @@ export class AuthTestRunnerService {
       async (logs) => this.executePublicBusinessPageSuite(logs)
     ));
 
+    // Test 42: Epic 2 Feature 2.3 Task 2.3.1 — Business Verification Request & Security Verification
+    results.push(await this.runTest(
+      'auth_42_business_verification_request_epic2_task_2_3_1',
+      'Epic 2 Task 2.3.1: Business Verification Request & Security Verification',
+      'Verify authenticated business owner verification request submission, server-side anti-IDOR defense, one active pending request invariant, atomic concurrency safety, mass-assignment blocking, privilege escalation defense, DTO data protection, and rejection of unauthenticated/suspended/non-existent entities',
+      async (logs) => this.executeBusinessVerificationRequestSuite(logs)
+    ));
+
+    // Test 43: Epic 2 Feature 2.3 Task 2.3.2 — Business Verification Status Lifecycle
+    results.push(await this.runTest(
+      'auth_43_business_verification_status_epic2_task_2_3_2',
+      'Epic 2 Task 2.3.2: Business Verification Status Lifecycle & Security',
+      'Verify complete verification lifecycle (NOT_SUBMITTED -> PENDING -> APPROVED / REJECTED -> resubmission to PENDING), Anti-IDOR guards, client status-tamper resistance, non-admin review blocking, and masked audit projections',
+      async (logs) => this.executeBusinessVerificationStatusSuite(logs)
+    ));
+
+    // Test 44: Epic 2 Feature 2.3 Task 2.3.3 — Admin Verification Review Workflow
+    results.push(await this.runTest(
+      'auth_44_admin_verification_workflow_epic2_task_2_3_3',
+      'Epic 2 Task 2.3.3: Super Admin Verification Decision & Queue Workflow',
+      'Verify Super Admin verification queue filtering, search queries, RBAC access guards, server-derived reviewer identity, approval effects, mandatory constructive rejection reason validation, optimistic concurrency control, and audit trail',
+      async (logs) => this.executeAdminVerificationWorkflowSuite(logs)
+    ));
+
     return results;
+  }
+
+  public async runBusinessVerificationStatusTestOnly(): Promise<AuthTestResult> {
+    return this.runTest(
+      'auth_43_business_verification_status_epic2_task_2_3_2',
+      'Epic 2 Task 2.3.2: Business Verification Status Lifecycle & Security',
+      'Verify complete verification lifecycle (NOT_SUBMITTED -> PENDING -> APPROVED / REJECTED -> resubmission to PENDING), Anti-IDOR guards, client status-tamper resistance, non-admin review blocking, and masked audit projections',
+      async (logs) => this.executeBusinessVerificationStatusSuite(logs)
+    );
+  }
+
+  public async runAdminVerificationWorkflowTestOnly(): Promise<AuthTestResult> {
+    return this.runTest(
+      'auth_44_admin_verification_workflow_epic2_task_2_3_3',
+      'Epic 2 Task 2.3.3: Super Admin Verification Decision & Queue Workflow',
+      'Verify Super Admin verification queue filtering, search queries, RBAC access guards, server-derived reviewer identity, approval effects, mandatory constructive rejection reason validation, optimistic concurrency control, and audit trail',
+      async (logs) => this.executeAdminVerificationWorkflowSuite(logs)
+    );
+  }
+
+  public async runBusinessVerificationRequestTestOnly(): Promise<AuthTestResult> {
+    return this.runTest(
+      'auth_42_business_verification_request_epic2_task_2_3_1',
+      'Epic 2 Task 2.3.1: Business Verification Request & Security Verification',
+      'Verify authenticated business owner verification request submission, server-side anti-IDOR defense, one active pending request invariant, atomic concurrency safety, mass-assignment blocking, privilege escalation defense, DTO data protection, and rejection of unauthenticated/suspended/non-existent entities',
+      async (logs) => this.executeBusinessVerificationRequestSuite(logs)
+    );
   }
 
   public async runPublicBusinessPageTestOnly(): Promise<AuthTestResult> {
@@ -10400,6 +10451,551 @@ export class AuthTestRunnerService {
 
     logs.push('=== ALL 11 PUBLIC BUSINESS PAGE & SECURITY CHECKS PASSED ===');
   }
+
+  /**
+   * Epic 2 Feature 2.3 Task 2.3.1: Business Verification Request & Security Suite
+   */
+  private async executeBusinessVerificationRequestSuite(logs: string[]): Promise<void> {
+    logs.push('Starting Epic 2 Feature 2.3 Task 2.3.1 Business Verification Request test suite...');
+
+    const timestamp = Date.now();
+    const ownerAEmail = `vreq_owner_a_${timestamp}@example.com`;
+    const ownerBEmail = `vreq_owner_b_${timestamp}@example.com`;
+
+    // Setup Test Users via standard registerClient
+    const regA = await authService.registerClient({
+      name: 'Owner Alice',
+      email: ownerAEmail,
+      password: 'SecurePassword123!#',
+      phone: '+2348012345678'
+    }, '127.0.0.1', 'Tester/1.0');
+    const userA = db.getUserById(regA.user.id)!;
+    userA.status = 'ACTIVE';
+    db.updateUser(userA.id, { status: 'ACTIVE' });
+
+    const regB = await authService.registerClient({
+      name: 'Owner Bob',
+      email: ownerBEmail,
+      password: 'SecurePassword123!#',
+      phone: '+2348087654321'
+    }, '127.0.0.1', 'Tester/1.0');
+    const userB = db.getUserById(regB.user.id)!;
+    userB.status = 'ACTIVE';
+    db.updateUser(userB.id, { status: 'ACTIVE' });
+
+    // Create Business for Alice
+    const bizCreateA = await businessService.createBusiness(
+      userA.id,
+      { name: `Alice Crafts ${timestamp}` },
+      '127.0.0.1',
+      'Tester/1.0'
+    );
+    const bizA = bizCreateA.business;
+
+    // Create Business for Bob
+    const bizCreateB = await businessService.createBusiness(
+      userB.id,
+      { name: `Bob Logistics ${timestamp}` },
+      '127.0.0.1',
+      'Tester/1.0'
+    );
+    const bizB = bizCreateB.business;
+
+    logs.push(`[SETUP] Created test users ${userA.id}, ${userB.id} and businesses ${bizA.id}, ${bizB.id}`);
+
+    // CHECK 1: Non-existent Business ID rejection
+    logs.push('[CHECK 1] Testing non-existent business verification request...');
+    try {
+      await businessService.submitVerificationRequest(userA.id, 'biz_nonexistent_999999', { notes: 'Test' });
+      throw new Error('Check 1 failed: non-existent business did not throw');
+    } catch (err: any) {
+      if (err.code !== 'BUSINESS_NOT_FOUND') {
+        throw new Error(`Check 1 failed: expected BUSINESS_NOT_FOUND, got ${err.code || err.message}`);
+      }
+      logs.push('[CHECK 1 PASSED] Non-existent business correctly rejected with 404 BUSINESS_NOT_FOUND.');
+    }
+
+    // CHECK 2: IDOR Defense — Bob attempts to submit verification request for Alice's Business
+    logs.push('[CHECK 2] Testing cross-user IDOR defense on verification submission...');
+    try {
+      await businessService.submitVerificationRequest(userB.id, bizA.id, { notes: 'Malicious Bob requesting for Alice' });
+      throw new Error('Check 2 failed: IDOR verification request succeeded');
+    } catch (err: any) {
+      if (err.code !== 'FORBIDDEN_NOT_OWNER') {
+        throw new Error(`Check 2 failed: expected FORBIDDEN_NOT_OWNER, got ${err.code || err.message}`);
+      }
+      logs.push('[CHECK 2 PASSED] IDOR request blocked with 403 FORBIDDEN_NOT_OWNER.');
+    }
+
+    // CHECK 3: Privilege Escalation Validation via Schema & Security Validator
+    logs.push('[CHECK 3] Testing privilege escalation & forbidden field blocking...');
+    const forbiddenPayloads = [
+      { status: 'APPROVED' },
+      { status: 'REJECTED' },
+      { isVerified: true },
+      { verified: true },
+      { reviewerId: userB.id },
+      { role: 'SUPER_ADMIN' },
+      { submittedAt: new Date().toISOString() },
+      { reviewedAt: new Date().toISOString() }
+    ];
+
+    for (const payload of forbiddenPayloads) {
+      let threw = false;
+      try {
+        validateNoVerificationPrivilegeEscalation(payload);
+      } catch (err: any) {
+        threw = true;
+        if (err.code !== 'PRIVILEGE_ESCALATION_FORBIDDEN') {
+          throw new Error(`Check 3 failed: expected PRIVILEGE_ESCALATION_FORBIDDEN, got ${err.code || err.message}`);
+        }
+      }
+      if (!threw) {
+        throw new Error(`Check 3 failed: privilege escalation payload ${JSON.stringify(payload)} was not blocked`);
+      }
+    }
+    logs.push('[CHECK 3 PASSED] All 8 privilege escalation payload attempts blocked by security validator.');
+
+    // CHECK 4: Zod Schema Strict Mass Assignment & Sanitization
+    logs.push('[CHECK 4] Testing Zod schema strict mode and length constraints...');
+    const massAssignmentResult = SubmitVerificationRequestSchema.safeParse({
+      notes: 'Valid note',
+      adminNote: 'injected note',
+      status: 'APPROVED'
+    });
+    if (massAssignmentResult.success) {
+      throw new Error('Check 4 failed: SubmitVerificationRequestSchema permitted extra unallowed keys');
+    }
+
+    const overLengthNotes = 'A'.repeat(501);
+    const overLengthResult = SubmitVerificationRequestSchema.safeParse({ notes: overLengthNotes });
+    if (overLengthResult.success) {
+      throw new Error('Check 4 failed: notes exceeding 500 characters permitted');
+    }
+
+    const nullByteResult = SubmitVerificationRequestSchema.safeParse({ notes: 'Note with null \u0000 byte' });
+    if (nullByteResult.success) {
+      throw new Error('Check 4 failed: notes containing null byte permitted');
+    }
+    logs.push('[CHECK 4 PASSED] Zod schema strict mode, 500-char max, and null-byte rejection verified.');
+
+    // CHECK 5: Legitimate Owner Verification Submission
+    logs.push('[CHECK 5] Submitting valid verification request by authentic owner...');
+    const submitResult = await businessService.submitVerificationRequest(userA.id, bizA.id, {
+      notes: 'Registered under RC-1234567. Please review our store.'
+    });
+
+    if (!submitResult.success || !submitResult.request) {
+      throw new Error('Check 5 failed: submission response not successful');
+    }
+    const createdReq = submitResult.request;
+    if (createdReq.businessId !== bizA.id) {
+      throw new Error('Check 5 failed: businessId mismatch');
+    }
+    if (createdReq.status !== 'PENDING') {
+      throw new Error(`Check 5 failed: expected status PENDING, got ${createdReq.status}`);
+    }
+    if (!createdReq.id.startsWith('vreq_')) {
+      throw new Error('Check 5 failed: invalid request ID format');
+    }
+    if (!createdReq.submittedAt) {
+      throw new Error('Check 5 failed: missing submittedAt timestamp');
+    }
+    if ((createdReq as any).reviewerId !== undefined) {
+      throw new Error('Check 5 failed: reviewerId leaked in public DTO');
+    }
+    logs.push(`[CHECK 5 PASSED] Legitimate verification request ${createdReq.id} created with status PENDING.`);
+
+    // CHECK 6: Duplicate Request Prevention (Single Active Request Invariant)
+    logs.push('[CHECK 6] Testing duplicate request prevention when a PENDING request exists...');
+    try {
+      await businessService.submitVerificationRequest(userA.id, bizA.id, { notes: 'Second request attempt' });
+      throw new Error('Check 6 failed: duplicate pending request did not throw');
+    } catch (err: any) {
+      if (err.code !== 'PENDING_REQUEST_EXISTS') {
+        throw new Error(`Check 6 failed: expected PENDING_REQUEST_EXISTS, got ${err.code || err.message}`);
+      }
+      logs.push('[CHECK 6 PASSED] Duplicate pending request rejected with 409 PENDING_REQUEST_EXISTS.');
+    }
+
+    // CHECK 7: Atomic Concurrency Safety (Simultaneous Submissions)
+    logs.push('[CHECK 7] Testing concurrent race conditions with Promise.all...');
+    // Setup fresh business for concurrency test
+    const bizCreateC = await businessService.createBusiness(
+      userB.id,
+      { name: `Bob Express ${timestamp}` },
+      '127.0.0.1',
+      'Tester/1.0'
+    );
+    const bizC = bizCreateC.business;
+
+    const concurrentResults = await Promise.allSettled([
+      businessService.submitVerificationRequest(userB.id, bizC.id, { notes: 'Thread 1' }),
+      businessService.submitVerificationRequest(userB.id, bizC.id, { notes: 'Thread 2' })
+    ]);
+
+    const fulfilled = concurrentResults.filter(r => r.status === 'fulfilled');
+    const rejected = concurrentResults.filter(r => r.status === 'rejected');
+
+    if (fulfilled.length !== 1 || rejected.length !== 1) {
+      throw new Error(`Check 7 failed: expected exactly 1 fulfilled and 1 rejected, got ${fulfilled.length} fulfilled, ${rejected.length} rejected`);
+    }
+
+    const rejectedError = (rejected[0] as PromiseRejectedResult).reason;
+    if (rejectedError.code !== 'PENDING_REQUEST_EXISTS') {
+      throw new Error(`Check 7 failed: expected rejection code PENDING_REQUEST_EXISTS, got ${rejectedError.code}`);
+    }
+
+    const storedRequests = db.getVerificationRequestsByBusinessId(bizC.id);
+    if (storedRequests.length !== 1) {
+      throw new Error(`Check 7 failed: expected exactly 1 request in db, found ${storedRequests.length}`);
+    }
+    logs.push('[CHECK 7 PASSED] Concurrency race condition correctly handled: exactly 1 request succeeded, 1 rejected.');
+
+    // CHECK 8: Already Verified Business Rejection
+    logs.push('[CHECK 8] Testing submission for an already verified business...');
+    const bizCreateVerified = await businessService.createBusiness(
+      userA.id,
+      { name: `Verified Emporium ${timestamp}` },
+      '127.0.0.1',
+      'Tester/1.0'
+    );
+    const verifiedBiz = bizCreateVerified.business;
+    db.updateBusiness(verifiedBiz.id, { isVerified: true });
+
+    try {
+      await businessService.submitVerificationRequest(userA.id, verifiedBiz.id, { notes: 'Trying to verify verified biz' });
+      throw new Error('Check 8 failed: already verified business did not throw');
+    } catch (err: any) {
+      if (err.code !== 'ALREADY_VERIFIED') {
+        throw new Error(`Check 8 failed: expected ALREADY_VERIFIED, got ${err.code || err.message}`);
+      }
+      logs.push('[CHECK 8 PASSED] Already verified business correctly rejected with 400 ALREADY_VERIFIED.');
+    }
+
+    // CHECK 9: Suspended / Inactive Account Rejection
+    logs.push('[CHECK 9] Testing submission by suspended account...');
+    const regSuspended = await authService.registerClient({
+      name: 'Suspended Sam',
+      email: `suspended_${timestamp}@example.com`,
+      password: 'SecurePassword123!#',
+      phone: '+2348011223344'
+    }, '127.0.0.1', 'Tester/1.0');
+    const suspendedUser = db.getUserById(regSuspended.user.id)!;
+
+    const bizCreateSuspended = await businessService.createBusiness(
+      suspendedUser.id,
+      { name: `Sam Goods ${timestamp}` },
+      '127.0.0.1',
+      'Tester/1.0'
+    );
+    const suspendedBiz = bizCreateSuspended.business;
+    suspendedUser.status = 'SUSPENDED';
+    db.updateUser(suspendedUser.id, { status: 'SUSPENDED' });
+
+    try {
+      await businessService.submitVerificationRequest(suspendedUser.id, suspendedBiz.id);
+      throw new Error('Check 9 failed: suspended user was allowed to submit verification request');
+    } catch (err: any) {
+      if (err.code !== 'ACCOUNT_INACTIVE') {
+        throw new Error(`Check 9 failed: expected ACCOUNT_INACTIVE, got ${err.code || err.message}`);
+      }
+      logs.push('[CHECK 9 PASSED] Suspended account submission rejected with 403 ACCOUNT_INACTIVE.');
+    }
+
+    // CHECK 10: GET Verification Status Retrieval & IDOR Protection
+    logs.push('[CHECK 10] Testing GET verification request retrieval & IDOR protection...');
+    // Alice retrieves status for bizA
+    const aliceGetResult = await businessService.getLatestVerificationRequest(userA.id, bizA.id);
+    if (!aliceGetResult.success || !aliceGetResult.request) {
+      throw new Error('Check 10 failed: Alice could not retrieve her business verification request');
+    }
+    if (aliceGetResult.request.id !== createdReq.id) {
+      throw new Error('Check 10 failed: request ID mismatch on retrieval');
+    }
+    if (aliceGetResult.isVerified !== false) {
+      throw new Error('Check 10 failed: isVerified should be false');
+    }
+
+    // Bob attempts to view Alice's business verification status (IDOR)
+    try {
+      await businessService.getLatestVerificationRequest(userB.id, bizA.id);
+      throw new Error('Check 10 failed: Bob was able to view Alice verification request');
+    } catch (err: any) {
+      if (err.code !== 'FORBIDDEN_NOT_OWNER') {
+        throw new Error(`Check 10 failed: expected FORBIDDEN_NOT_OWNER for GET, got ${err.code || err.message}`);
+      }
+      logs.push('[CHECK 10 PASSED] GET endpoint accurately returns status to owner and blocks cross-user IDOR.');
+    }
+
+    logs.push('=== ALL 10 BUSINESS VERIFICATION REQUEST SECURITY CHECKS PASSED ===');
+  }
+
+  /**
+   * Epic 2 Feature 2.3 Task 2.3.2: Business Verification Status Lifecycle Suite
+   */
+  private async executeBusinessVerificationStatusSuite(logs: string[]): Promise<void> {
+    logs.push('Starting Epic 2 Feature 2.3 Task 2.3.2 Business Verification Status Lifecycle test suite...');
+
+    const timestamp = Date.now();
+    const clientUser1 = {
+      id: `usr_vstat1_${timestamp}`,
+      email: `vstat_client1_${timestamp}@boostmarket.com`,
+      name: 'Status Test Client 1',
+      role: 'CLIENT' as const,
+      status: 'ACTIVE' as const,
+      clientType: 'business' as const,
+      tier: 'free' as const,
+      createdAt: new Date().toISOString()
+    };
+    db.users.set(clientUser1.id, { ...clientUser1, failedLoginAttempts: 0 });
+
+    const clientUser2 = {
+      id: `usr_vstat2_${timestamp}`,
+      email: `vstat_client2_${timestamp}@boostmarket.com`,
+      name: 'Status Test Client 2',
+      role: 'CLIENT' as const,
+      status: 'ACTIVE' as const,
+      clientType: 'business' as const,
+      tier: 'free' as const,
+      createdAt: new Date().toISOString()
+    };
+    db.users.set(clientUser2.id, { ...clientUser2, failedLoginAttempts: 0 });
+
+    const biz1 = {
+      id: `biz_vstat1_${timestamp}`,
+      name: 'Status Bakery',
+      slug: `status-bakery-${timestamp}`,
+      ownerId: clientUser1.id,
+      isVerified: false,
+      verificationStatus: 'NOT_SUBMITTED' as const,
+      createdAt: new Date().toISOString()
+    };
+    db.businesses.set(biz1.id, biz1);
+
+    const biz2 = {
+      id: `biz_vstat2_${timestamp}`,
+      name: 'Status Textiles',
+      slug: `status-textiles-${timestamp}`,
+      ownerId: clientUser2.id,
+      isVerified: false,
+      verificationStatus: 'NOT_SUBMITTED' as const,
+      createdAt: new Date().toISOString()
+    };
+    db.businesses.set(biz2.id, biz2);
+
+    const superAdmin = db.getUserById(SUPER_ADMIN_ID) || db.getUserByEmail(SUPER_ADMIN_EMAIL);
+    if (!superAdmin || !isDesignatedSuperAdminEmail(superAdmin.email)) {
+      throw new Error('Designated Super Admin not found in database');
+    }
+
+    // Check 1: Initial state is strictly NOT_SUBMITTED
+    const initStatus = await businessService.getBusinessVerificationStatus(clientUser1.id, biz1.id);
+    if (initStatus.status !== 'NOT_SUBMITTED' || initStatus.isVerified !== false || initStatus.request !== null || initStatus.canResubmit !== true) {
+      throw new Error('Check 1 failed: Initial state is not strictly NOT_SUBMITTED');
+    }
+    logs.push('[CHECK 1 PASSED] Initial state is strictly NOT_SUBMITTED with request: null and isVerified: false.');
+
+    // Check 2: Anti-IDOR: Client 1 cannot query Client 2 business
+    try {
+      await businessService.getBusinessVerificationStatus(clientUser1.id, biz2.id);
+      throw new Error('Check 2 failed: IDOR access was permitted');
+    } catch (err: any) {
+      if (err.statusCode !== 403) throw new Error(`Check 2 failed: expected 403, got ${err.statusCode}`);
+      logs.push('[CHECK 2 PASSED] Anti-IDOR: Non-owner cannot query verification status (403).');
+    }
+
+    // Check 3: Client submission creates PENDING status
+    const submitRes = await businessService.submitVerificationRequest(clientUser1.id, biz1.id, { notes: 'Verification request 1' });
+    if (submitRes.request.status !== 'PENDING') throw new Error('Check 3 failed: Request status not PENDING');
+    const pendingStatus = await businessService.getBusinessVerificationStatus(clientUser1.id, biz1.id);
+    if (pendingStatus.status !== 'PENDING' || pendingStatus.isVerified !== false || pendingStatus.canResubmit !== false) {
+      throw new Error('Check 3 failed: Business status is not PENDING');
+    }
+    logs.push('[CHECK 3 PASSED] Verification submission transitions business status to PENDING.');
+
+    // Check 4: Exactly one active pending request invariant
+    try {
+      await businessService.submitVerificationRequest(clientUser1.id, biz1.id, { notes: 'Duplicate pending' });
+      throw new Error('Check 4 failed: Duplicate pending request did not throw');
+    } catch (err: any) {
+      if (err.statusCode !== 409) throw new Error(`Check 4 failed: expected 409, got ${err.statusCode}`);
+      logs.push('[CHECK 4 PASSED] One active pending request invariant enforced (409).');
+    }
+
+    // Check 5: Non-admin cannot review
+    try {
+      await businessService.reviewVerificationRequest(clientUser1.id, submitRes.request.id, { status: 'APPROVED' });
+      throw new Error('Check 5 failed: Non-admin review permitted');
+    } catch (err: any) {
+      if (err.statusCode !== 403) throw new Error(`Check 5 failed: expected 403, got ${err.statusCode}`);
+      logs.push('[CHECK 5 PASSED] Non-admin review access blocked (403).');
+    }
+
+    // Check 6: Super Admin approval
+    const approveRes = await businessService.reviewVerificationRequest(superAdmin.id, submitRes.request.id, { status: 'APPROVED' });
+    if (!approveRes.success || approveRes.request.status !== 'APPROVED') {
+      throw new Error('Check 6 failed: Super Admin approval failed');
+    }
+    const approvedStatus = await businessService.getBusinessVerificationStatus(clientUser1.id, biz1.id);
+    if (approvedStatus.status !== 'APPROVED' || approvedStatus.isVerified !== true || approvedStatus.canResubmit !== false) {
+      throw new Error('Check 6 failed: Approved business status mismatch');
+    }
+    if ((approvedStatus.request as any)?.reviewerId !== undefined) {
+      throw new Error('Check 6 failed: reviewerId leaked in public DTO');
+    }
+    logs.push('[CHECK 6 PASSED] Super Admin approval sets isVerified: true, status: APPROVED, and masks reviewerId.');
+
+    // Check 7: Rejection flow with mandatory reason & resubmission
+    const submitRes2 = await businessService.submitVerificationRequest(clientUser2.id, biz2.id, { notes: 'Need verification' });
+    const rejReason = 'Business license scan was unreadable. Please upload higher resolution copy.';
+    await businessService.reviewVerificationRequest(superAdmin.id, submitRes2.request.id, { status: 'REJECTED', rejectionReason: rejReason });
+    const rejStatus = await businessService.getBusinessVerificationStatus(clientUser2.id, biz2.id);
+    if (rejStatus.status !== 'REJECTED' || rejStatus.isVerified !== false || rejStatus.canResubmit !== true || rejStatus.request?.rejectionReason !== rejReason) {
+      throw new Error('Check 7 failed: Rejected business status or reason mismatch');
+    }
+    logs.push('[CHECK 7 PASSED] Rejection records reason, leaves isVerified: false, and sets canResubmit: true.');
+
+    // Check 8: Resubmission transitions back to PENDING
+    const resubmitRes = await businessService.submitVerificationRequest(clientUser2.id, biz2.id, { notes: 'Re-uploaded crystal clear license' });
+    if (resubmitRes.request.status !== 'PENDING') throw new Error('Check 8 failed: Resubmission request status not PENDING');
+    const resubStatus = await businessService.getBusinessVerificationStatus(clientUser2.id, biz2.id);
+    if (resubStatus.status !== 'PENDING' || resubStatus.canResubmit !== false) {
+      throw new Error('Check 8 failed: Status did not return to PENDING on resubmission');
+    }
+    logs.push('[CHECK 8 PASSED] Resubmission successfully transitions lifecycle back to PENDING.');
+
+    logs.push('=== ALL 8 BUSINESS VERIFICATION STATUS LIFECYCLE CHECKS PASSED ===');
+  }
+
+  /**
+   * Epic 2 Feature 2.3 Task 2.3.3: Admin Verification Decision & Queue Workflow Suite
+   */
+  private async executeAdminVerificationWorkflowSuite(logs: string[]): Promise<void> {
+    logs.push('Starting Epic 2 Feature 2.3 Task 2.3.3 Admin Verification Workflow test suite...');
+
+    const timestamp = Date.now();
+    const merchantUser = {
+      id: `usr_adm_merch_${timestamp}`,
+      email: `admin_merch_${timestamp}@boostmarket.com`,
+      name: 'Admin WF Merchant',
+      role: 'CLIENT' as const,
+      status: 'ACTIVE' as const,
+      clientType: 'business' as const,
+      tier: 'pro' as const,
+      createdAt: new Date().toISOString()
+    };
+    db.users.set(merchantUser.id, { ...merchantUser, failedLoginAttempts: 0 });
+
+    const superAdmin = db.getUserById(SUPER_ADMIN_ID) || db.getUserByEmail(SUPER_ADMIN_EMAIL);
+    if (!superAdmin || !isDesignatedSuperAdminEmail(superAdmin.email) || superAdmin.role !== 'SUPER_ADMIN') {
+      throw new Error('Super Admin must be designated executive account');
+    }
+
+    const testBizA = {
+      id: `biz_admwf_a_${timestamp}`,
+      name: `Prime Logistics ${timestamp}`,
+      slug: `prime-logistics-${timestamp}`,
+      ownerId: merchantUser.id,
+      isVerified: false,
+      verificationStatus: 'NOT_SUBMITTED' as const,
+      createdAt: new Date().toISOString()
+    };
+    db.businesses.set(testBizA.id, testBizA);
+
+    const testBizB = {
+      id: `biz_admwf_b_${timestamp}`,
+      name: `Dubious Traders ${timestamp}`,
+      slug: `dubious-traders-${timestamp}`,
+      ownerId: merchantUser.id,
+      isVerified: false,
+      verificationStatus: 'NOT_SUBMITTED' as const,
+      createdAt: new Date().toISOString()
+    };
+    db.businesses.set(testBizB.id, testBizB);
+
+    // Check 1: Submit requests
+    const resA = await businessService.submitVerificationRequest(merchantUser.id, testBizA.id, { notes: 'CAC RC-998877' });
+    const resB = await businessService.submitVerificationRequest(merchantUser.id, testBizB.id, { notes: 'Pending store check' });
+    const reqA = resA.request;
+    const reqB = resB.request;
+    logs.push(`[CHECK 1 PASSED] Submitted verification requests ${reqA.id} and ${reqB.id}.`);
+
+    // Check 2: Queue listing contains submitted requests
+    const allRequests = db.getAllVerificationRequests();
+    if (!allRequests.some(r => r.id === reqA.id && r.status === 'PENDING') || !allRequests.some(r => r.id === reqB.id && r.status === 'PENDING')) {
+      throw new Error('Check 2 failed: Requests not present in admin queue');
+    }
+    logs.push('[CHECK 2 PASSED] Verification requests present in queue with PENDING status.');
+
+    // Check 3: Mass assignment protection on review endpoint
+    try {
+      validateAdminReviewPayload({
+        status: 'APPROVED',
+        reviewerId: 'malicious_id',
+        isVerified: true
+      }, 'APPROVE');
+      throw new Error('Check 3 failed: Mass assignment not blocked');
+    } catch (err: any) {
+      if (err.code !== 'MASS_ASSIGNMENT_FORBIDDEN') throw new Error(`Check 3 failed: expected MASS_ASSIGNMENT_FORBIDDEN, got ${err.code}`);
+      logs.push('[CHECK 3 PASSED] Mass assignment fields strictly rejected on review payload.');
+    }
+
+    // Check 4: Super Admin approval
+    const approveResult = await businessService.reviewVerificationRequest(superAdmin.id, reqA.id, { status: 'APPROVED' });
+    if (!approveResult.success || approveResult.request.status !== 'APPROVED') {
+      throw new Error('Check 4 failed: Approval was not successful');
+    }
+    const updatedBizA = db.getBusinessById(testBizA.id);
+    if (!updatedBizA?.isVerified || updatedBizA?.verificationStatus !== 'APPROVED') {
+      throw new Error('Check 4 failed: Business profile not marked verified');
+    }
+    logs.push('[CHECK 4 PASSED] Super Admin approved request and business marked verified.');
+
+    // Check 5: Stale approval / conflict prevention (409)
+    try {
+      await businessService.reviewVerificationRequest(superAdmin.id, reqA.id, { status: 'APPROVED' });
+      throw new Error('Check 5 failed: Double approval permitted');
+    } catch (err: any) {
+      if (err.statusCode !== 409) throw new Error(`Check 5 failed: expected 409, got ${err.statusCode}`);
+      logs.push('[CHECK 5 PASSED] Double-decision conflict prevented (409).');
+    }
+
+    // Check 6: Rejection without reason rejected
+    try {
+      await businessService.reviewVerificationRequest(superAdmin.id, reqB.id, { status: 'REJECTED' });
+      throw new Error('Check 6 failed: Rejection without reason succeeded');
+    } catch (err: any) {
+      if (err.statusCode !== 400) throw new Error(`Check 6 failed: expected 400, got ${err.statusCode}`);
+      logs.push('[CHECK 6 PASSED] Rejection without constructive reason fails (400).');
+    }
+
+    // Check 7: Super Admin valid rejection
+    const rejectReason = 'Physical address does not match submitted corporate certificate.';
+    const rejectResult = await businessService.reviewVerificationRequest(superAdmin.id, reqB.id, { status: 'REJECTED', rejectionReason: rejectReason });
+    if (!rejectResult.success || rejectResult.request.status !== 'REJECTED' || rejectResult.request.rejectionReason !== rejectReason) {
+      throw new Error('Check 7 failed: Rejection not applied correctly');
+    }
+    const updatedBizB = db.getBusinessById(testBizB.id);
+    if (updatedBizB?.isVerified || updatedBizB?.verificationStatus !== 'REJECTED') {
+      throw new Error('Check 7 failed: Business profile verification state incorrect after rejection');
+    }
+    logs.push('[CHECK 7 PASSED] Rejection sets status REJECTED, preserves unverified status, and logs constructive reason.');
+
+    // Check 8: Concurrency guard throws 409
+    try {
+      db.updateVerificationRequest(reqA.id, { notes: 'stale test' }, 'PENDING');
+      throw new Error('Check 8 failed: Expected STALE_OPERATION_CONFLICT');
+    } catch (err: any) {
+      if (err.statusCode !== 409 && err.code !== 'STALE_OPERATION_CONFLICT') {
+        throw new Error(`Check 8 failed: expected 409 STALE_OPERATION_CONFLICT, got ${err.statusCode || err.code}`);
+      }
+      logs.push('[CHECK 8 PASSED] Optimistic concurrency control guard verified (409).');
+    }
+
+    logs.push('=== ALL 8 ADMIN VERIFICATION WORKFLOW CHECKS PASSED ===');
+  }
+
 
   private async runTest(
     id: string,

@@ -38,11 +38,14 @@ import {
   Navigation,
   Clock,
   Calendar,
-  Copy
+  Copy,
+  XCircle,
+  ShieldAlert,
+  RefreshCw
 } from 'lucide-react';
 import { AdvertisementCard } from './AdvertisementCard';
 import { businessApi } from '../lib/api';
-import { NIGERIAN_STATES, LocationCoordinates, DAYS_OF_WEEK, OpeningHour, TimePeriod, formatOpeningHourDisplay, formatTime12h } from '../types';
+import { NIGERIAN_STATES, LocationCoordinates, DAYS_OF_WEEK, OpeningHour, TimePeriod, formatOpeningHourDisplay, formatTime12h, PublicVerificationRequestDTO, BusinessVerificationStatus } from '../types';
 
 export const MerchantDashboardView: React.FC = () => {
   const { 
@@ -893,6 +896,99 @@ export const MerchantDashboardView: React.FC = () => {
     }
   };
 
+  // Business Verification Request States & Logic (Epic 2 Feature 2.3 Tasks 2.3.1 & 2.3.2)
+  const [verificationRequest, setVerificationRequest] = useState<PublicVerificationRequestDTO | null>(null);
+  const [verificationStatus, setVerificationStatus] = useState<BusinessVerificationStatus>('NOT_SUBMITTED');
+  const [canResubmit, setCanResubmit] = useState(true);
+  const [isLoadingVerification, setIsLoadingVerification] = useState(false);
+  const [isSubmittingVerification, setIsSubmittingVerification] = useState(false);
+  const [verificationNotes, setVerificationNotes] = useState('');
+  const [verificationMessage, setVerificationMessage] = useState<{ text: string; isError: boolean } | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (userBiz?.id && isOwner) {
+      setIsLoadingVerification(true);
+      businessApi.getVerificationRequest(userBiz.id)
+        .then(res => {
+          if (isMounted && res.success) {
+            setVerificationRequest(res.request || null);
+            setVerificationStatus(res.status || (res.isVerified ? 'APPROVED' : 'NOT_SUBMITTED'));
+            setCanResubmit(res.canResubmit !== undefined ? res.canResubmit : true);
+          }
+        })
+        .catch(() => {
+          if (isMounted) {
+            setVerificationStatus(userBiz.isVerified ? 'APPROVED' : 'NOT_SUBMITTED');
+          }
+        })
+        .finally(() => {
+          if (isMounted) setIsLoadingVerification(false);
+        });
+    } else {
+      setVerificationRequest(null);
+      setVerificationStatus(userBiz?.isVerified ? 'APPROVED' : 'NOT_SUBMITTED');
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [userBiz?.id, userBiz?.isVerified, isOwner]);
+
+  const isMerchantProfileEligible = Boolean(
+    userBiz?.name && userBiz.name.trim().length >= 2 &&
+    userBiz?.description && userBiz.description.trim().length >= 10 &&
+    (userBiz?.category || (Array.isArray(userBiz?.categories) && userBiz.categories.length > 0)) &&
+    userBiz?.location && (userBiz.location.city || userBiz.location.address || userBiz.location.state) &&
+    (userBiz?.phone || userBiz?.email || userBiz?.whatsapp)
+  );
+
+  const handleSubmitVerification = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!userBiz || isSubmittingVerification) return;
+
+    if (!isMerchantProfileEligible) {
+      setVerificationMessage({
+        text: 'Please complete all required profile fields (name, description min 10 chars, category, location, and contact) before submitting for verification.',
+        isError: true
+      });
+      return;
+    }
+
+    setIsSubmittingVerification(true);
+    setVerificationMessage(null);
+
+    try {
+      const res = await businessApi.submitVerificationRequest(userBiz.id, {
+        notes: verificationNotes.trim() || undefined
+      });
+
+      if (res.success && res.request) {
+        setVerificationRequest(res.request);
+        setVerificationStatus('PENDING');
+        setCanResubmit(false);
+        setVerificationNotes('');
+        setVerificationMessage({
+          text: res.message || 'Verification request submitted successfully. Our team will review your business.',
+          isError: false
+        });
+        await refreshData();
+      } else {
+        setVerificationMessage({
+          text: 'Failed to submit verification request.',
+          isError: true
+        });
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to submit verification request.';
+      setVerificationMessage({
+        text: msg,
+        isError: true
+      });
+    } finally {
+      setIsSubmittingVerification(false);
+    }
+  };
+
   return (
     <div id="merchant-dashboard-view" className="min-h-screen pb-20 text-slate-900 dark:text-slate-100 transition-colors">
       
@@ -1030,7 +1126,11 @@ export const MerchantDashboardView: React.FC = () => {
                 <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
                   {userBiz?.name || 'Business Advertising Hub'}
                 </h1>
-                <ShieldCheck className="w-5 h-5 text-indigo-600 dark:text-cyan-400" />
+                {userBiz?.isVerified ? (
+                  <span id="business-verified-badge" title="Verified Business" className="inline-flex items-center text-emerald-600 dark:text-emerald-400">
+                    <ShieldCheck className="w-5 h-5" />
+                  </span>
+                ) : null}
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 {(userBiz?.categories && userBiz.categories.length > 0)
@@ -2311,6 +2411,362 @@ export const MerchantDashboardView: React.FC = () => {
               )}
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Business Verification Request & Status Section (Epic 2 Feature 2.3 Tasks 2.3.1 & 2.3.2) */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
+        <div 
+          id="business-verification-card" 
+          className="glass-card p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white/70 dark:bg-slate-900/60 shadow-sm"
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200/60 dark:border-slate-800">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">
+                <ShieldCheck className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  Business Verification
+                  {verificationStatus === 'APPROVED' || userBiz?.isVerified ? (
+                    <span id="verification-badge-approved" className="px-2 py-0.5 text-[11px] font-semibold rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                      Verified
+                    </span>
+                  ) : verificationStatus === 'PENDING' ? (
+                    <span id="verification-badge-pending" className="px-2 py-0.5 text-[11px] font-semibold rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                      Under Review
+                    </span>
+                  ) : verificationStatus === 'REJECTED' ? (
+                    <span id="verification-badge-rejected" className="px-2 py-0.5 text-[11px] font-semibold rounded-full bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                      Rejected
+                    </span>
+                  ) : (
+                    <span id="verification-badge-unsubmitted" className="px-2 py-0.5 text-[11px] font-semibold rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+                      Not Submitted
+                    </span>
+                  )}
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Official merchant status and trust certification for <span className="font-semibold text-slate-700 dark:text-slate-300">{userBiz?.name || 'this business'}</span>
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Feedback Message */}
+          {verificationMessage && (
+            <div
+              id="verification-feedback-alert"
+              className={`mt-4 p-3 rounded-xl text-xs flex items-center gap-2 ${
+                verificationMessage.isError
+                  ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                  : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+              }`}
+            >
+              {verificationMessage.isError ? (
+                <AlertCircle className="w-4 h-4 shrink-0" />
+              ) : (
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+              )}
+              <span>{verificationMessage.text}</span>
+            </div>
+          )}
+
+          {/* Verification States */}
+          <div className="mt-4">
+            {verificationStatus === 'APPROVED' || userBiz?.isVerified ? (
+              <div 
+                id="verification-status-verified"
+                className="p-4 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/60 flex items-start gap-3.5"
+              >
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 mt-0.5 shrink-0" />
+                <div>
+                  <h4 className="text-sm font-bold text-emerald-900 dark:text-emerald-200">
+                    Business Verified by Boost Market
+                  </h4>
+                  <p className="text-xs text-emerald-700 dark:text-emerald-300/80 mt-1 leading-relaxed">
+                    This business has successfully undergone identity and authenticity verification. Your verified trust badge is active on your public business page and in marketplace listings.
+                  </p>
+                  {verificationRequest?.reviewedAt && (
+                    <p className="text-[11px] text-emerald-600/90 dark:text-emerald-400/90 mt-2">
+                      Approved on: {new Date(verificationRequest.reviewedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ) : verificationStatus === 'PENDING' || (verificationRequest?.status === 'PENDING' && !userBiz?.isVerified) ? (
+              <div 
+                id="verification-status-pending"
+                className="p-4 rounded-xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/60"
+              >
+                <div className="flex items-start gap-3">
+                  <Clock className="w-5 h-5 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+                  <div className="flex-1">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                      <h4 className="text-sm font-bold text-amber-900 dark:text-amber-200">
+                        Verification Request Under Review
+                      </h4>
+                      {verificationRequest?.id && (
+                        <span className="text-[11px] font-mono text-amber-700 dark:text-amber-400">
+                          Ref: {verificationRequest.id}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-amber-700 dark:text-amber-300/90 mt-1 leading-relaxed">
+                      Your verification request has been submitted and is currently being reviewed by the Boost Market moderation team. 
+                      Submitting a request does not mean automatic approval; our team verifies information to ensure marketplace safety.
+                    </p>
+                    {verificationRequest?.submittedAt && (
+                      <div className="mt-2.5 pt-2 border-t border-amber-200/60 dark:border-amber-800/40 flex flex-wrap items-center gap-4 text-[11px] text-amber-800 dark:text-amber-300">
+                        <span>Submitted: {new Date(verificationRequest.submittedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                        {verificationRequest.notes && (
+                          <span className="italic">Note: &ldquo;{verificationRequest.notes}&rdquo;</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : verificationStatus === 'REJECTED' ? (
+              <div 
+                id="verification-status-rejected"
+                className="space-y-4"
+              >
+                <div className="p-4 rounded-xl bg-rose-50/70 dark:bg-rose-950/30 border border-rose-200/80 dark:border-rose-800/60">
+                  <div className="flex items-start gap-3">
+                    <XCircle className="w-5 h-5 text-rose-600 dark:text-rose-400 mt-0.5 shrink-0" />
+                    <div className="flex-1">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                        <h4 className="text-sm font-bold text-rose-900 dark:text-rose-200">
+                          Verification Request Rejected
+                        </h4>
+                        {verificationRequest?.id && (
+                          <span className="text-[11px] font-mono text-rose-700 dark:text-rose-400">
+                            Ref: {verificationRequest.id}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-rose-700 dark:text-rose-300/90 mt-1 leading-relaxed">
+                        Your previous verification request was reviewed and could not be approved at this time.
+                      </p>
+                      {verificationRequest?.rejectionReason && (
+                        <div className="mt-2 p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/60 border border-rose-200 dark:border-rose-900 text-xs">
+                          <strong className="text-rose-900 dark:text-rose-200 block mb-0.5">Reason provided by compliance team:</strong>
+                          <span className="text-rose-700 dark:text-rose-300">{verificationRequest.rejectionReason}</span>
+                        </div>
+                      )}
+                      {verificationRequest?.reviewedAt && (
+                        <p className="text-[11px] text-rose-600 dark:text-rose-400 mt-2">
+                          Reviewed on: {new Date(verificationRequest.reviewedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {canResubmit && isOwner && (
+                  <div id="verification-resubmit-container" className="p-4 rounded-xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-1.5">
+                      <RefreshCw className="w-3.5 h-3.5 text-blue-600" />
+                      Resubmit Verification Request
+                    </h4>
+                    <p className="text-xs text-slate-600 dark:text-slate-400 mb-3">
+                      Please update your profile details to address the reason above, then provide any corrective notes below and resubmit.
+                    </p>
+                    <form onSubmit={handleSubmitVerification} className="space-y-4">
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label 
+                            htmlFor="verification-notes-resubmit" 
+                            className="block text-xs font-semibold text-slate-700 dark:text-slate-300"
+                          >
+                            Corrective Notes / Updates for Reviewer
+                          </label>
+                          <span className="text-[11px] text-slate-400 font-mono">
+                            {verificationNotes.length}/500
+                          </span>
+                        </div>
+                        <textarea
+                          id="verification-notes-resubmit"
+                          rows={3}
+                          maxLength={500}
+                          value={verificationNotes}
+                          onChange={(e) => setVerificationNotes(e.target.value)}
+                          disabled={isSubmittingVerification}
+                          placeholder="Explain what was updated or provide additional documentation/links..."
+                          className="w-full px-3.5 py-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all resize-none disabled:opacity-50"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between pt-1">
+                        <p className="text-[11px] text-slate-400">
+                          Resubmitting as owner of <span className="font-semibold text-slate-600 dark:text-slate-300">{userBiz?.name}</span>
+                        </p>
+                        <button
+                          type="submit"
+                          id="resubmit-verification-btn"
+                          disabled={isSubmittingVerification || !userBiz}
+                          className="px-5 py-2.5 text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-sm flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isSubmittingVerification ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              <span>Submitting Request...</span>
+                            </>
+                          ) : (
+                            <>
+                              <RefreshCw className="w-4 h-4" />
+                              <span>Resubmit Request</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div id="verification-request-form-container">
+                <div className="p-4 rounded-xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 mb-4">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
+                    Why verify your business?
+                  </h4>
+                  <ul className="text-xs text-slate-600 dark:text-slate-400 space-y-1.5 list-disc list-inside">
+                    <li><strong className="text-slate-800 dark:text-slate-200">Trust & Authenticity:</strong> Reassure customers that your business is genuine and vetted.</li>
+                    <li><strong className="text-slate-800 dark:text-slate-200">Verified Badge:</strong> Earn the official Boost Market verification badge on your public page.</li>
+                    <li><strong className="text-slate-800 dark:text-slate-200">Priority Discovery:</strong> Enhanced placement in category browses and customer recommendations.</li>
+                  </ul>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-2.5 pt-2 border-t border-slate-200 dark:border-slate-700/60">
+                    <strong className="text-slate-700 dark:text-slate-300">Important:</strong> Verification submission does not guarantee automatic approval. Every request is reviewed by Boost Market compliance. Please ensure your contact details, location, and operating hours are up to date before submitting.
+                  </p>
+                </div>
+
+                {isOwner ? (
+                  <form onSubmit={handleSubmitVerification} className="space-y-4">
+                    {/* Eligibility Checklist (Epic 2 Feature 2.3 Task 2.3.1) */}
+                    <div className="p-3.5 rounded-xl bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                          Profile Eligibility Checklist
+                        </h4>
+                        <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                          isMerchantProfileEligible 
+                            ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300' 
+                            : 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'
+                        }`}>
+                          {isMerchantProfileEligible ? 'Eligible to Submit' : 'Profile Incomplete'}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                        <div className="flex items-center gap-1.5">
+                          {userBiz?.name && userBiz.name.trim().length >= 2 ? (
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          ) : (
+                            <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                          )}
+                          <span className={userBiz?.name && userBiz.name.trim().length >= 2 ? 'text-slate-700 dark:text-slate-300' : 'text-amber-600 font-medium'}>
+                            Business Name (min 2 chars)
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          {userBiz?.description && userBiz.description.trim().length >= 10 ? (
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          ) : (
+                            <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                          )}
+                          <span className={userBiz?.description && userBiz.description.trim().length >= 10 ? 'text-slate-700 dark:text-slate-300' : 'text-amber-600 font-medium'}>
+                            Description (min 10 chars)
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          {userBiz?.category || (Array.isArray(userBiz?.categories) && userBiz.categories.length > 0) ? (
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          ) : (
+                            <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                          )}
+                          <span className={userBiz?.category || (Array.isArray(userBiz?.categories) && userBiz.categories.length > 0) ? 'text-slate-700 dark:text-slate-300' : 'text-amber-600 font-medium'}>
+                            Category Assigned
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          {userBiz?.location && (userBiz.location.city || userBiz.location.address || userBiz.location.state) ? (
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          ) : (
+                            <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                          )}
+                          <span className={userBiz?.location && (userBiz.location.city || userBiz.location.address || userBiz.location.state) ? 'text-slate-700 dark:text-slate-300' : 'text-amber-600 font-medium'}>
+                            Location (City/Address)
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 sm:col-span-2">
+                          {userBiz?.phone || userBiz?.email || userBiz?.whatsapp ? (
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          ) : (
+                            <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                          )}
+                          <span className={userBiz?.phone || userBiz?.email || userBiz?.whatsapp ? 'text-slate-700 dark:text-slate-300' : 'text-amber-600 font-medium'}>
+                            Contact (Phone, Email, or WhatsApp)
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label 
+                          htmlFor="verification-notes-input" 
+                          className="block text-xs font-semibold text-slate-700 dark:text-slate-300"
+                        >
+                          Additional Notes for Verification Team (Optional)
+                        </label>
+                        <span className="text-[11px] text-slate-400 font-mono">
+                          {verificationNotes.length}/500
+                        </span>
+                      </div>
+                      <textarea
+                        id="verification-notes-input"
+                        rows={3}
+                        maxLength={500}
+                        value={verificationNotes}
+                        onChange={(e) => setVerificationNotes(e.target.value)}
+                        disabled={isSubmittingVerification}
+                        placeholder="Provide any helpful context, CAC registration number, reference links, or notes to help our team review your business quickly..."
+                        className="w-full px-3.5 py-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all resize-none disabled:opacity-50"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <p className="text-[11px] text-slate-400">
+                        Submitting as owner of <span className="font-semibold text-slate-600 dark:text-slate-300">{userBiz?.name}</span> ({userBiz?.id})
+                      </p>
+                      <button
+                        type="submit"
+                        id="submit-verification-btn"
+                        disabled={isSubmittingVerification || !userBiz || !isMerchantProfileEligible}
+                        className="px-5 py-2.5 text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-sm flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isSubmittingVerification ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span>Submitting Request...</span>
+                          </>
+                        ) : (
+                          <>
+                            <ShieldCheck className="w-4 h-4" />
+                            <span>Submit for Verification</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <p className="text-xs text-slate-400 italic">
+                    Only the business owner can submit a verification request.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

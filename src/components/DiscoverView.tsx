@@ -33,6 +33,7 @@ export const DiscoverView: React.FC = () => {
     advertisements, 
     businesses, 
     categories, 
+    categoryTree,
     currentLocation, 
     searchQuery, 
     setSearchQuery, 
@@ -50,14 +51,88 @@ export const DiscoverView: React.FC = () => {
   // Interactive Reach Calculator State
   const [calcBudget, setCalcBudget] = useState<number>(5000);
 
-  // Filter advertisements based on search, tab, category, and location
+  // Top-level categories (roots) for primary filter bar
+  const topLevelCategories = useMemo(() => {
+    return categories.filter(c => !c.parentId && c.active !== false);
+  }, [categories]);
+
+  // Find active category node if one is selected
+  const activeCategoryObject = useMemo(() => {
+    if (!selectedCategory || selectedCategory === 'all') return null;
+    const q = selectedCategory.toLowerCase();
+    return categories.find(c => 
+      c.id.toLowerCase() === q || 
+      c.slug.toLowerCase() === q || 
+      c.name.toLowerCase() === q
+    ) || null;
+  }, [selectedCategory, categories]);
+
+  // Find root parent sector of currently selected category
+  const activeRootSector = useMemo(() => {
+    if (!activeCategoryObject) return null;
+    let curr = activeCategoryObject;
+    let guard = 0;
+    while (curr.parentId && guard < 5) {
+      guard++;
+      const p = categories.find(c => c.id === curr.parentId);
+      if (p) curr = p;
+      else break;
+    }
+    return curr;
+  }, [activeCategoryObject, categories]);
+
+  // Subcategories belonging to the active root sector
+  const activeSectorSubcategories = useMemo(() => {
+    if (!activeRootSector) return [];
+    return categories.filter(c => c.parentId === activeRootSector.id && c.active !== false);
+  }, [activeRootSector, categories]);
+
+  // Matching Category Identifiers (Hierarchical: includes parent AND all its descendants!)
+  const matchingCategoryIdentifiers = useMemo(() => {
+    if (!selectedCategory || selectedCategory === 'all') return null;
+
+    const ids = new Set<string>();
+    const query = selectedCategory.toLowerCase();
+
+    const targetCat = categories.find(c => 
+      c.id.toLowerCase() === query || 
+      c.slug.toLowerCase() === query || 
+      c.name.toLowerCase() === query
+    );
+
+    if (!targetCat) {
+      ids.add(query);
+      return ids;
+    }
+
+    ids.add(targetCat.id.toLowerCase());
+    ids.add(targetCat.slug.toLowerCase());
+    ids.add(targetCat.name.toLowerCase());
+
+    const addDescendants = (parentId: string) => {
+      const children = categories.filter(c => c.parentId === parentId);
+      for (const child of children) {
+        ids.add(child.id.toLowerCase());
+        ids.add(child.slug.toLowerCase());
+        ids.add(child.name.toLowerCase());
+        addDescendants(child.id);
+      }
+    };
+    addDescendants(targetCat.id);
+
+    return ids;
+  }, [selectedCategory, categories]);
+
+  // Filter advertisements based on search, tab, hierarchical category, and location
   const filteredAds = useMemo(() => {
     return advertisements.filter(ad => {
-      // Category Match
-      if (selectedCategory && selectedCategory !== 'all') {
-        const catMatch = ad.category?.toLowerCase() === selectedCategory.toLowerCase() ||
-                         ad.businessCategory?.toLowerCase() === selectedCategory.toLowerCase();
-        if (!catMatch) return false;
+      // Hierarchical Category Match
+      if (matchingCategoryIdentifiers) {
+        const adCat = ad.category?.toLowerCase();
+        const bizCat = ad.businessCategory?.toLowerCase();
+        const matches = (adCat && matchingCategoryIdentifiers.has(adCat)) ||
+                        (bizCat && matchingCategoryIdentifiers.has(bizCat));
+        if (!matches) return false;
       }
 
       // Search Query Match
@@ -83,18 +158,21 @@ export const DiscoverView: React.FC = () => {
 
       return true;
     }).sort((a, b) => {
-      // Boosted ads always take visual priority in the discovery stream
       if (a.isBoosted && !b.isBoosted) return -1;
       if (!a.isBoosted && b.isBoosted) return 1;
       return (b.viewsCount || 0) - (a.viewsCount || 0);
     });
-  }, [advertisements, selectedCategory, searchQuery, feedTab, currentLocation]);
+  }, [advertisements, matchingCategoryIdentifiers, searchQuery, feedTab, currentLocation]);
 
-  // Filtered businesses for the business directory tab
+  // Filtered businesses with hierarchical category matching
   const filteredBusinesses = useMemo(() => {
     return businesses.filter(b => {
-      if (selectedCategory && selectedCategory !== 'all') {
-        if (b.category?.toLowerCase() !== selectedCategory.toLowerCase()) return false;
+      if (matchingCategoryIdentifiers) {
+        const bCat = b.category?.toLowerCase();
+        const hasMatch = (bCat && matchingCategoryIdentifiers.has(bCat)) ||
+                         (b.categories && b.categories.some((cid: string) => matchingCategoryIdentifiers.has(cid.toLowerCase()))) ||
+                         (b.subcategories && b.subcategories.some((sub: string) => matchingCategoryIdentifiers.has(sub.toLowerCase())));
+        if (!hasMatch) return false;
       }
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
@@ -102,7 +180,7 @@ export const DiscoverView: React.FC = () => {
       }
       return true;
     });
-  }, [businesses, selectedCategory, searchQuery]);
+  }, [businesses, matchingCategoryIdentifiers, searchQuery]);
 
   const scrollToFeed = () => {
     const el = document.getElementById('advertising-feed');
@@ -417,33 +495,83 @@ export const DiscoverView: React.FC = () => {
           </div>
         </div>
 
-        {/* Category Filter Pills */}
-        <div className="pt-4 pb-6 flex items-center gap-2 overflow-x-auto scrollbar-none">
-          <button
-            onClick={() => setSelectedCategory('all')}
-            className={`px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
-              selectedCategory === 'all'
-                ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-bold shadow-xs'
-                : 'glass-pill text-slate-600 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800'
-            }`}
-          >
-            All Categories
-          </button>
-
-          {categories.map((c) => (
+        {/* Category Filter Pills (Hierarchical: Root Sectors + Nested Subcategories) */}
+        <div className="pt-4 pb-2 space-y-2.5">
+          {/* Primary Level: All Categories + Top-Level Industry Sectors */}
+          <div className="flex items-center gap-2 overflow-x-auto scrollbar-none pb-1">
             <button
-              key={c.id}
-              onClick={() => setSelectedCategory(c.id)}
-              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 ${
-                selectedCategory === c.id
-                  ? 'bg-indigo-600 text-white font-bold shadow-xs'
+              onClick={() => setSelectedCategory('all')}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                selectedCategory === 'all'
+                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-bold shadow-xs'
                   : 'glass-pill text-slate-600 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800'
               }`}
             >
-              <span>{c.iconName || '🏷️'}</span>
-              <span>{c.name}</span>
+              All Categories
             </button>
-          ))}
+
+            {topLevelCategories.map((c) => {
+              const isDirectlySelected = selectedCategory === c.id || selectedCategory === c.slug;
+              const isDescendantSelected = activeRootSector?.id === c.id;
+              const isActive = isDirectlySelected || isDescendantSelected;
+
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => setSelectedCategory(c.id)}
+                  className={`px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 ${
+                    isActive
+                      ? 'bg-indigo-600 text-white font-bold shadow-xs'
+                      : 'glass-pill text-slate-600 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <span>{c.iconName === 'Layers' ? '📂' : (c.iconName || '🏷️')}</span>
+                  <span>{c.name}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Secondary Level: Subcategories under Active Sector (Epic 3 Feature 3.1 Task 3.1.2) */}
+          {activeRootSector && activeSectorSubcategories.length > 0 && (
+            <div className="flex items-center gap-2 overflow-x-auto scrollbar-none pl-1 py-1.5 bg-slate-100/60 dark:bg-slate-800/40 rounded-xl px-3 border border-slate-200/60 dark:border-slate-700/60">
+              <span className="text-[11px] font-bold text-slate-400 whitespace-nowrap uppercase tracking-wider">
+                {activeRootSector.name} Specialties:
+              </span>
+
+              {/* All in Sector Pill */}
+              <button
+                type="button"
+                onClick={() => setSelectedCategory(activeRootSector.id)}
+                className={`px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer ${
+                  selectedCategory === activeRootSector.id || selectedCategory === activeRootSector.slug
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-white/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-white'
+                }`}
+              >
+                All {activeRootSector.name} ({activeSectorSubcategories.length + 1})
+              </button>
+
+              {/* Child Subcategories */}
+              {activeSectorSubcategories.map((sub) => {
+                const isSelected = selectedCategory === sub.id || selectedCategory === sub.slug;
+                return (
+                  <button
+                    key={sub.id}
+                    type="button"
+                    onClick={() => setSelectedCategory(sub.id)}
+                    className={`px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1 ${
+                      isSelected
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-white/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-white'
+                    }`}
+                  >
+                    <span>{sub.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* FEED CONTENT: Advertisement Cards or Business Profiles */}

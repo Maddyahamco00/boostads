@@ -1,17 +1,19 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Building2, ArrowLeft, Loader2, CheckCircle2, AlertCircle, Tag, Check, MapPin } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Building2, ArrowLeft, Loader2, CheckCircle2, AlertCircle, Tag, Check, MapPin, Search, ChevronDown, ChevronRight, X } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { businessApi, ApiError } from '../lib/api';
-import { NIGERIAN_STATES } from '../types';
+import { NIGERIAN_STATES, CategoryTreeNode } from '../types';
 
 export const CreateBusinessView: React.FC = () => {
-  const { currentUser, setActiveView, setCurrentUser, refreshData, categories } = useApp();
+  const { currentUser, setActiveView, setCurrentUser, refreshData, categories, categoryTree } = useApp();
 
   const [businessName, setBusinessName] = useState('');
   const [businessDescription, setBusinessDescription] = useState('');
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
+  const [categorySearch, setCategorySearch] = useState('');
+  const [expandedSectorIds, setExpandedSectorIds] = useState<Set<string>>(new Set());
   const [locationState, setLocationState] = useState('');
   const [locationCity, setLocationCity] = useState('');
   const [locationAddress, setLocationAddress] = useState('');
@@ -20,6 +22,67 @@ export const CreateBusinessView: React.FC = () => {
   const [categoryError, setCategoryError] = useState<string | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  // Map of category ID to breadcrumb path (e.g. "Construction › HVAC Services")
+  const categoryBreadcrumbs = useMemo(() => {
+    const map = new Map<string, string>();
+    const catMap = new Map<string, any>();
+    categories.forEach(c => catMap.set(c.id, c));
+
+    categories.forEach(c => {
+      const parts: string[] = [c.name];
+      let curr = c;
+      let depthGuard = 0;
+      while (curr.parentId && depthGuard < 5) {
+        depthGuard++;
+        const parent = catMap.get(curr.parentId);
+        if (parent) {
+          parts.unshift(parent.name);
+          curr = parent;
+        } else {
+          break;
+        }
+      }
+      map.set(c.id, parts.join(' › '));
+    });
+    return map;
+  }, [categories]);
+
+  // Hierarchical display tree
+  const displayTree = useMemo(() => {
+    if (categoryTree && categoryTree.length > 0) {
+      return categoryTree;
+    }
+    const rootNodes: any[] = [];
+    const childrenMap = new Map<string, any[]>();
+
+    categories.forEach(cat => {
+      if (cat.parentId) {
+        const arr = childrenMap.get(cat.parentId) || [];
+        arr.push(cat);
+        childrenMap.set(cat.parentId, arr);
+      }
+    });
+
+    categories.forEach(cat => {
+      if (!cat.parentId) {
+        rootNodes.push({
+          ...cat,
+          children: childrenMap.get(cat.id) || []
+        });
+      }
+    });
+    return rootNodes;
+  }, [categoryTree, categories]);
+
+  const toggleSectorExpanded = (sectorId: string) => {
+    setExpandedSectorIds(prev => {
+      const next = new Set(prev);
+      if (next.has(sectorId)) next.delete(sectorId);
+      else next.add(sectorId);
+      return next;
+    });
+  };
 
   // Client-side validation matching backend rules
   const validate = (value: string): string | null => {
@@ -261,15 +324,15 @@ export const CreateBusinessView: React.FC = () => {
             </p>
           </div>
 
-          {/* Categories Selection */}
+          {/* Hierarchical Categories Selection (Epic 3 Feature 3.1 Task 3.1.2) */}
           <div>
             <div className="flex justify-between items-center mb-1.5">
               <label className="block text-sm font-semibold text-slate-800 flex items-center gap-1.5">
                 <Tag className="w-4 h-4 text-emerald-600" />
-                <span>Categories</span>
+                <span>Business Sectors & Subcategories</span>
                 <span className="text-xs font-normal text-slate-400">(Optional, up to 5)</span>
               </label>
-              <span className="text-xs text-slate-400">
+              <span className="text-xs font-medium text-slate-500">
                 {selectedCategoryIds.length}/5 selected
               </span>
             </div>
@@ -278,32 +341,146 @@ export const CreateBusinessView: React.FC = () => {
               <p className="mb-2 text-xs text-red-600 font-medium">{categoryError}</p>
             )}
 
-            <div className="flex flex-wrap gap-2 pt-1">
-              {categories
-                .filter(cat => cat.active !== false)
-                .map((cat) => {
-                  const isSelected = selectedCategoryIds.includes(cat.id);
+            {/* Selected Categories with Breadcrumbs */}
+            {selectedCategoryIds.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2.5 p-2.5 bg-emerald-50/70 border border-emerald-200/80 rounded-xl">
+                {selectedCategoryIds.map(id => {
+                  const cat = categories.find(c => c.id === id);
+                  if (!cat) return null;
+                  const breadcrumb = categoryBreadcrumbs.get(id) || cat.name;
                   return (
-                    <button
-                      key={cat.id}
-                      type="button"
-                      id={`create-biz-cat-${cat.id}`}
-                      onClick={() => handleToggleCategory(cat.id)}
-                      disabled={isSubmitting || !!successMessage}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors cursor-pointer ${
-                        isSelected
-                          ? 'bg-emerald-50 border-emerald-300 text-emerald-800 font-semibold'
-                          : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
-                      }`}
+                    <span 
+                      key={id}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg bg-white border border-emerald-300 text-emerald-800 shadow-2xs"
                     >
-                      {isSelected && <Check className="w-3.5 h-3.5 text-emerald-600" />}
-                      <span>{cat.name}</span>
-                    </button>
+                      <span>{breadcrumb}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleCategory(id)}
+                        className="text-emerald-500 hover:text-red-500 cursor-pointer transition-colors"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </span>
                   );
                 })}
+              </div>
+            )}
+
+            {/* Search Filter for Fast Finding */}
+            <div className="relative mb-3">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={categorySearch}
+                onChange={(e) => setCategorySearch(e.target.value)}
+                placeholder="Filter categories or subcategories (e.g. HVAC, Roofing, Dental)..."
+                className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#16C784] focus:bg-white text-slate-800"
+              />
             </div>
+
+            {/* Hierarchical Browser or Filtered List */}
+            {categorySearch.trim() ? (
+              <div className="flex flex-wrap gap-2 max-h-56 overflow-y-auto p-1">
+                {categories
+                  .filter(cat => cat.active !== false && (
+                    cat.name.toLowerCase().includes(categorySearch.toLowerCase()) ||
+                    cat.description?.toLowerCase().includes(categorySearch.toLowerCase()) ||
+                    cat.subcategories?.some(s => s.toLowerCase().includes(categorySearch.toLowerCase()))
+                  ))
+                  .map(cat => {
+                    const isSelected = selectedCategoryIds.includes(cat.id);
+                    const breadcrumb = categoryBreadcrumbs.get(cat.id) || cat.name;
+                    return (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        id={`create-biz-cat-${cat.id}`}
+                        onClick={() => handleToggleCategory(cat.id)}
+                        disabled={isSubmitting || !!successMessage}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors cursor-pointer ${
+                          isSelected
+                            ? 'bg-emerald-50 border-emerald-300 text-emerald-800 font-semibold'
+                            : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
+                        }`}
+                      >
+                        {isSelected && <Check className="w-3.5 h-3.5 text-emerald-600" />}
+                        <span>{breadcrumb}</span>
+                      </button>
+                    );
+                  })}
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                {displayTree
+                  .filter(sector => sector.status !== 'INACTIVE')
+                  .map(sector => {
+                    const hasChildren = sector.children && sector.children.length > 0;
+                    const isExpanded = expandedSectorIds.has(sector.id);
+                    const isSectorSelected = selectedCategoryIds.includes(sector.id);
+
+                    return (
+                      <div key={sector.id} className="border border-slate-200 rounded-xl overflow-hidden bg-white">
+                        <div className="flex items-center justify-between p-2.5 bg-slate-50 hover:bg-slate-100/80 transition-colors">
+                          <button
+                            type="button"
+                            id={`create-biz-cat-${sector.id}`}
+                            onClick={() => handleToggleCategory(sector.id)}
+                            disabled={isSubmitting || !!successMessage}
+                            className={`inline-flex items-center gap-2 px-2.5 py-1 text-xs font-semibold rounded-lg border transition-colors cursor-pointer ${
+                              isSectorSelected
+                                ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                                : 'bg-white border-slate-200 text-slate-800 hover:border-slate-300'
+                            }`}
+                          >
+                            {isSectorSelected && <Check className="w-3.5 h-3.5 text-emerald-600" />}
+                            <span>{sector.name}</span>
+                          </button>
+
+                          {hasChildren && (
+                            <button
+                              type="button"
+                              onClick={() => toggleSectorExpanded(sector.id)}
+                              className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-slate-800 px-2 py-1 rounded cursor-pointer"
+                            >
+                              <span>{sector.children.length} subcategories</span>
+                              {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                            </button>
+                          )}
+                        </div>
+
+                        {hasChildren && isExpanded && (
+                          <div className="p-3 bg-white border-t border-slate-100 flex flex-wrap gap-2">
+                            {sector.children.map((child: any) => {
+                              const isChildSelected = selectedCategoryIds.includes(child.id);
+                              return (
+                                <button
+                                  key={child.id}
+                                  type="button"
+                                  id={`create-biz-cat-${child.id}`}
+                                  onClick={() => handleToggleCategory(child.id)}
+                                  disabled={isSubmitting || !!successMessage}
+                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors cursor-pointer ${
+                                    isChildSelected
+                                      ? 'bg-emerald-50 border-emerald-300 text-emerald-800 font-semibold'
+                                      : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
+                                  }`}
+                                >
+                                  {isChildSelected && <Check className="w-3.5 h-3.5 text-emerald-600" />}
+                                  <span>{child.name}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+
             <p className="mt-2 text-xs text-slate-400">
-              Select all categories relevant to your business. You can update them at any time.
+              Select primary sectors and specific subcategories that best represent your services. You can update your specialties anytime.
             </p>
           </div>
 

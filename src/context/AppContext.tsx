@@ -5,7 +5,9 @@ import {
   UserProfile, 
   Business, 
   Advertisement, 
-  CategoryConfig, 
+  Category,
+  CategoryConfig,
+  CategoryTreeNode,
   SubscriptionPlan, 
   Invoice, 
   Conversation, 
@@ -64,7 +66,8 @@ interface AppContextType {
   // Data Collections
   businesses: Business[];
   advertisements: Advertisement[];
-  categories: CategoryConfig[];
+  categories: Category[];
+  categoryTree: CategoryTreeNode[];
   subscriptionPlans: SubscriptionPlan[];
   invoices: Invoice[];
   conversations: Conversation[];
@@ -372,7 +375,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [advertisements, setAdvertisements] = useState<Advertisement[]>([]);
-  const [categories, setCategories] = useState<CategoryConfig[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [categoryTree, setCategoryTree] = useState<CategoryTreeNode[]>([]);
   const [subscriptionPlans, setSubscriptionPlans] = useState<SubscriptionPlan[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -390,6 +394,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         bizRes,
         adsRes,
         catRes,
+        treeRes,
         plansRes,
         invRes,
         convRes,
@@ -403,6 +408,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         fetch('/api/businesses').then(r => r.json()),
         fetch('/api/ads').then(r => r.json()),
         fetch('/api/categories').then(r => r.json()),
+        fetch('/api/categories/tree').then(r => r.json()).catch(() => ({ success: false, tree: [] })),
         fetch('/api/subscriptions/plans').then(r => r.json()),
         fetch('/api/invoices').then(r => r.json()),
         fetch('/api/conversations').then(r => r.json()),
@@ -417,6 +423,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (bizRes.success) setBusinesses(bizRes.businesses);
       if (adsRes.success) setAdvertisements(adsRes.ads);
       if (catRes.success) setCategories(catRes.categories);
+      if (treeRes?.success && treeRes?.tree) setCategoryTree(treeRes.tree);
       if (plansRes.success) setSubscriptionPlans(plansRes.plans);
       if (invRes.success) setInvoices(invRes.invoices);
       if (convRes.success) setConversations(convRes.conversations);
@@ -591,6 +598,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         businesses,
         advertisements,
         categories,
+        categoryTree,
         subscriptionPlans,
         invoices,
         conversations,

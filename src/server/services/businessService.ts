@@ -4,12 +4,12 @@
  * Handles business creation, owner binding, validation, and storage synchronization.
  */
 
-import { db, DatabaseUniqueConstraintError, DatabaseValidationError } from '../db';
+import { db, DatabaseUniqueConstraintError, DatabaseValidationError, isDesignatedSuperAdminEmail } from '../db';
 import { authService } from './authService';
 import { auditService } from './auditService';
 import { storageService } from './storageService';
-import { CreateBusinessSchema, UpdateBusinessDescriptionSchema, UpdateBusinessCategoriesSchema, UpdateBusinessLocationSchema, UpdateOpeningHoursSchema, OpeningHoursArraySchema, UpdateBusinessContactSchema, validateAndNormalizeBusinessPhone, validateAndNormalizeBusinessEmail, validateAndNormalizeBusinessWebsite, PROTECTED_BUSINESS_FIELDS } from '../validators/businessValidators';
-import { Business, CategoryConfig, BusinessCategory, LocationCoordinates, OpeningHour, formatOpeningHourDisplay, BusinessContactInfo, PublicBusinessProfile } from '../../types';
+import { CreateBusinessSchema, UpdateBusinessDescriptionSchema, UpdateBusinessCategoriesSchema, UpdateBusinessLocationSchema, UpdateOpeningHoursSchema, OpeningHoursArraySchema, UpdateBusinessContactSchema, validateAndNormalizeBusinessPhone, validateAndNormalizeBusinessEmail, validateAndNormalizeBusinessWebsite, PROTECTED_BUSINESS_FIELDS, SubmitVerificationRequestSchema, validateNoVerificationPrivilegeEscalation, validateBusinessVerificationEligibility } from '../validators/businessValidators';
+import { Business, CategoryConfig, BusinessCategory, LocationCoordinates, OpeningHour, formatOpeningHourDisplay, BusinessContactInfo, PublicBusinessProfile, BusinessVerificationRequest, PublicVerificationRequestDTO, BusinessVerificationStatus, BusinessVerificationStatusResponse } from '../../types';
 
 export class BusinessServiceError extends Error {
   public statusCode: number;
@@ -1671,6 +1671,398 @@ export class BusinessService {
     return {
       success: true,
       business: publicProfile
+    };
+  }
+
+  /**
+   * Submit a business verification request (Epic 2 Feature 2.3 Task 2.3.1)
+   * 
+   * Strict security checks:
+   * 1. Authenticated user must exist and have active status (not suspended/disabled/deleted).
+   * 2. Business must exist in database.
+   * 3. IDOR Protection: authenticated user must be the business owner (or designated Super Admin).
+   * 4. Eligibility check: business cannot already be verified.
+   * 5. One Active Request Constraint: business cannot already have a PENDING request.
+   * 6. Concurrency / Transaction isolation: executed in db.transaction to block race conditions.
+   * 7. Mass-assignment & Privilege escalation rejection: client cannot set status, reviewer, timestamps, or flags.
+   * 8. Sanitized output: returns safe DTO without internal administrative information.
+   */
+  public async submitVerificationRequest(
+    userId: string,
+    businessId: string,
+    payload?: { notes?: string | null },
+    clientIp: string = '127.0.0.1',
+    userAgent: string = 'system'
+  ): Promise<{ success: boolean; message: string; request: PublicVerificationRequestDTO }> {
+    // 1. Verify user exists and is active
+    const user = db.getUserById(userId);
+    if (!user) {
+      throw new BusinessServiceError('User not found.', 404, 'USER_NOT_FOUND');
+    }
+
+    if (user.status === 'SUSPENDED' || user.status === 'DISABLED' || user.status === 'DELETED') {
+      throw new BusinessServiceError('Suspended or inactive accounts cannot submit verification requests.', 403, 'ACCOUNT_INACTIVE');
+    }
+
+    if (user.role !== 'CLIENT' && (user.role as string) !== 'SUPER_ADMIN') {
+      throw new BusinessServiceError('Only business owners can submit verification requests.', 403, 'FORBIDDEN');
+    }
+
+    // 2. Validate business ID
+    if (!businessId || typeof businessId !== 'string' || !businessId.trim()) {
+      throw new BusinessServiceError('Invalid business identifier.', 400, 'INVALID_BUSINESS_ID');
+    }
+
+    // 3. Fetch business
+    const business = db.getBusinessById(businessId.trim());
+    if (!business) {
+      throw new BusinessServiceError('Business not found.', 404, 'BUSINESS_NOT_FOUND');
+    }
+
+    // 4. Strict Server-Side Ownership Check (Anti-IDOR)
+    if (business.ownerId !== userId && (user.role as string) !== 'SUPER_ADMIN') {
+      authService.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+        userId,
+        userEmail: user.email,
+        ipAddress: clientIp,
+        userAgent,
+        details: {
+          reason: 'Cross-business verification submission attempt blocked',
+          businessId: business.id,
+          actualOwnerId: business.ownerId
+        }
+      });
+      throw new BusinessServiceError('Forbidden: You are not authorized to submit verification for this business.', 403, 'FORBIDDEN_NOT_OWNER');
+    }
+
+    // 5. Check if business is already verified
+    if (business.isVerified) {
+      throw new BusinessServiceError('This business is already verified.', 400, 'ALREADY_VERIFIED');
+    }
+
+    // 5b. Verify Business Profile Eligibility (Epic 2 Feature 2.3 Task 2.3.1)
+    const eligibility = validateBusinessVerificationEligibility(business);
+    if (!eligibility.eligible) {
+      throw new BusinessServiceError(
+        eligibility.message || 'Business profile is incomplete. Please complete all required information before requesting verification.',
+        400,
+        'INELIGIBLE_PROFILE',
+        {
+          missingFields: eligibility.missingFields,
+          fieldErrors: eligibility.fieldErrors
+        }
+      );
+    }
+
+    // 6. Pre-check: one active PENDING request constraint
+    const existingPending = db.getActivePendingVerificationRequest(business.id);
+    if (existingPending) {
+      throw new BusinessServiceError(
+        'A verification request is already pending review for this business.',
+        409,
+        'PENDING_REQUEST_EXISTS',
+        { existingRequestId: existingPending.id, submittedAt: existingPending.submittedAt }
+      );
+    }
+
+    // 7. Sanitize notes
+    let sanitizedNotes: string | undefined = undefined;
+    if (payload?.notes && typeof payload.notes === 'string') {
+      sanitizedNotes = payload.notes
+        .replace(/[\u0000-\u001F\u007F]/g, '')
+        .replace(/<[^>]*>/g, '')
+        .trim();
+      if (sanitizedNotes.length > 500) {
+        throw new BusinessServiceError('Verification notes cannot exceed 500 characters.', 400, 'VALIDATION_ERROR');
+      }
+      if (!sanitizedNotes) {
+        sanitizedNotes = undefined;
+      }
+    }
+
+    // 8. Atomic execution inside db.transaction mutex to prevent concurrent duplicate submissions
+    const createdRequest = await db.transaction(async () => {
+      // Re-check atomic invariant inside lock
+      const concurrentPending = db.getActivePendingVerificationRequest(business.id);
+      if (concurrentPending) {
+        throw new BusinessServiceError(
+          'A verification request is already pending review for this business.',
+          409,
+          'PENDING_REQUEST_EXISTS'
+        );
+      }
+
+      return db.createVerificationRequest({
+        businessId: business.id,
+        requesterId: user.id,
+        notes: sanitizedNotes
+      });
+    });
+
+    // 9. Audit log
+    authService.logSecurityEvent('BUSINESS_VERIFICATION_REQUESTED' as any, {
+      userId: user.id,
+      userEmail: user.email,
+      ipAddress: clientIp,
+      userAgent,
+      details: {
+        businessId: business.id,
+        requestId: createdRequest.id,
+        status: createdRequest.status
+      }
+    });
+
+    // 10. Return sanitized DTO (explicit whitelist, no reviewerId, no internal flags)
+    const dto: PublicVerificationRequestDTO = {
+      id: createdRequest.id,
+      businessId: createdRequest.businessId,
+      status: createdRequest.status,
+      submittedAt: createdRequest.submittedAt,
+      createdAt: createdRequest.createdAt,
+      notes: createdRequest.notes
+    };
+
+    return {
+      success: true,
+      message: 'Verification request submitted successfully. Our team will review your business details.',
+      request: dto
+    };
+  }
+
+  /**
+   * Get server-controlled verification status for an owned business (Epic 2 Feature 2.3 Tasks 2.3.1 & 2.3.2)
+   * Enforces:
+   * - Authentication
+   * - Anti-IDOR (Owner only, or SUPER_ADMIN)
+   * - Server-controlled state calculation: NOT_SUBMITTED, PENDING, APPROVED, REJECTED
+   * - Sensitive admin info masking (no reviewerId, no internal flags)
+   */
+  public async getLatestVerificationRequest(
+    userId: string,
+    businessId: string,
+    clientIp: string = '127.0.0.1',
+    userAgent: string = 'system'
+  ): Promise<BusinessVerificationStatusResponse> {
+    const user = db.getUserById(userId);
+    if (!user) {
+      throw new BusinessServiceError('User not found.', 404, 'USER_NOT_FOUND');
+    }
+
+    if (!businessId || typeof businessId !== 'string' || !businessId.trim()) {
+      throw new BusinessServiceError('Invalid business identifier.', 400, 'INVALID_BUSINESS_ID');
+    }
+
+    const business = db.getBusinessById(businessId.trim());
+    if (!business) {
+      throw new BusinessServiceError('Business not found.', 404, 'BUSINESS_NOT_FOUND');
+    }
+
+    if (business.ownerId !== userId && (user.role as string) !== 'SUPER_ADMIN') {
+      authService.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', {
+        userId,
+        userEmail: user.email,
+        ipAddress: clientIp,
+        userAgent,
+        details: {
+          reason: 'Cross-business verification status read attempt blocked',
+          businessId: business.id,
+          actualOwnerId: business.ownerId
+        }
+      });
+      throw new BusinessServiceError('Forbidden: You are not authorized to view verification requests for this business.', 403, 'FORBIDDEN_NOT_OWNER');
+    }
+
+    const pending = db.getActivePendingVerificationRequest(business.id);
+    const requests = db.getVerificationRequestsByBusinessId(business.id);
+    const latest = pending || requests[0] || null;
+
+    let overallStatus: BusinessVerificationStatus = 'NOT_SUBMITTED';
+
+    if (business.isVerified) {
+      overallStatus = 'APPROVED';
+    } else if (pending) {
+      overallStatus = 'PENDING';
+    } else if (latest) {
+      if (latest.status === 'APPROVED') {
+        overallStatus = 'APPROVED';
+      } else if (latest.status === 'REJECTED') {
+        overallStatus = 'REJECTED';
+      } else if (latest.status === 'PENDING') {
+        overallStatus = 'PENDING';
+      } else {
+        overallStatus = 'NOT_SUBMITTED';
+      }
+    } else {
+      overallStatus = 'NOT_SUBMITTED';
+    }
+
+    // Keep business.verificationStatus in sync
+    if (business.verificationStatus !== overallStatus) {
+      business.verificationStatus = overallStatus;
+      db.updateBusiness(business.id, { verificationStatus: overallStatus });
+    }
+
+    const isVerified = overallStatus === 'APPROVED';
+    const canResubmit = overallStatus === 'NOT_SUBMITTED' || overallStatus === 'REJECTED';
+
+    const dto: PublicVerificationRequestDTO | null = latest ? {
+      id: latest.id,
+      businessId: latest.businessId,
+      status: latest.status,
+      submittedAt: latest.submittedAt,
+      reviewedAt: latest.reviewedAt,
+      rejectionReason: latest.status === 'REJECTED' ? latest.rejectionReason : undefined,
+      createdAt: latest.createdAt,
+      notes: latest.notes
+    } : null;
+
+    return {
+      success: true,
+      businessId: business.id,
+      status: overallStatus,
+      isVerified,
+      canResubmit,
+      request: dto
+    };
+  }
+
+  /**
+   * Alias for getLatestVerificationRequest to provide clean semantic naming
+   */
+  public async getBusinessVerificationStatus(
+    userId: string,
+    businessId: string,
+    clientIp: string = '127.0.0.1',
+    userAgent: string = 'system'
+  ): Promise<BusinessVerificationStatusResponse> {
+    return this.getLatestVerificationRequest(userId, businessId, clientIp, userAgent);
+  }
+
+  /**
+   * Check business profile verification eligibility (Epic 2 Feature 2.3 Task 2.3.1)
+   */
+  public checkVerificationEligibility(
+    userId: string,
+    businessId: string
+  ): {
+    success: boolean;
+    businessId: string;
+    eligible: boolean;
+    missingFields: string[];
+    fieldErrors: Record<string, string>;
+    message: string;
+  } {
+    if (!businessId || typeof businessId !== 'string' || !businessId.trim()) {
+      throw new BusinessServiceError('Invalid business identifier.', 400, 'INVALID_BUSINESS_ID');
+    }
+
+    const business = db.getBusinessById(businessId.trim());
+    if (!business) {
+      throw new BusinessServiceError('Business not found.', 404, 'BUSINESS_NOT_FOUND');
+    }
+
+    const user = db.getUserById(userId);
+    if (!user) {
+      throw new BusinessServiceError('User not found.', 404, 'USER_NOT_FOUND');
+    }
+
+    if (business.ownerId !== userId && (user.role as string) !== 'SUPER_ADMIN') {
+      throw new BusinessServiceError('Forbidden: You are not authorized to check eligibility for this business.', 403, 'FORBIDDEN_NOT_OWNER');
+    }
+
+    const eligibility = validateBusinessVerificationEligibility(business);
+    return {
+      success: true,
+      businessId: business.id,
+      eligible: eligibility.eligible,
+      missingFields: eligibility.missingFields,
+      fieldErrors: eligibility.fieldErrors,
+      message: eligibility.message
+    };
+  }
+
+  /**
+   * Controlled Server-side Verification Review (Super Admin Only - Task 2.3.2 state transitions)
+   * Lifecycle transitions strictly enforced:
+   * PENDING -> APPROVED | REJECTED
+   */
+  public async reviewVerificationRequest(
+    adminUserId: string,
+    requestId: string,
+    decision: {
+      status: 'APPROVED' | 'REJECTED';
+      rejectionReason?: string;
+    },
+    clientIp: string = '127.0.0.1',
+    userAgent: string = 'system'
+  ): Promise<{ success: boolean; message: string; request: BusinessVerificationRequest }> {
+    const admin = db.getUserById(adminUserId);
+    if (!admin || admin.role !== 'SUPER_ADMIN' || admin.status !== 'ACTIVE' || !isDesignatedSuperAdminEmail(admin.email)) {
+      throw new BusinessServiceError('Forbidden: Super Admin privileges required.', 403, 'FORBIDDEN_ADMIN_REQUIRED');
+    }
+
+    if (!requestId || typeof requestId !== 'string' || !requestId.trim()) {
+      throw new BusinessServiceError('Invalid verification request ID.', 400, 'INVALID_REQUEST_ID');
+    }
+
+    const req = db.getVerificationRequestById(requestId.trim());
+    if (!req) {
+      throw new BusinessServiceError('Verification request not found.', 404, 'NOT_FOUND');
+    }
+
+    if (req.status !== 'PENDING') {
+      throw new BusinessServiceError(`Cannot review verification request with status ${req.status}. Must be PENDING.`, 409, 'STALE_OPERATION_CONFLICT');
+    }
+
+    if (decision.status !== 'APPROVED' && decision.status !== 'REJECTED') {
+      throw new BusinessServiceError('Decision status must be APPROVED or REJECTED.', 400, 'INVALID_DECISION_STATUS');
+    }
+
+    let sanitizedRejectionReason: string | undefined;
+    if (decision.status === 'REJECTED') {
+      if (!decision.rejectionReason || !decision.rejectionReason.trim()) {
+        throw new BusinessServiceError('A rejection reason is required when rejecting a verification request.', 400, 'REJECTION_REASON_REQUIRED');
+      }
+      const trimmed = decision.rejectionReason.trim();
+      if (trimmed.length < 3) {
+        throw new BusinessServiceError('Rejection reason must be at least 3 characters long.', 400, 'INVALID_REJECTION_REASON');
+      }
+      if (trimmed.length > 500) {
+        throw new BusinessServiceError('Rejection reason must not exceed 500 characters.', 400, 'INVALID_REJECTION_REASON');
+      }
+      sanitizedRejectionReason = trimmed;
+    }
+
+    const now = new Date().toISOString();
+    const updated = db.updateVerificationRequest(
+      req.id,
+      {
+        status: decision.status,
+        reviewedAt: now,
+        reviewerId: admin.id,
+        rejectionReason: decision.status === 'REJECTED' ? sanitizedRejectionReason : undefined
+      },
+      'PENDING'
+    );
+
+    authService.logSecurityEvent('ADMIN_ACTION', {
+      userId: admin.id,
+      userEmail: admin.email,
+      ipAddress: clientIp,
+      userAgent,
+      details: {
+        action: decision.status === 'APPROVED' ? 'BUSINESS_VERIFICATION_APPROVED' : 'BUSINESS_VERIFICATION_REJECTED',
+        requestId: req.id,
+        businessId: req.businessId,
+        decision: decision.status,
+        rejectionReason: decision.status === 'REJECTED' ? sanitizedRejectionReason : undefined
+      }
+    });
+
+    return {
+      success: true,
+      message: `Verification request ${decision.status.toLowerCase()} successfully.`,
+      request: updated
     };
   }
 }

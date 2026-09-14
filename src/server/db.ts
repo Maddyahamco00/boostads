@@ -34,13 +34,29 @@ import {
   PushNotification,
   Review,
   Report,
+  Category,
   CategoryConfig,
+  CategoryTreeNode,
+  CreateCategoryInput,
+  CreateSubcategoryInput,
+  UpdateCategoryInput,
   BusinessCategory,
   SubscriptionPlan,
   PlatformStats,
   MultiPlatformCampaign,
-  Lead
+  Lead,
+  BusinessVerificationRequest,
+  BusinessVerificationStatus
 } from '../types';
+import {
+  validateCreateCategoryPayload,
+  validateCreateSubcategoryPayload,
+  validateAddSubcategoryItemPayload,
+  validateUpdateCategoryPayload,
+  slugifyCategory,
+  MAX_CATEGORY_DEPTH
+} from './validators/categoryValidators';
+import { INITIAL_CATEGORY_SEEDS } from './seeds/categorySeeds';
 
 export const SUPER_ADMIN_EMAIL = 'maddyahamco00@gmail.com';
 export const SUPER_ADMIN_ID = 'usr_maddy_ceo';
@@ -704,6 +720,7 @@ export interface DatabaseTransactionContext {
   sessions: SessionCollection;
   tokens: TokenCollection;
   profiles: ProfileCollection;
+  verificationRequests?: Map<string, BusinessVerificationRequest>;
   createUser(user: UserEntity): UserEntity;
   updateUser(userId: string, updates: Partial<UserEntity>): UserEntity;
   deleteUser(userId: string): boolean;
@@ -721,6 +738,7 @@ export class DatabaseStore {
   public profiles: ProfileCollection = new ProfileCollection();
   public securityLogs: SecurityAuditEvent[] = [];
   public businesses: Map<string, Business> = new Map();
+  public verificationRequests: Map<string, BusinessVerificationRequest> = new Map();
   public products: Map<string, Product> = new Map();
   public services: Map<string, Service> = new Map();
   public portfolioItems: Map<string, PortfolioItem> = new Map();
@@ -733,7 +751,7 @@ export class DatabaseStore {
   public notifications: Map<string, PushNotification> = new Map();
   public reviews: Map<string, Review> = new Map();
   public reports: Map<string, Report> = new Map();
-  public categories: CategoryConfig[] = [];
+  public categories: Category[] = [];
   public businessCategories: Map<string, BusinessCategory> = new Map();
   public subscriptionPlans: SubscriptionPlan[] = [];
 
@@ -884,119 +902,8 @@ export class DatabaseStore {
   }
 
   private seedDatabase() {
-    // 1. Categories
-    this.categories = [
-      {
-        id: 'services',
-        name: 'Services & Trades',
-        slug: 'services',
-        iconName: 'Wrench',
-        description: 'Plumbing, electrical, mechanics, tailors, cleaning, tutors, and maintenance professionals',
-        subcategories: ['Plumber', 'Electrician', 'Auto Mechanic', 'Tailor & Fashion Designer', 'Barber & Stylist', 'Home Cleaner', 'Tutor / Instructor', 'Repair Technician'],
-        bannerImage: 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=800&auto=format&fit=crop&q=80',
-        active: true
-      },
-      {
-        id: 'retail',
-        name: 'Retail & Commerce',
-        slug: 'retail',
-        iconName: 'ShoppingBag',
-        description: 'Fashion boutiques, electronics, phone gadgets, furniture, building materials, and auto parts',
-        subcategories: ['Fashion & Apparel', 'Electronics & Laptops', 'Smartphones & Accessories', 'Home & Office Furniture', 'Building Materials', 'Supermarket & Groceries', 'Auto Spare Parts'],
-        bannerImage: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=800&auto=format&fit=crop&q=80',
-        active: true
-      },
-      {
-        id: 'food_hospitality',
-        name: 'Food, Dining & Events',
-        slug: 'food-hospitality',
-        iconName: 'Utensils',
-        description: 'Restaurants, artisan bakers, custom caterers, food vendors, and party food services',
-        subcategories: ['Restaurants & Grills', 'Artisan Bakery', 'Event Catering', 'Street Food & Snacks', 'Private Chef', 'Drink & Cocktail Service'],
-        bannerImage: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&auto=format&fit=crop&q=80',
-        active: true
-      },
-      {
-        id: 'creative',
-        name: 'Creative, Media & Arts',
-        slug: 'creative-media',
-        iconName: 'Camera',
-        description: 'Photographers, videographers, graphic designers, music producers, and event planners',
-        subcategories: ['Studio & Event Photography', 'Cinematography & Video', 'Brand Identity & Graphic Design', 'Music & Sound Production', 'Event Planning & Decor'],
-        bannerImage: 'https://images.unsplash.com/photo-1542038784456-1ea8e935640e?w=800&auto=format&fit=crop&q=80',
-        active: true
-      },
-      {
-        id: 'agriculture',
-        name: 'Agriculture & Farm Produce',
-        slug: 'agriculture',
-        iconName: 'Wheat',
-        description: 'Commercial farmers, grain distributors, livestock breeders, agro-inputs, and machinery',
-        subcategories: ['Crop & Grain Supply', 'Livestock & Poultry', 'Agro-Chemicals & Fertilizers', 'Farm Machinery & Tractors', 'Veterinary Services', 'Organic Produce'],
-        bannerImage: 'https://images.unsplash.com/photo-1500937386664-56d1dfef3854?w=800&auto=format&fit=crop&q=80',
-        active: true
-      },
-      {
-        id: 'professional',
-        name: 'Professional & Business Services',
-        slug: 'professional-services',
-        iconName: 'Briefcase',
-        description: 'Legal attorneys, accountants, corporate consulting, logistics freight, and HR agencies',
-        subcategories: ['Legal & Corporate Law', 'Accounting & Tax Advisory', 'Management Consulting', 'Logistics & Haulage', 'HR & Recruitment'],
-        bannerImage: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=800&auto=format&fit=crop&q=80',
-        active: true
-      },
-      {
-        id: 'tech_development',
-        name: 'Software, IT & Digital',
-        slug: 'tech-software',
-        iconName: 'Code',
-        description: 'Web development, mobile apps, digital marketing, cybersecurity, and cloud architecture',
-        subcategories: ['Full-Stack Web Apps', 'Mobile App Development', 'SEO & Performance Marketing', 'Cloud & DevOps', 'Cybersecurity & Audits'],
-        bannerImage: 'https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=800&auto=format&fit=crop&q=80',
-        active: true
-      },
-      {
-        id: 'beauty_wellness',
-        name: 'Beauty, Spa & Wellness',
-        slug: 'beauty-wellness',
-        iconName: 'Sparkles',
-        description: 'Skincare specialists, luxury spas, massage therapy, makeup artists, and fitness gyms',
-        subcategories: ['Organic Skincare', 'Luxury Spa & Massage', 'Bridal Makeup', 'Fitness & Personal Trainers'],
-        bannerImage: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?w=800&auto=format&fit=crop&q=80',
-        active: true
-      },
-      {
-        id: 'automotive',
-        name: 'Automotive & Vehicles',
-        slug: 'automotive',
-        iconName: 'Car',
-        description: 'Auto sales, mechanics, car wash, vehicle diagnostics, spare parts, and towing',
-        subcategories: ['Auto Mechanic', 'Car Sales & Dealership', 'Auto Spare Parts', 'Car Wash & Detailing', 'Towing Service'],
-        bannerImage: 'https://images.unsplash.com/photo-1486006920555-c77dce18193b?w=800&auto=format&fit=crop&q=80',
-        active: true
-      },
-      {
-        id: 'real_estate',
-        name: 'Real Estate & Properties',
-        slug: 'real-estate',
-        iconName: 'Home',
-        description: 'Property sales, residential rentals, commercial leasing, land surveying, and valuation',
-        subcategories: ['Residential Sales', 'Apartment Rentals', 'Commercial Leasing', 'Land Surveying', 'Property Management'],
-        bannerImage: 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=800&auto=format&fit=crop&q=80',
-        active: true
-      },
-      {
-        id: 'education',
-        name: 'Education & Training',
-        slug: 'education',
-        iconName: 'GraduationCap',
-        description: 'Schools, private tutoring, professional certifications, vocational skills, and academies',
-        subcategories: ['Private Tutoring', 'Vocational Training', 'Language School', 'Code Academy', 'Music Lessons'],
-        bannerImage: 'https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=800&auto=format&fit=crop&q=80',
-        active: true
-      }
-    ];
+    // 1. Categories (Epic 3 Feature 3.1 Task 3.1.1: Idempotent Broad Sector Seeding)
+    this.seedCategories();
 
     // 2. Subscription Plans
     this.subscriptionPlans = [
@@ -2689,6 +2596,11 @@ export class DatabaseStore {
     }
     business.updatedAt = new Date().toISOString();
 
+    // Ensure default verificationStatus
+    if (!business.verificationStatus) {
+      business.verificationStatus = business.isVerified ? 'APPROVED' : 'NOT_SUBMITTED';
+    }
+
     // Persist business
     this.businesses.set(business.id, business);
 
@@ -2898,17 +2810,534 @@ export class DatabaseStore {
     return list;
   }
 
-  // Category management database methods (Epic 2 Feature 2.2 Task 2.2.5)
-  public getCategoryById(id: string): CategoryConfig | undefined {
-    return this.categories.find(c => c.id === id || c.slug === id);
+  // ==========================================
+  // Category management database methods (Epic 3 Feature 3.1 Task 3.1.1)
+  // ==========================================
+
+  public getCategoryById(id: string): Category | undefined {
+    if (!id || typeof id !== 'string') return undefined;
+    const norm = id.trim().toLowerCase();
+    return this.categories.find(c => c.id.toLowerCase() === norm || c.slug.toLowerCase() === norm);
   }
 
-  public getAllCategories(): CategoryConfig[] {
-    return this.categories;
+  public getCategoryBySlug(slug: string): Category | undefined {
+    if (!slug || typeof slug !== 'string') return undefined;
+    const norm = slug.trim().toLowerCase();
+    return this.categories.find(c => c.slug.toLowerCase() === norm);
   }
 
-  public getActiveCategories(): CategoryConfig[] {
-    return this.categories.filter(c => c.active !== false);
+  public getCategoryByName(name: string): Category | undefined {
+    if (!name || typeof name !== 'string') return undefined;
+    const norm = name.trim().toLowerCase();
+    return this.categories.find(c => c.name.trim().toLowerCase() === norm);
+  }
+
+  public getAllCategories(options?: { status?: 'active' | 'inactive' | 'all'; parentId?: string | null }): Category[] {
+    let result = [...this.categories];
+    if (options?.status && options.status !== 'all') {
+      result = result.filter(c => c.status === options.status);
+    }
+    if (options?.parentId !== undefined) {
+      if (options.parentId === null) {
+        result = result.filter(c => !c.parentId);
+      } else {
+        const targetParent = this.getCategoryById(options.parentId);
+        const pId = targetParent ? targetParent.id : options.parentId;
+        const pSlug = targetParent ? targetParent.slug : options.parentId;
+        result = result.filter(c => c.parentId === pId || c.parentId === pSlug);
+      }
+    }
+    return result;
+  }
+
+  public getActiveCategories(): Category[] {
+    return this.categories.filter(c => c.status === 'active' && c.active !== false);
+  }
+
+  /**
+   * Returns top-level categories (where parentId is null/undefined)
+   */
+  public getTopLevelCategories(options?: { status?: 'active' | 'inactive' | 'all' }): Category[] {
+    let result = this.categories.filter(c => !c.parentId);
+    if (options?.status && options.status !== 'all') {
+      result = result.filter(c => c.status === options.status);
+    }
+    return result;
+  }
+
+  /**
+   * Retrieves all subcategories belonging to a parent category
+   */
+  public getSubcategories(parentId: string, options?: { status?: 'active' | 'inactive' | 'all' }): Category[] {
+    const parent = this.getCategoryById(parentId);
+    if (!parent) {
+      const err: any = new Error(`Parent category "${parentId}" not found.`);
+      err.statusCode = 404;
+      err.code = 'PARENT_CATEGORY_NOT_FOUND';
+      throw err;
+    }
+
+    let result = this.categories.filter(c => c.parentId === parent.id || c.parentId === parent.slug);
+    if (options?.status && options.status !== 'all') {
+      result = result.filter(c => c.status === options.status);
+    }
+    return result;
+  }
+
+  /**
+   * Checks if prospectiveParentId is an ancestor or descendant creating a circular reference
+   */
+  public checkCircularAncestry(categoryId: string, prospectiveParentId: string): boolean {
+    if (!categoryId || !prospectiveParentId) return false;
+    const cat = this.getCategoryById(categoryId);
+    const prospective = this.getCategoryById(prospectiveParentId);
+    if (!cat || !prospective) return false;
+
+    // Direct self-parenting
+    if (prospective.id === cat.id || prospective.slug === cat.slug) return true;
+
+    // Traverse prospective parent's ancestor chain upwards
+    let currentParentId = prospective.parentId;
+    const visited = new Set<string>([prospective.id, prospective.slug]);
+
+    while (currentParentId) {
+      if (currentParentId === cat.id || currentParentId === cat.slug) {
+        return true; // Cycle detected: prospective parent descends from this category
+      }
+      if (visited.has(currentParentId)) {
+        break; // Guard against loop in existing chain
+      }
+      visited.add(currentParentId);
+
+      const parentCat = this.getCategoryById(currentParentId);
+      currentParentId = parentCat?.parentId ?? null;
+    }
+
+    return false;
+  }
+
+  /**
+   * Computes taxonomy nesting depth for a prospective parent category
+   */
+  public getCategoryDepth(prospectiveParentId: string): number {
+    let depth = 1;
+    let current = this.getCategoryById(prospectiveParentId);
+    const visited = new Set<string>();
+
+    while (current && current.parentId) {
+      if (visited.has(current.id)) break;
+      visited.add(current.id);
+      depth++;
+      current = this.getCategoryById(current.parentId);
+    }
+
+    return depth;
+  }
+
+  /**
+   * Returns a complete hierarchical Category Tree (Epic 3 Feature 3.1 Task 3.1.2)
+   */
+  public getCategoryTree(options?: { status?: 'active' | 'inactive' | 'all' }): CategoryTreeNode[] {
+    const statusFilter = options?.status && options.status !== 'all' ? options.status : undefined;
+    const topLevels = this.getTopLevelCategories({ status: options?.status });
+
+    return topLevels.map(top => this.buildCategoryTreeNode(top, 0, statusFilter));
+  }
+
+  private buildCategoryTreeNode(cat: Category, depth: number, statusFilter?: 'active' | 'inactive'): CategoryTreeNode {
+    let directChildren = this.categories.filter(c => c.parentId === cat.id || c.parentId === cat.slug);
+    if (statusFilter) {
+      directChildren = directChildren.filter(c => c.status === statusFilter);
+    }
+
+    let directBizCount = 0;
+    for (const biz of this.businesses.values()) {
+      const bizCatIds = biz.categories || (biz.category ? [biz.category] : []);
+      if (bizCatIds.includes(cat.id as any) || bizCatIds.includes(cat.slug as any)) {
+        directBizCount++;
+      }
+    }
+
+    const childrenNodes = depth < MAX_CATEGORY_DEPTH - 1
+      ? directChildren.map(child => this.buildCategoryTreeNode(child, depth + 1, statusFilter))
+      : [];
+
+    return {
+      ...cat,
+      children: childrenNodes,
+      depth,
+      subcategoriesCount: (cat.subcategories?.length || 0) + childrenNodes.length,
+      businessCount: directBizCount
+    };
+  }
+
+  /**
+   * Appends a subcategory name tag to a category's subcategories array
+   */
+  public addSubcategoryTag(parentIdOrSlug: string, tag: string): Category {
+    const cat = this.getCategoryById(parentIdOrSlug);
+    if (!cat) {
+      const err: any = new Error(`Category "${parentIdOrSlug}" not found.`);
+      err.statusCode = 404;
+      err.code = 'CATEGORY_NOT_FOUND';
+      throw err;
+    }
+    const cleanTag = tag.trim();
+    if (!cleanTag) {
+      const err: any = new Error('Subcategory tag cannot be empty.');
+      err.statusCode = 400;
+      err.code = 'INVALID_SUBCATEGORY_TAG';
+      throw err;
+    }
+    if (!cat.subcategories) {
+      cat.subcategories = [];
+    }
+    if (!cat.subcategories.some(t => t.toLowerCase() === cleanTag.toLowerCase())) {
+      cat.subcategories.push(cleanTag);
+      cat.updatedAt = new Date().toISOString();
+    }
+    return cat;
+  }
+
+  /**
+   * Removes a subcategory name tag from a category's subcategories array
+   */
+  public removeSubcategoryTag(parentIdOrSlug: string, tag: string): Category {
+    const cat = this.getCategoryById(parentIdOrSlug);
+    if (!cat) {
+      const err: any = new Error(`Category "${parentIdOrSlug}" not found.`);
+      err.statusCode = 404;
+      err.code = 'CATEGORY_NOT_FOUND';
+      throw err;
+    }
+    const cleanTag = tag.trim().toLowerCase();
+    if (cat.subcategories) {
+      cat.subcategories = cat.subcategories.filter(t => t.toLowerCase() !== cleanTag);
+      cat.updatedAt = new Date().toISOString();
+    }
+    return cat;
+  }
+
+  public createCategory(input: CreateCategoryInput): Category {
+    const validation = validateCreateCategoryPayload(input);
+    if (!validation.success || !validation.data) {
+      const msg = validation.errors ? Object.values(validation.errors).join(' ') : 'Invalid category payload';
+      const err: any = new Error(msg);
+      err.statusCode = 400;
+      err.code = 'VALIDATION_ERROR';
+      err.details = validation.errors;
+      throw err;
+    }
+
+    const data = validation.data;
+
+    // Check slug uniqueness
+    const existingBySlug = this.getCategoryBySlug(data.slug);
+    if (existingBySlug) {
+      const err: any = new Error(`Category slug "${data.slug}" already exists.`);
+      err.statusCode = 409;
+      err.code = 'CATEGORY_SLUG_EXISTS';
+      throw err;
+    }
+
+    // Check name uniqueness
+    const existingByName = this.getCategoryByName(data.name);
+    if (existingByName) {
+      const err: any = new Error(`Category name "${data.name}" already exists.`);
+      err.statusCode = 409;
+      err.code = 'CATEGORY_NAME_EXISTS';
+      throw err;
+    }
+
+    // Check parent if provided (Subcategories in Task 3.1.2)
+    if (data.parentId) {
+      const parent = this.getCategoryById(data.parentId);
+      if (!parent) {
+        const err: any = new Error(`Parent category "${data.parentId}" not found.`);
+        err.statusCode = 404;
+        err.code = 'PARENT_CATEGORY_NOT_FOUND';
+        throw err;
+      }
+      if (parent.status === 'inactive' && data.status === 'active') {
+        const err: any = new Error(`Cannot assign active subcategory to inactive parent category "${parent.name}".`);
+        err.statusCode = 400;
+        err.code = 'PARENT_CATEGORY_INACTIVE';
+        throw err;
+      }
+      const parentDepth = this.getCategoryDepth(parent.id);
+      if (parentDepth >= MAX_CATEGORY_DEPTH) {
+        const err: any = new Error(`Cannot create subcategory: maximum taxonomy depth (${MAX_CATEGORY_DEPTH}) reached.`);
+        err.statusCode = 400;
+        err.code = 'EXCEEDED_MAX_CATEGORY_DEPTH';
+        throw err;
+      }
+      data.parentId = parent.id;
+    }
+
+    const now = new Date().toISOString();
+    const id = data.id && !this.getCategoryById(data.id)
+      ? data.id
+      : `cat_${data.slug.replace(/[^a-z0-9]/g, '_')}`;
+
+    const newCategory: Category = {
+      id,
+      name: data.name,
+      slug: data.slug,
+      description: data.description || '',
+      status: data.status || 'active',
+      active: data.active !== false && data.status !== 'inactive',
+      parentId: data.parentId ?? null,
+      iconName: data.iconName || 'Folder',
+      bannerImage: data.bannerImage || 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=800&auto=format&fit=crop&q=80',
+      subcategories: Array.isArray(data.subcategories) ? data.subcategories : [],
+      createdAt: now,
+      updatedAt: now
+    };
+
+    this.categories.push(newCategory);
+    return newCategory;
+  }
+
+  public updateCategory(id: string, updates: UpdateCategoryInput): Category {
+    const category = this.getCategoryById(id);
+    if (!category) {
+      const err: any = new Error(`Category not found: ${id}`);
+      err.statusCode = 404;
+      err.code = 'CATEGORY_NOT_FOUND';
+      throw err;
+    }
+
+    const validation = validateUpdateCategoryPayload(updates);
+    if (!validation.success || !validation.data) {
+      const msg = validation.errors ? Object.values(validation.errors).join(' ') : 'Invalid update payload';
+      const err: any = new Error(msg);
+      err.statusCode = 400;
+      err.code = 'VALIDATION_ERROR';
+      err.details = validation.errors;
+      throw err;
+    }
+
+    const data = validation.data;
+
+    // Check slug uniqueness if changed
+    if (data.slug && data.slug.toLowerCase() !== category.slug.toLowerCase()) {
+      const existing = this.getCategoryBySlug(data.slug);
+      if (existing && existing.id !== category.id) {
+        const err: any = new Error(`Category slug "${data.slug}" is already taken.`);
+        err.statusCode = 409;
+        err.code = 'CATEGORY_SLUG_EXISTS';
+        throw err;
+      }
+      category.slug = data.slug;
+    }
+
+    // Check name uniqueness if changed
+    if (data.name && data.name.trim().toLowerCase() !== category.name.trim().toLowerCase()) {
+      const existing = this.getCategoryByName(data.name);
+      if (existing && existing.id !== category.id) {
+        const err: any = new Error(`Category name "${data.name}" already exists.`);
+        err.statusCode = 409;
+        err.code = 'CATEGORY_NAME_EXISTS';
+        throw err;
+      }
+      category.name = data.name;
+    }
+
+    // Hierarchy check: cannot be parent of itself or cause circular references (Task 3.1.2)
+    if (data.parentId !== undefined) {
+      if (data.parentId !== null) {
+        if (data.parentId === category.id || data.parentId === category.slug) {
+          const err: any = new Error('Category cannot be its own parent.');
+          err.statusCode = 400;
+          err.code = 'CIRCULAR_PARENT_REFERENCE';
+          throw err;
+        }
+        const parent = this.getCategoryById(data.parentId);
+        if (!parent) {
+          const err: any = new Error(`Parent category "${data.parentId}" not found.`);
+          err.statusCode = 404;
+          err.code = 'PARENT_CATEGORY_NOT_FOUND';
+          throw err;
+        }
+        if (this.checkCircularAncestry(category.id, data.parentId)) {
+          const err: any = new Error(`Cannot set parent to "${parent.name}": circular hierarchy detected.`);
+          err.statusCode = 400;
+          err.code = 'CIRCULAR_PARENT_REFERENCE';
+          throw err;
+        }
+        const prospectiveDepth = this.getCategoryDepth(parent.id);
+        if (prospectiveDepth >= MAX_CATEGORY_DEPTH) {
+          const err: any = new Error(`Cannot reassign parent: maximum taxonomy depth (${MAX_CATEGORY_DEPTH}) reached.`);
+          err.statusCode = 400;
+          err.code = 'EXCEEDED_MAX_CATEGORY_DEPTH';
+          throw err;
+        }
+        category.parentId = parent.id;
+      } else {
+        category.parentId = null;
+      }
+    }
+
+    if (data.description !== undefined) category.description = data.description;
+    if (data.status !== undefined) {
+      category.status = data.status;
+      category.active = data.status === 'active';
+    } else if (data.active !== undefined) {
+      category.active = data.active;
+      category.status = data.active ? 'active' : 'inactive';
+    }
+    if (data.iconName !== undefined) category.iconName = data.iconName;
+    if (data.bannerImage !== undefined) category.bannerImage = data.bannerImage;
+    if (data.subcategories !== undefined) category.subcategories = data.subcategories;
+
+    category.updatedAt = new Date().toISOString();
+    return category;
+  }
+
+  public deleteCategory(id: string, options?: { force?: boolean }): boolean {
+    const categoryIndex = this.categories.findIndex(c => c.id === id || c.slug === id);
+    if (categoryIndex === -1) {
+      const err: any = new Error(`Category not found: ${id}`);
+      err.statusCode = 404;
+      err.code = 'CATEGORY_NOT_FOUND';
+      throw err;
+    }
+
+    const cat = this.categories[categoryIndex];
+
+    // Check for child subcategories (Task 3.1.2 Orphan & Cascade Protection)
+    const childCategories = this.categories.filter(c => c.parentId === cat.id || c.parentId === cat.slug);
+    if (childCategories.length > 0) {
+      if (!options?.force) {
+        const err: any = new Error(
+          `Cannot delete category "${cat.name}": it has ${childCategories.length} child subcategories (${childCategories.slice(0, 3).map(c => c.name).join(', ')}${childCategories.length > 3 ? '...' : ''}). Re-assign or remove subcategories first, or specify force=true.`
+        );
+        err.statusCode = 400;
+        err.code = 'CATEGORY_HAS_CHILDREN';
+        err.childCount = childCategories.length;
+        throw err;
+      }
+
+      // Safe re-parenting if force is true: promote child subcategories to top-level or dissociate parent
+      for (const child of childCategories) {
+        child.parentId = null;
+        child.updatedAt = new Date().toISOString();
+      }
+    }
+
+    // Check for business references
+    const referencingJoinRecords: string[] = [];
+    for (const [key, bc] of this.businessCategories.entries()) {
+      if (bc.categoryId === cat.id || bc.categoryId === cat.slug) {
+        referencingJoinRecords.push(key);
+      }
+    }
+
+    // Also check businesses collection
+    const referencingBusinesses: Business[] = [];
+    for (const biz of this.businesses.values()) {
+      const catIds = biz.categories || (biz.category ? [biz.category] : []);
+      if (catIds.includes(cat.id as any) || catIds.includes(cat.slug as any)) {
+        referencingBusinesses.push(biz);
+      }
+    }
+
+    // Also check advertisements and products collections
+    const referencingAds: Advertisement[] = [];
+    for (const ad of this.advertisements.values()) {
+      if (ad.category === cat.id || ad.category === cat.slug || ad.category === cat.name) {
+        referencingAds.push(ad);
+      }
+    }
+
+    const referencingProducts: Product[] = [];
+    for (const prod of this.products.values()) {
+      if (prod.category === cat.id || prod.category === cat.slug || prod.category === cat.name) {
+        referencingProducts.push(prod);
+      }
+    }
+
+    if (referencingJoinRecords.length > 0 || referencingBusinesses.length > 0 || referencingAds.length > 0 || referencingProducts.length > 0) {
+      if (!options?.force) {
+        const reasons: string[] = [];
+        const bizTotal = referencingBusinesses.length || referencingJoinRecords.length;
+        if (bizTotal > 0) reasons.push(`${bizTotal} businesses`);
+        if (referencingAds.length > 0) reasons.push(`${referencingAds.length} advertisements`);
+        if (referencingProducts.length > 0) reasons.push(`${referencingProducts.length} catalog products`);
+        const err: any = new Error(`Cannot delete category "${cat.name}": it is currently assigned to ${reasons.join(', ')}. Safe retention preserves existing records. Please deactivate the category instead, or specify force=true.`);
+        err.statusCode = 400;
+        err.code = 'CATEGORY_IN_USE';
+        throw err;
+      }
+
+      // Safe dissociation without deleting entities (Section 7)
+      for (const recId of referencingJoinRecords) {
+        this.businessCategories.delete(recId);
+      }
+      for (const biz of referencingBusinesses) {
+        biz.categories = (biz.categories || []).filter(cId => cId !== cat.id && cId !== cat.slug);
+        if (biz.category === cat.id || biz.category === cat.slug) {
+          biz.category = (biz.categories[0] as any) || undefined;
+          const nextPrimary = biz.categories[0] ? this.getCategoryById(biz.categories[0] as string) : undefined;
+          biz.categoryLabel = nextPrimary?.name;
+        }
+        biz.businessCategories = (biz.businessCategories || []).filter(bc => bc.categoryId !== cat.id && bc.categoryId !== cat.slug);
+        biz.updatedAt = new Date().toISOString();
+        this.businesses.set(biz.id, biz);
+      }
+      for (const ad of referencingAds) {
+        ad.category = 'General';
+        this.advertisements.set(ad.id, ad);
+      }
+      for (const prod of referencingProducts) {
+        prod.category = 'General';
+        this.products.set(prod.id, prod);
+      }
+    }
+
+    // Remove category
+    this.categories.splice(categoryIndex, 1);
+    return true;
+  }
+
+  public seedCategories(customSeeds?: Partial<Category>[]): { created: number; existing: number; total: number } {
+    const seeds: Array<Partial<Category>> = (customSeeds || INITIAL_CATEGORY_SEEDS) as Array<Partial<Category>>;
+    let created = 0;
+    let existing = 0;
+    const now = new Date().toISOString();
+
+    for (const seed of seeds) {
+      if (!seed.name || !seed.slug) continue;
+      const found = this.getCategoryById(seed.id || '') || this.getCategoryBySlug(seed.slug);
+      if (found) {
+        // Idempotent: ensure timestamps and status are present if missing, but do not duplicate
+        if (!found.createdAt) found.createdAt = now;
+        if (!found.updatedAt) found.updatedAt = now;
+        if (!found.status) found.status = found.active === false ? 'inactive' : 'active';
+        if (found.active === undefined) found.active = found.status === 'active';
+        if (found.parentId === undefined) found.parentId = null;
+        existing++;
+      } else {
+        const newCat: Category = {
+          id: seed.id || `cat_${seed.slug.replace(/[^a-z0-9]/g, '_')}`,
+          name: seed.name,
+          slug: seed.slug,
+          description: seed.description || '',
+          status: seed.status || (seed.active === false ? 'inactive' : 'active'),
+          active: seed.status ? seed.status === 'active' : seed.active !== false,
+          parentId: seed.parentId ?? null,
+          iconName: seed.iconName || 'Folder',
+          bannerImage: seed.bannerImage || 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=800&auto=format&fit=crop&q=80',
+          subcategories: Array.isArray(seed.subcategories) ? seed.subcategories : [],
+          createdAt: seed.createdAt || now,
+          updatedAt: seed.updatedAt || now
+        };
+        this.categories.push(newCat);
+        created++;
+      }
+    }
+
+    return { created, existing, total: this.categories.length };
   }
 
   public getBusinessCategories(businessId: string): BusinessCategory[] {
@@ -3007,6 +3436,133 @@ export class DatabaseStore {
       }
     }
     return this.profiles.delete(id);
+  }
+
+  /**
+   * Verification Request Methods (Epic 2 Feature 2.3 Task 2.3.1)
+   */
+  public getVerificationRequestById(id: string): BusinessVerificationRequest | undefined {
+    return this.verificationRequests.get(id);
+  }
+
+  public getVerificationRequestsByBusinessId(businessId: string): BusinessVerificationRequest[] {
+    const list: BusinessVerificationRequest[] = [];
+    for (const req of this.verificationRequests.values()) {
+      if (req.businessId === businessId) {
+        list.push(req);
+      }
+    }
+    return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  public getActivePendingVerificationRequest(businessId: string): BusinessVerificationRequest | undefined {
+    for (const req of this.verificationRequests.values()) {
+      if (req.businessId === businessId && req.status === 'PENDING') {
+        return req;
+      }
+    }
+    return undefined;
+  }
+
+  public createVerificationRequest(data: {
+    businessId: string;
+    requesterId: string;
+    notes?: string;
+  }): BusinessVerificationRequest {
+    const business = this.businesses.get(data.businessId);
+    if (!business) {
+      throw new DatabaseNotFoundError(`Business with ID "${data.businessId}" not found.`);
+    }
+
+    if (business.isVerified) {
+      throw new DatabaseValidationError('This business is already verified.');
+    }
+
+    // Strict constraint: Exactly ONE active PENDING request per business
+    const existingPending = this.getActivePendingVerificationRequest(data.businessId);
+    if (existingPending) {
+      throw new DatabaseUniqueConstraintError(
+        'An active pending verification request already exists for this business.',
+        ['businessId', 'status']
+      );
+    }
+
+    const now = new Date().toISOString();
+    const id = `vreq_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+    const newRequest: BusinessVerificationRequest = {
+      id,
+      businessId: data.businessId,
+      requesterId: data.requesterId,
+      status: 'PENDING',
+      notes: data.notes && typeof data.notes === 'string' && data.notes.trim() ? data.notes.trim() : undefined,
+      submittedAt: now,
+      createdAt: now,
+      updatedAt: now
+    };
+
+    this.verificationRequests.set(id, newRequest);
+
+    // Synchronize business server-controlled status
+    business.verificationStatus = 'PENDING';
+    business.isVerified = false;
+    business.updatedAt = now;
+    this.businesses.set(business.id, business);
+
+    return newRequest;
+  }
+
+  public getAllVerificationRequests(): BusinessVerificationRequest[] {
+    return Array.from(this.verificationRequests.values())
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  public updateVerificationRequest(
+    id: string,
+    updates: Partial<BusinessVerificationRequest>,
+    expectedStatus?: BusinessVerificationStatus
+  ): BusinessVerificationRequest {
+    const req = this.verificationRequests.get(id);
+    if (!req) {
+      throw new DatabaseNotFoundError(`Verification request with ID "${id}" not found.`);
+    }
+
+    if (expectedStatus && req.status !== expectedStatus) {
+      const err: any = new Error(
+        `Concurrency conflict: Verification request is currently "${req.status}", expected "${expectedStatus}". Operation rejected.`
+      );
+      err.code = 'STALE_OPERATION_CONFLICT';
+      err.statusCode = 409;
+      throw err;
+    }
+
+    const now = new Date().toISOString();
+    const updated: BusinessVerificationRequest = {
+      ...req,
+      ...updates,
+      updatedAt: now
+    };
+
+    this.verificationRequests.set(id, updated);
+
+    // Synchronize status with business record
+    const biz = this.businesses.get(updated.businessId);
+    if (biz) {
+      if (updated.status === 'APPROVED') {
+        biz.isVerified = true;
+        biz.verificationStatus = 'APPROVED';
+      } else if (updated.status === 'REJECTED') {
+        biz.isVerified = false;
+        biz.verificationStatus = 'REJECTED';
+      } else if (updated.status === 'PENDING') {
+        biz.isVerified = false;
+        biz.verificationStatus = 'PENDING';
+      }
+      biz.updatedAt = now;
+      this.businesses.set(biz.id, biz);
+    }
+
+    return updated;
   }
 
   public countSuperAdmins(): number {
@@ -3156,6 +3712,7 @@ export class DatabaseStore {
     const sessionSnapshot = new Map(Array.from(this.sessions.entries()).map(([k, v]) => [k, { ...v }]));
     const tokenSnapshot = new Map(Array.from(this.tokens.entries()).map(([k, v]) => [k, { ...v }]));
     const profileSnapshot = new Map(Array.from(this.profiles.entries()).map(([k, v]) => [k, { ...v }]));
+    const vreqSnapshot = new Map(Array.from(this.verificationRequests.entries()).map(([k, v]) => [k, { ...v }]));
 
     try {
       const txContext: DatabaseTransactionContext = {
@@ -3163,6 +3720,7 @@ export class DatabaseStore {
         sessions: this.sessions,
         tokens: this.tokens,
         profiles: this.profiles,
+        verificationRequests: this.verificationRequests,
         createUser: (user) => this.createUser(user),
         updateUser: (userId, updates) => this.updateUser(userId, updates),
         deleteUser: (userId) => this.deleteUser(userId),
@@ -3197,6 +3755,10 @@ export class DatabaseStore {
       this.profiles.clear();
       for (const [k, v] of profileSnapshot) {
         this.profiles.set(k, v);
+      }
+      this.verificationRequests.clear();
+      for (const [k, v] of vreqSnapshot) {
+        this.verificationRequests.set(k, v);
       }
       throw err;
     } finally {

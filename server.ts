@@ -47,6 +47,13 @@ import { providerService } from './src/server/services/providerService';
 import { auditService } from './src/server/services/auditService';
 import { testRunnerService } from './src/server/services/testRunnerService';
 import { businessService, BusinessServiceError } from './src/server/services/businessService';
+import { categoryService, CategoryServiceError } from './src/server/services/categoryService';
+import { categoryTestRunnerService } from './src/server/services/categoryTestRunnerService';
+import { 
+  SubmitVerificationRequestSchema, 
+  validateNoVerificationPrivilegeEscalation,
+  validateAdminReviewPayload 
+} from './src/server/validators/businessValidators';
 import { advertisingCampaignService } from './src/server/services/advertisingCampaignService';
 import { leadService } from './src/server/services/leadService';
 import { 
@@ -1028,6 +1035,241 @@ async function startServer() {
     res.json({ success: true, users: safeUsers });
   });
 
+  // Admin Verification Queue & Inspection (Epic 2 Feature 2.3 Task 2.3.3)
+  app.get('/api/admin/verifications', authenticate, requireSuperAdmin, (req: AuthenticatedRequest, res) => {
+    try {
+      const { status, page = '1', limit = '20', search } = req.query;
+      let requests = db.getAllVerificationRequests();
+
+      // Status filtering (PENDING, APPROVED, REJECTED, or ALL)
+      if (status && typeof status === 'string' && status !== 'ALL') {
+        const targetStatus = status.trim().toUpperCase();
+        requests = requests.filter(r => r.status === targetStatus);
+      }
+
+      // Prioritize PENDING requests by default if no specific status was filtered
+      if (!status || status === 'ALL') {
+        requests.sort((a, b) => {
+          if (a.status === 'PENDING' && b.status !== 'PENDING') return -1;
+          if (b.status === 'PENDING' && a.status !== 'PENDING') return 1;
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        });
+      }
+
+      // Enriched representations with business profile & owner metadata
+      let enriched = requests.map(r => {
+        const biz = db.getBusinessById(r.businessId);
+        const owner = biz ? db.getUserById(biz.ownerId) : undefined;
+        const reviewer = r.reviewerId ? db.getUserById(r.reviewerId) : undefined;
+        return {
+          ...r,
+          businessName: biz?.name || 'Unknown Business',
+          businessSlug: biz?.slug || '',
+          businessCategories: (biz?.categories as string[]) || (biz?.category ? [biz.category] : []),
+          ownerName: owner?.name || 'Unknown Owner',
+          ownerEmail: owner?.email || '',
+          reviewerEmail: reviewer?.email
+        };
+      });
+
+      // Search filter by business name, slug, owner name, owner email, or notes
+      if (search && typeof search === 'string' && search.trim()) {
+        const q = search.trim().toLowerCase();
+        enriched = enriched.filter(
+          item =>
+            item.businessName.toLowerCase().includes(q) ||
+            item.businessSlug.toLowerCase().includes(q) ||
+            item.ownerName.toLowerCase().includes(q) ||
+            item.ownerEmail.toLowerCase().includes(q) ||
+            (item.notes && item.notes.toLowerCase().includes(q))
+        );
+      }
+
+      // Pagination
+      const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
+      const limitNum = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 20));
+      const total = enriched.length;
+      const totalPages = Math.ceil(total / limitNum) || 1;
+      const paginated = enriched.slice((pageNum - 1) * limitNum, pageNum * limitNum);
+
+      return res.json({
+        success: true,
+        count: paginated.length,
+        total,
+        page: pageNum,
+        limit: limitNum,
+        totalPages,
+        requests: paginated
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to retrieve admin verifications';
+      return res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  app.get('/api/admin/verifications/:id', authenticate, requireSuperAdmin, (req: AuthenticatedRequest, res) => {
+    try {
+      const request = db.getVerificationRequestById(req.params.id);
+      if (!request) {
+        return res.status(404).json({ success: false, error: 'Verification request not found' });
+      }
+      const biz = db.getBusinessById(request.businessId);
+      const owner = biz ? db.getUserById(biz.ownerId) : undefined;
+      const reviewer = request.reviewerId ? db.getUserById(request.reviewerId) : undefined;
+
+      return res.json({
+        success: true,
+        request: {
+          ...request,
+          businessName: biz?.name || 'Unknown Business',
+          businessSlug: biz?.slug || ''
+        },
+        businessProfile: biz ? {
+          id: biz.id,
+          name: biz.name,
+          slug: biz.slug,
+          description: biz.description,
+          categoryIds: (biz.categories as string[]) || (biz.category ? [biz.category] : []),
+          isVerified: biz.isVerified,
+          verificationStatus: biz.verificationStatus,
+          location: biz.location,
+          createdAt: biz.createdAt
+        } : null,
+        ownerInformation: owner ? {
+          id: owner.id,
+          name: owner.name,
+          email: owner.email,
+          clientType: owner.clientType,
+          createdAt: owner.createdAt
+        } : null,
+        submittedInformation: {
+          notes: request.notes,
+          submittedAt: request.createdAt,
+          requestId: request.id
+        },
+        reviewInformation: request.reviewedAt ? {
+          reviewedAt: request.reviewedAt,
+          reviewerId: request.reviewerId,
+          reviewerEmail: reviewer?.email,
+          rejectionReason: request.rejectionReason
+        } : undefined
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to retrieve verification request';
+      return res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  // Admin Approve Verification Request
+  app.post('/api/admin/verifications/:id/approve', authenticate, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = (req.headers['user-agent'] as string) || 'browser';
+
+      // Mass assignment & privilege escalation defense
+      validateAdminReviewPayload(req.body, 'APPROVE');
+
+      const result = await businessService.reviewVerificationRequest(
+        req.user!.id,
+        req.params.id,
+        { status: 'APPROVED' },
+        clientIp,
+        userAgent
+      );
+
+      return res.json({
+        success: true,
+        message: 'Business verification approved successfully.',
+        request: result.request
+      });
+    } catch (err: unknown) {
+      const isConflict = (err as any)?.code === 'STALE_OPERATION_CONFLICT';
+      const statusCode = (err as any)?.statusCode || (isConflict ? 409 : 400);
+      const message = err instanceof Error ? err.message : 'Failed to approve verification';
+      return res.status(statusCode).json({
+        success: false,
+        error: message,
+        code: (err as any)?.code || 'VERIFICATION_APPROVAL_FAILED'
+      });
+    }
+  });
+
+  // Admin Reject Verification Request
+  app.post('/api/admin/verifications/:id/reject', authenticate, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = (req.headers['user-agent'] as string) || 'browser';
+
+      // Mass assignment defense & rejection reason validation
+      const { rejectionReason } = validateAdminReviewPayload(req.body, 'REJECT');
+
+      const result = await businessService.reviewVerificationRequest(
+        req.user!.id,
+        req.params.id,
+        { status: 'REJECTED', rejectionReason },
+        clientIp,
+        userAgent
+      );
+
+      return res.json({
+        success: true,
+        message: 'Business verification rejected.',
+        request: result.request
+      });
+    } catch (err: unknown) {
+      const isConflict = (err as any)?.code === 'STALE_OPERATION_CONFLICT';
+      const statusCode = (err as any)?.statusCode || (isConflict ? 409 : 400);
+      const message = err instanceof Error ? err.message : 'Failed to reject verification';
+      return res.status(statusCode).json({
+        success: false,
+        error: message,
+        code: (err as any)?.code || 'VERIFICATION_REJECTION_FAILED'
+      });
+    }
+  });
+
+  // Admin Review General Route (supports both approve and reject via single endpoint)
+  app.post('/api/admin/verifications/:id/review', authenticate, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = (req.headers['user-agent'] as string) || 'browser';
+
+      const decisionStatus = req.body?.status;
+      if (decisionStatus !== 'APPROVED' && decisionStatus !== 'REJECTED') {
+        return res.status(400).json({
+          success: false,
+          error: 'Review decision status must be APPROVED or REJECTED.',
+          code: 'INVALID_DECISION_STATUS'
+        });
+      }
+
+      const { rejectionReason } = validateAdminReviewPayload(req.body, decisionStatus === 'REJECTED' ? 'REJECT' : 'APPROVE');
+
+      const result = await businessService.reviewVerificationRequest(
+        req.user!.id,
+        req.params.id,
+        { status: decisionStatus, rejectionReason },
+        clientIp,
+        userAgent
+      );
+
+      return res.json({
+        success: true,
+        message: `Business verification ${decisionStatus.toLowerCase()} successfully.`,
+        request: result.request
+      });
+    } catch (err: unknown) {
+      const isConflict = (err as any)?.code === 'STALE_OPERATION_CONFLICT';
+      const statusCode = (err as any)?.statusCode || (isConflict ? 409 : 400);
+      const message = err instanceof Error ? err.message : 'Failed to review verification';
+      return res.status(statusCode).json({
+        success: false,
+        error: message,
+        code: (err as any)?.code || 'VERIFICATION_REVIEW_FAILED'
+      });
+    }
+  });
+
   // Explicit Admin User Creation Guard: PREVENT CREATION OF ANOTHER SUPER ADMIN
   app.post('/api/admin/users', authenticate, requireSuperAdmin, (req: AuthenticatedRequest, res) => {
     try {
@@ -1428,6 +1670,69 @@ async function startServer() {
   app.post('/api/tests/business-public-page', async (req, res) => {
     try {
       const result = await authTestRunnerService.runPublicBusinessPageTestOnly();
+      res.json({ success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  // Dedicated Business Verification Request Test Runner (Epic 2 Feature 2.3 Task 2.3.1)
+  app.get('/api/tests/business-verification-request', async (req, res) => {
+    try {
+      const result = await authTestRunnerService.runBusinessVerificationRequestTestOnly();
+      res.json({ success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  app.post('/api/tests/business-verification-request', async (req, res) => {
+    try {
+      const result = await authTestRunnerService.runBusinessVerificationRequestTestOnly();
+      res.json({ success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  // Dedicated Business Verification Status Lifecycle Test Runner (Epic 2 Feature 2.3 Task 2.3.2)
+  app.get('/api/tests/business-verification-status', async (req, res) => {
+    try {
+      const result = await authTestRunnerService.runBusinessVerificationStatusTestOnly();
+      res.json({ success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  app.post('/api/tests/business-verification-status', async (req, res) => {
+    try {
+      const result = await authTestRunnerService.runBusinessVerificationStatusTestOnly();
+      res.json({ success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  // Dedicated Admin Verification Review Workflow Test Runner (Epic 2 Feature 2.3 Task 2.3.3)
+  app.get('/api/tests/admin-verification-workflow', async (req, res) => {
+    try {
+      const result = await authTestRunnerService.runAdminVerificationWorkflowTestOnly();
+      res.json({ success: true, result });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  app.post('/api/tests/admin-verification-workflow', async (req, res) => {
+    try {
+      const result = await authTestRunnerService.runAdminVerificationWorkflowTestOnly();
       res.json({ success: true, result });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
@@ -2375,34 +2680,436 @@ async function startServer() {
   app.patch('/api/users/profile/contact', authenticate, handleUpdateContactInfo);
 
   // ==========================================
-  // 3. CATEGORIES & TAXONOMY
+  // 3. CATEGORIES & TAXONOMY (Epic 3 Feature 3.1 Tasks 3.1.1 & 3.1.2)
   // ==========================================
   app.get('/api/categories', (req, res) => {
-    res.json({ success: true, categories: db.categories });
-  });
-
-  app.post('/api/admin/categories', authenticate, requireSuperAdmin, (req, res) => {
-    const { id, name, slug, iconName, description, subcategories, bannerImage } = req.body;
-    const existingIndex = db.categories.findIndex(c => c.id === id || c.slug === slug);
-    const categoryData = {
-      id: id || slug,
-      name,
-      slug: slug || name.toLowerCase().replace(/[^a-z0-9]/g, '-'),
-      iconName: iconName || 'Folder',
-      description: description || '',
-      subcategories: Array.isArray(subcategories) ? subcategories : [],
-      bannerImage: bannerImage || 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=800&auto=format&fit=crop&q=80'
-    };
-
-    if (existingIndex >= 0) {
-      db.categories[existingIndex] = categoryData;
-    } else {
-      db.categories.push(categoryData);
+    try {
+      const includeInactive = req.query.includeInactive === 'true';
+      const parentId = req.query.parentId !== undefined ? (req.query.parentId === 'null' ? null : String(req.query.parentId)) : undefined;
+      const categories = categoryService.getAvailableCategories(includeInactive, parentId);
+      res.json({ success: true, categories, count: categories.length });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to retrieve categories';
+      res.status(500).json({ success: false, error: message });
     }
-
-    auditService.log('CATEGORY_MODIFIED', 'admin', 'admin', 'super_admin', { category: categoryData });
-    res.json({ success: true, category: categoryData, categories: db.categories });
   });
+
+  // Hierarchical category tree (Epic 3 Feature 3.1 Task 3.1.2)
+  app.get('/api/categories/tree', (req, res) => {
+    try {
+      const includeInactive = req.query.includeInactive === 'true';
+      const tree = categoryService.getCategoryTree(includeInactive);
+      res.json({ success: true, tree, count: tree.length });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to retrieve category tree';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  // Top-level categories only (Epic 3 Feature 3.1 Task 3.1.2)
+  app.get('/api/categories/top-level', (req, res) => {
+    try {
+      const includeInactive = req.query.includeInactive === 'true';
+      const categories = categoryService.getTopLevelCategories(includeInactive);
+      res.json({ success: true, categories, count: categories.length });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to retrieve top-level categories';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  // Subcategories for a specific parent (Epic 3 Feature 3.1 Task 3.1.2)
+  app.get('/api/categories/:idOrSlug/subcategories', (req, res) => {
+    try {
+      const parent = categoryService.getCategoryByIdOrSlug(req.params.idOrSlug);
+      if (!parent) {
+        return res.status(404).json({ success: false, error: `Parent category "${req.params.idOrSlug}" not found.` });
+      }
+      const includeInactive = req.query.includeInactive === 'true';
+      const subcategories = categoryService.getSubcategories(req.params.idOrSlug, includeInactive);
+      res.json({
+        success: true,
+        parent,
+        subcategories,
+        subcategoriesCount: subcategories.length,
+        tags: parent.subcategories || []
+      });
+    } catch (err: unknown) {
+      if (err instanceof CategoryServiceError) {
+        return res.status(err.statusCode).json({ success: false, error: err.message, code: err.code });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to retrieve subcategories';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  app.get('/api/categories/:idOrSlug', (req, res) => {
+    try {
+      const category = categoryService.getCategoryByIdOrSlug(req.params.idOrSlug);
+      if (!category) {
+        return res.status(404).json({ success: false, error: `Category "${req.params.idOrSlug}" not found.` });
+      }
+      res.json({ success: true, category });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to retrieve category';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  // ==========================================
+  // 3. CATEGORIES & TAXONOMY (Epic 3 Feature 3.1 Tasks 3.1.1, 3.1.2, 3.1.3)
+  // ==========================================
+
+  // Super Admin: List all categories with counts and hierarchy (Task 3.1.3)
+  app.get('/api/admin/categories', authenticate, requireSuperAdmin, (req: AuthenticatedRequest, res) => {
+    try {
+      const includeInactive = req.query.includeInactive !== 'false';
+      const tree = req.query.format === 'tree';
+      if (tree) {
+        const categoryTree = categoryService.getCategoryTree(includeInactive);
+        return res.json({ success: true, tree: categoryTree, count: categoryTree.length });
+      }
+
+      const categories = categoryService.getAvailableCategories(includeInactive);
+      const enriched = categories.map(cat => {
+        let businessCount = 0;
+        for (const biz of db.businesses.values()) {
+          const bizCatIds = biz.categories || (biz.category ? [biz.category] : []);
+          if (bizCatIds.includes(cat.id as any) || bizCatIds.includes(cat.slug as any)) {
+            businessCount++;
+          }
+        }
+        const subcats = db.getSubcategories(cat.id, { status: 'all' });
+        return {
+          ...cat,
+          businessCount,
+          subcategoriesCount: (subcats?.length || 0) + (cat.subcategories?.length || 0)
+        };
+      });
+
+      res.json({ success: true, categories: enriched, count: enriched.length });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to retrieve categories';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  // Super Admin: Get single category details (Task 3.1.3)
+  app.get('/api/admin/categories/:id', authenticate, requireSuperAdmin, (req: AuthenticatedRequest, res) => {
+    try {
+      const details = categoryService.getAdminCategoryDetails(req.params.id);
+      res.json({ success: true, ...details });
+    } catch (err: unknown) {
+      if (err instanceof CategoryServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code
+        });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to retrieve category';
+      res.status(404).json({ success: false, error: message });
+    }
+  });
+
+  app.post('/api/admin/categories', authenticate, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'browser';
+      const category = await categoryService.createCategory(req.user!.id, req.body, clientIp, userAgent);
+      res.status(201).json({ success: true, category, categories: db.categories });
+    } catch (err: unknown) {
+      if (err instanceof CategoryServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code,
+          details: err.details
+        });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to create category';
+      res.status(400).json({ success: false, error: message });
+    }
+  });
+
+  // Super Admin: Subcategories under a parent (Task 3.1.3)
+  app.get('/api/admin/categories/:parentId/subcategories', authenticate, requireSuperAdmin, (req: AuthenticatedRequest, res) => {
+    try {
+      const includeInactive = req.query.includeInactive !== 'false';
+      const subcategories = categoryService.getSubcategories(req.params.parentId, includeInactive);
+      const parent = db.getCategoryById(req.params.parentId);
+      if (!parent) {
+        return res.status(404).json({ success: false, error: `Parent category "${req.params.parentId}" not found.` });
+      }
+      res.json({
+        success: true,
+        parent,
+        subcategories,
+        subcategoriesCount: subcategories.length,
+        tags: parent.subcategories || []
+      });
+    } catch (err: unknown) {
+      if (err instanceof CategoryServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code
+        });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to fetch subcategories';
+      res.status(400).json({ success: false, error: message });
+    }
+  });
+
+  // Create child subcategory under a parent (Epic 3 Feature 3.1 Task 3.1.2)
+  app.post('/api/admin/categories/:parentId/subcategories', authenticate, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'browser';
+      const subcategory = await categoryService.createSubcategory(req.user!.id, req.params.parentId, req.body, clientIp, userAgent);
+      res.status(201).json({ success: true, subcategory, categories: db.categories });
+    } catch (err: unknown) {
+      if (err instanceof CategoryServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code,
+          details: err.details
+        });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to create subcategory';
+      res.status(400).json({ success: false, error: message });
+    }
+  });
+
+  // Update child subcategory under a parent (Task 3.1.3 Section 6)
+  const handleUpdateSubcategory = async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'browser';
+      const subcategory = await categoryService.updateSubcategory(
+        req.user!.id,
+        req.params.parentId,
+        req.params.subcategoryId,
+        req.body,
+        clientIp,
+        userAgent
+      );
+      res.json({ success: true, subcategory, categories: db.categories });
+    } catch (err: unknown) {
+      if (err instanceof CategoryServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code,
+          details: err.details
+        });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to update subcategory';
+      res.status(400).json({ success: false, error: message });
+    }
+  };
+
+  app.put('/api/admin/categories/:parentId/subcategories/:subcategoryId', authenticate, requireSuperAdmin, handleUpdateSubcategory);
+  app.patch('/api/admin/categories/:parentId/subcategories/:subcategoryId', authenticate, requireSuperAdmin, handleUpdateSubcategory);
+
+  // Toggle/set subcategory status (Task 3.1.3 Section 5 & 6)
+  app.patch('/api/admin/categories/:parentId/subcategories/:subcategoryId/status', authenticate, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'browser';
+      const subcategory = await categoryService.updateSubcategory(
+        req.user!.id,
+        req.params.parentId,
+        req.params.subcategoryId,
+        req.body,
+        clientIp,
+        userAgent
+      );
+      res.json({ success: true, subcategory, categories: db.categories });
+    } catch (err: unknown) {
+      if (err instanceof CategoryServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code,
+          details: err.details
+        });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to update subcategory status';
+      res.status(400).json({ success: false, error: message });
+    }
+  });
+
+  // Delete subcategory under a parent safely (Task 3.1.3 Section 6 & 7)
+  app.delete('/api/admin/categories/:parentId/subcategories/:subcategoryId', authenticate, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'browser';
+      const force = req.query.force === 'true';
+      const result = await categoryService.deleteSubcategory(
+        req.user!.id,
+        req.params.parentId,
+        req.params.subcategoryId,
+        { force },
+        clientIp,
+        userAgent
+      );
+      res.json({ success: true, ...result, categories: db.categories });
+    } catch (err: unknown) {
+      if (err instanceof CategoryServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code
+        });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to delete subcategory';
+      res.status(400).json({ success: false, error: message });
+    }
+  });
+
+  // Add subcategory item/tag to parent (Epic 3 Feature 3.1 Task 3.1.2)
+  app.post('/api/admin/categories/:parentId/subcategories/items', authenticate, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'browser';
+      const tagName = req.body?.name || req.body?.tag;
+      const category = await categoryService.addSubcategoryTag(req.user!.id, req.params.parentId, tagName, clientIp, userAgent);
+      res.json({ success: true, category, subcategories: category.subcategories });
+    } catch (err: unknown) {
+      if (err instanceof CategoryServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code,
+          details: err.details
+        });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to add subcategory item';
+      res.status(400).json({ success: false, error: message });
+    }
+  });
+
+  // Remove subcategory item/tag from parent (Epic 3 Feature 3.1 Task 3.1.2)
+  app.delete('/api/admin/categories/:parentId/subcategories/items/:subName', authenticate, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'browser';
+      const category = await categoryService.removeSubcategoryTag(req.user!.id, req.params.parentId, decodeURIComponent(req.params.subName), clientIp, userAgent);
+      res.json({ success: true, category, subcategories: category.subcategories });
+    } catch (err: unknown) {
+      if (err instanceof CategoryServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code
+        });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to remove subcategory item';
+      res.status(400).json({ success: false, error: message });
+    }
+  });
+
+  // Update Category (PUT / PATCH)
+  const handleUpdateCategory = async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'browser';
+      const category = await categoryService.updateCategory(req.user!.id, req.params.id, req.body, clientIp, userAgent);
+      res.json({ success: true, category, categories: db.categories });
+    } catch (err: unknown) {
+      if (err instanceof CategoryServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code,
+          details: err.details
+        });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to update category';
+      res.status(400).json({ success: false, error: message });
+    }
+  };
+
+  app.put('/api/admin/categories/:id', authenticate, requireSuperAdmin, handleUpdateCategory);
+  app.patch('/api/admin/categories/:id', authenticate, requireSuperAdmin, handleUpdateCategory);
+
+  // Toggle/set category status (Task 3.1.3 Section 5)
+  app.patch('/api/admin/categories/:id/status', authenticate, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'browser';
+      const category = await categoryService.setCategoryStatus(req.user!.id, req.params.id, req.body, clientIp, userAgent);
+      res.json({ success: true, category, categories: db.categories });
+    } catch (err: unknown) {
+      if (err instanceof CategoryServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code,
+          details: err.details
+        });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to update category status';
+      res.status(400).json({ success: false, error: message });
+    }
+  });
+
+  app.delete('/api/admin/categories/:id', authenticate, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.ip || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'browser';
+      const force = req.query.force === 'true';
+      const result = await categoryService.deleteCategory(req.user!.id, req.params.id, { force }, clientIp, userAgent);
+      res.json({ success: true, ...result, categories: db.categories });
+    } catch (err: unknown) {
+      if (err instanceof CategoryServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code
+        });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to delete category';
+      res.status(400).json({ success: false, error: message });
+    }
+  });
+
+  app.post('/api/admin/categories/seed', authenticate, requireSuperAdmin, (req: AuthenticatedRequest, res) => {
+    try {
+      const result = categoryService.seedCategories();
+      res.json({ success: true, ...result, categories: db.categories });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to seed categories';
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  // Automated Category Test Suite (Task 3.1.1 Verification)
+  const handleRunCategoryTestSuite = async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const results = await categoryTestRunnerService.runAllCategoryTests();
+      const passed = results.filter(r => r.status === 'passed').length;
+      const failed = results.filter(r => r.status === 'failed').length;
+      res.json({
+        success: true,
+        summary: {
+          total: results.length,
+          passed,
+          failed,
+          allPassed: failed === 0
+        },
+        results
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to execute category test suite';
+      res.status(500).json({ success: false, error: message });
+    }
+  };
+
+  app.post('/api/admin/categories/test-suite', authenticate, requireSuperAdmin, handleRunCategoryTestSuite);
+  app.get('/api/admin/categories/test-suite', authenticate, requireSuperAdmin, handleRunCategoryTestSuite);
 
   // ==========================================
   // 4. BUSINESSES & PROFILES
@@ -3582,6 +4289,145 @@ async function startServer() {
       return res.status(400).json({ success: false, error: message });
     }
   });
+
+  // ==========================================
+  // Epic 2 Feature 2.3 Task 2.3.1: Business Verification Request
+  // ==========================================
+  const handleVerificationRequestSubmission = async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const currentUser = req.user;
+      if (!currentUser) {
+        return res.status(401).json({ success: false, error: 'Authentication required', code: 'UNAUTHORIZED' });
+      }
+
+      const businessId = req.params.id;
+      if (!businessId) {
+        return res.status(400).json({ success: false, error: 'Business ID is required', code: 'INVALID_BUSINESS_ID' });
+      }
+
+      // Security check: mass assignment and privilege escalation defense
+      if (req.body && typeof req.body === 'object') {
+        try {
+          validateNoVerificationPrivilegeEscalation(req.body);
+        } catch (privErr) {
+          const message = privErr instanceof Error ? privErr.message : 'Privilege escalation blocked';
+          return res.status(403).json({
+            success: false,
+            error: message,
+            code: 'FORBIDDEN_PRIVILEGE_ESCALATION'
+          });
+        }
+      }
+
+      // Schema validation with strict rejection of unknown fields
+      const parseResult = SubmitVerificationRequestSchema.safeParse(req.body || {});
+      if (!parseResult.success) {
+        return res.status(400).json({
+          success: false,
+          error: 'Validation failed',
+          code: 'VALIDATION_ERROR',
+          details: parseResult.error.format()
+        });
+      }
+
+      const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = (req.headers['user-agent'] as string) || 'system';
+
+      const result = await businessService.submitVerificationRequest(
+        currentUser.id,
+        businessId,
+        parseResult.data,
+        clientIp,
+        userAgent
+      );
+
+      return res.status(201).json(result);
+    } catch (err: unknown) {
+      if (err instanceof BusinessServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code,
+          details: err.details
+        });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to submit verification request';
+      return res.status(500).json({ success: false, error: message, code: 'INTERNAL_SERVER_ERROR' });
+    }
+  };
+
+  const handleGetVerificationRequest = async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const currentUser = req.user;
+      if (!currentUser) {
+        return res.status(401).json({ success: false, error: 'Authentication required', code: 'UNAUTHORIZED' });
+      }
+
+      const businessId = req.params.id;
+      if (!businessId) {
+        return res.status(400).json({ success: false, error: 'Business ID is required', code: 'INVALID_BUSINESS_ID' });
+      }
+
+      const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = (req.headers['user-agent'] as string) || 'system';
+
+      const result = await businessService.getLatestVerificationRequest(
+        currentUser.id,
+        businessId,
+        clientIp,
+        userAgent
+      );
+
+      return res.status(200).json(result);
+    } catch (err: unknown) {
+      if (err instanceof BusinessServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code,
+          details: err.details
+        });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to get verification status';
+      return res.status(500).json({ success: false, error: message, code: 'INTERNAL_SERVER_ERROR' });
+    }
+  };
+
+  const handleGetVerificationEligibility = async (req: AuthenticatedRequest, res: express.Response) => {
+    try {
+      const currentUser = req.user;
+      if (!currentUser) {
+        return res.status(401).json({ success: false, error: 'Authentication required', code: 'UNAUTHORIZED' });
+      }
+
+      const businessId = req.params.id;
+      if (!businessId) {
+        return res.status(400).json({ success: false, error: 'Business ID is required', code: 'INVALID_BUSINESS_ID' });
+      }
+
+      const result = businessService.checkVerificationEligibility(currentUser.id, businessId);
+      return res.status(200).json(result);
+    } catch (err: unknown) {
+      if (err instanceof BusinessServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code,
+          details: err.details
+        });
+      }
+      const message = err instanceof Error ? err.message : 'Failed to check verification eligibility';
+      return res.status(500).json({ success: false, error: message, code: 'INTERNAL_SERVER_ERROR' });
+    }
+  };
+
+  app.post('/api/businesses/:id/verification', authenticate, handleVerificationRequestSubmission);
+  app.post('/api/businesses/:id/verification-request', authenticate, handleVerificationRequestSubmission);
+  app.get('/api/businesses/:id/verification', authenticate, handleGetVerificationRequest);
+  app.get('/api/businesses/:id/verification-status', authenticate, handleGetVerificationRequest);
+  app.get('/api/businesses/:id/verification-request', authenticate, handleGetVerificationRequest);
+  app.get('/api/businesses/:id/verification/eligibility', authenticate, handleGetVerificationEligibility);
+  app.get('/api/businesses/:id/verification-eligibility', authenticate, handleGetVerificationEligibility);
 
   // ==========================================
   // 5. ADVERTISEMENTS & BOOST ENGINE

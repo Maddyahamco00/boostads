@@ -21,7 +21,8 @@ export type BusinessCategoryType =
   | 'automotive'
   | 'beauty_wellness'
   | 'real_estate'
-  | 'education';
+  | 'education'
+  | (string & {});
 
 export interface LocationCoordinates {
   city: string;
@@ -344,6 +345,7 @@ export interface Business {
   rating?: number;
   reviewCount?: number;
   isVerified?: boolean;
+  verificationStatus?: BusinessVerificationStatus;
   tier?: SubscriptionTier;
   socialLinks?: SocialLinks;
   stats?: {
@@ -392,6 +394,110 @@ export interface PublicBusinessProfile {
   website?: string;
   isVerified?: boolean;
   createdAt?: string;
+}
+
+/**
+ * Business Verification Model, Lifecycle Statuses & DTOs (Epic 2 Feature 2.3 Tasks 2.3.1 & 2.3.2)
+ * Controlled Lifecycle: NOT_SUBMITTED -> PENDING -> APPROVED | REJECTED (with resubmission to PENDING)
+ */
+export type BusinessVerificationStatus = 'NOT_SUBMITTED' | 'PENDING' | 'APPROVED' | 'REJECTED';
+export type VerificationRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+export interface BusinessVerificationRequest {
+  id: string;
+  businessId: string;
+  requesterId: string;
+  status: VerificationRequestStatus;
+  notes?: string;
+  submittedAt: string;
+  reviewedAt?: string;
+  reviewerId?: string;
+  rejectionReason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SubmitVerificationRequestPayload {
+  notes?: string;
+}
+
+export interface PublicVerificationRequestDTO {
+  id: string;
+  businessId: string;
+  status: VerificationRequestStatus;
+  submittedAt: string;
+  reviewedAt?: string;
+  rejectionReason?: string;
+  createdAt: string;
+  notes?: string;
+}
+
+export interface VerificationRequestResponse {
+  success: boolean;
+  message: string;
+  request: PublicVerificationRequestDTO;
+}
+
+export interface BusinessVerificationStatusResponse {
+  success: boolean;
+  businessId: string;
+  status: BusinessVerificationStatus;
+  isVerified: boolean;
+  canResubmit: boolean;
+  request: PublicVerificationRequestDTO | null;
+}
+
+export interface AdminVerificationRequestItem extends BusinessVerificationRequest {
+  businessName: string;
+  businessSlug: string;
+  businessCategories?: string[];
+  ownerName?: string;
+  ownerEmail?: string;
+  reviewerEmail?: string;
+}
+
+export interface AdminVerificationListResponse {
+  success: boolean;
+  count: number;
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+  requests: AdminVerificationRequestItem[];
+}
+
+export interface AdminVerificationDetailResponse {
+  success: boolean;
+  request: BusinessVerificationRequest;
+  businessProfile: {
+    id: string;
+    name: string;
+    slug: string;
+    description?: string;
+    categoryIds: string[];
+    isVerified: boolean;
+    verificationStatus?: BusinessVerificationStatus;
+    location?: LocationCoordinates;
+    createdAt: string;
+  };
+  ownerInformation: {
+    id: string;
+    name: string;
+    email: string;
+    clientType?: string;
+    createdAt: string;
+  };
+  submittedInformation: {
+    notes?: string;
+    submittedAt: string;
+    requestId: string;
+  };
+  reviewInformation?: {
+    reviewedAt?: string;
+    reviewerId?: string;
+    reviewerEmail?: string;
+    rejectionReason?: string;
+  };
 }
 
 export interface Product {
@@ -769,15 +875,77 @@ export interface Report {
 
 export type ReportItem = Report;
 
-export interface CategoryConfig {
-  id: BusinessCategoryType;
+export type CategoryStatus = 'active' | 'inactive';
+
+/**
+ * Category Database Model (Epic 3 Feature 3.1 Tasks 3.1.1 & 3.1.2)
+ * Represents foundational business sectors and categories across Boost Market.
+ * Supports unique stable IDs, SEO/API-safe slugs, status control, hierarchy (parent-child subcategories), and metadata.
+ */
+export interface Category {
+  id: string;
   name: string;
   slug: string;
-  iconName: string;
-  description: string;
-  subcategories: string[];
-  bannerImage: string;
+  description?: string;
+  status: CategoryStatus;
+  active: boolean; // Kept in sync with status === 'active' for backwards compatibility
+  parentId?: string | null; // For Category hierarchy & Subcategories (Task 3.1.2)
+  iconName?: string;
+  bannerImage?: string;
+  subcategories?: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Backwards-compatible alias for existing frontend/service consumers
+export type CategoryConfig = Category;
+
+/**
+ * Hierarchical Category Tree Node (Epic 3 Feature 3.1 Task 3.1.2)
+ */
+export interface CategoryTreeNode extends Category {
+  children: CategoryTreeNode[];
+  depth: number;
+  subcategoriesCount?: number;
+  businessCount?: number;
+}
+
+export interface CreateCategoryInput {
+  id?: string;
+  name: string;
+  slug?: string;
+  description?: string;
+  status?: CategoryStatus;
   active?: boolean;
+  parentId?: string | null;
+  iconName?: string;
+  bannerImage?: string;
+  subcategories?: string[];
+}
+
+export interface CreateSubcategoryInput {
+  id?: string;
+  name: string;
+  slug?: string;
+  description?: string;
+  status?: CategoryStatus;
+  active?: boolean;
+  parentId: string; // Subcategory requires parent reference
+  iconName?: string;
+  bannerImage?: string;
+  subcategories?: string[];
+}
+
+export interface UpdateCategoryInput {
+  name?: string;
+  slug?: string;
+  description?: string;
+  status?: CategoryStatus;
+  active?: boolean;
+  parentId?: string | null;
+  iconName?: string;
+  bannerImage?: string;
+  subcategories?: string[];
 }
 
 export interface BusinessCategory {

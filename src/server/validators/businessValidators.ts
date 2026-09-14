@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { sanitizeString } from './authValidators';
 import { validatePhoneNumber } from '../../lib/phoneUtils';
+import { Business } from '../../types';
 
 /**
  * Safely sanitizes business description text:
@@ -514,4 +515,234 @@ export const UpdateBusinessContactSchema = z.object({
 }).strict();
 
 export type UpdateBusinessContactInput = z.infer<typeof UpdateBusinessContactSchema>;
+
+/**
+ * Epic 2 Feature 2.3 Task 2.3.1: Submit Business Verification Request Schema
+ * 
+ * Strict validation:
+ * - notes: optional string, max 500 characters, no null bytes or control characters
+ * - strict(): rejects unexpected / mass-assignment / privilege escalation fields
+ */
+export const SubmitVerificationRequestSchema = z.object({
+  notes: z
+    .string({ message: 'Notes must be a string' })
+    .max(500, 'Verification notes cannot exceed 500 characters')
+    .refine(
+      (val) => !/[\u0000-\u001F\u007F]/.test(val),
+      { message: 'Verification notes contain invalid control characters or null bytes.' }
+    )
+    .optional()
+    .nullable()
+}).strict();
+
+export type SubmitVerificationRequestInput = z.infer<typeof SubmitVerificationRequestSchema>;
+
+/**
+ * Explicit list of forbidden / privileged fields on verification request payloads.
+ * Protects against mass assignment, privilege escalation, and direct status manipulation.
+ */
+export const FORBIDDEN_VERIFICATION_REQUEST_FIELDS = [
+  'id',
+  'status',
+  'requesterId',
+  'userId',
+  'ownerId',
+  'businessId',
+  'isVerified',
+  'verified',
+  'verificationBadge',
+  'verificationStatus',
+  'verificationMetadata',
+  'reviewerId',
+  'reviewer',
+  'reviewedAt',
+  'approvedAt',
+  'rejectedAt',
+  'submittedAt',
+  'rejectionReason',
+  'adminDecision',
+  'role',
+  'permissions',
+  'createdAt',
+  'updatedAt'
+] as const;
+
+export function validateNoVerificationPrivilegeEscalation(body: Record<string, unknown>): void {
+  if (!body || typeof body !== 'object') return;
+  for (const field of FORBIDDEN_VERIFICATION_REQUEST_FIELDS) {
+    if (field in body && body[field] !== undefined) {
+      const err = new Error(`Privilege escalation attempt blocked: field "${field}" cannot be set by client.`);
+      (err as any).code = 'PRIVILEGE_ESCALATION_FORBIDDEN';
+      (err as any).statusCode = 403;
+      throw err;
+    }
+  }
+}
+
+/**
+ * Business Profile Verification Eligibility Assessment (Epic 2 Feature 2.3 Task 2.3.1)
+ * 
+ * Inspects existing business profile data according to current architecture:
+ * - Business name (minimum 2 characters)
+ * - Business description (minimum 10 characters)
+ * - Category (at least one category selected)
+ * - Location (city, address, or state defined)
+ * - Contact information (at least one contact method: phone, email, or whatsapp)
+ */
+export interface BusinessVerificationEligibilityResult {
+  eligible: boolean;
+  missingFields: ('name' | 'description' | 'category' | 'location' | 'contact')[];
+  fieldErrors: Record<string, string>;
+  message: string;
+}
+
+export function validateBusinessVerificationEligibility(
+  business: Partial<Business> | null | undefined
+): BusinessVerificationEligibilityResult {
+  if (!business) {
+    return {
+      eligible: false,
+      missingFields: ['name', 'description', 'category', 'location', 'contact'],
+      fieldErrors: { business: 'Business not found.' },
+      message: 'Business not found.'
+    };
+  }
+
+  const missingFields: ('name' | 'description' | 'category' | 'location' | 'contact')[] = [];
+  const fieldErrors: Record<string, string> = {};
+
+  // 1. Business Name (minimum 2 characters)
+  if (!business.name || typeof business.name !== 'string' || business.name.trim().length < 2) {
+    missingFields.push('name');
+    fieldErrors.name = 'Business name is required and must be at least 2 characters.';
+  }
+
+  // 2. Business Description (minimum 10 characters)
+  if (!business.description || typeof business.description !== 'string' || business.description.trim().length < 10) {
+    missingFields.push('description');
+    fieldErrors.description = 'Business description is required and must be at least 10 characters.';
+  }
+
+  // 3. Category (at least one category selected)
+  const anyBiz = business as Record<string, unknown>;
+  const hasCategory = Boolean(
+    (business.category && typeof business.category === 'string' && business.category.trim()) ||
+    (Array.isArray(business.categories) && business.categories.length > 0) ||
+    (Array.isArray(anyBiz.categoryIds) && anyBiz.categoryIds.length > 0) ||
+    (Array.isArray(anyBiz.businessCategories) && anyBiz.businessCategories.length > 0)
+  );
+  if (!hasCategory) {
+    missingFields.push('category');
+    fieldErrors.category = 'At least one business category must be selected.';
+  }
+
+  // 4. Location (city, address, or state configured)
+  const hasLocation = Boolean(
+    business.location && (
+      (business.location.city && typeof business.location.city === 'string' && business.location.city.trim()) ||
+      (business.location.address && typeof business.location.address === 'string' && business.location.address.trim()) ||
+      (business.location.state && typeof business.location.state === 'string' && business.location.state.trim())
+    )
+  );
+  if (!hasLocation) {
+    missingFields.push('location');
+    fieldErrors.location = 'Business location (city, state, or address) is required.';
+  }
+
+  // 5. Contact Information (phone, email, or whatsapp)
+  const hasContact = Boolean(
+    (business.phone && typeof business.phone === 'string' && business.phone.trim().length > 0) ||
+    (business.email && typeof business.email === 'string' && business.email.trim().length > 0) ||
+    (business.whatsapp && typeof business.whatsapp === 'string' && business.whatsapp.trim().length > 0)
+  );
+  if (!hasContact) {
+    missingFields.push('contact');
+    fieldErrors.contact = 'At least one contact method (phone, email, or WhatsApp) is required.';
+  }
+
+  const eligible = missingFields.length === 0;
+
+  const friendlyMissing = missingFields.map(f => {
+    switch (f) {
+      case 'name': return 'Business Name';
+      case 'description': return 'Business Description (min 10 chars)';
+      case 'category': return 'Business Category';
+      case 'location': return 'Location (City or Address)';
+      case 'contact': return 'Contact Information (Phone, Email, or WhatsApp)';
+    }
+  });
+
+  return {
+    eligible,
+    missingFields,
+    fieldErrors,
+    message: eligible
+      ? 'Business profile meets all eligibility requirements for verification.'
+      : `Business profile is incomplete. Please complete: ${friendlyMissing.join(', ')}.`
+  };
+}
+
+/**
+ * Forbidden fields on admin review requests (approve / reject).
+ * Review metadata (reviewerId, reviewedAt, approvalDate, isVerified, etc.)
+ * must strictly be server-controlled from the authenticated Super Admin session.
+ */
+export const FORBIDDEN_ADMIN_REVIEW_FIELDS = [
+  'reviewerId',
+  'reviewedAt',
+  'approvalDate',
+  'ownerId',
+  'businessId',
+  'isVerified',
+  'verified',
+  'role',
+  'permissions',
+  'isSuperAdmin',
+  'createdAt',
+  'updatedAt'
+] as const;
+
+export function validateAdminReviewPayload(
+  body: Record<string, unknown>,
+  action: 'APPROVE' | 'REJECT'
+): { rejectionReason?: string } {
+  if (body && typeof body === 'object') {
+    for (const field of FORBIDDEN_ADMIN_REVIEW_FIELDS) {
+      if (field in body && body[field] !== undefined) {
+        const err = new Error(`Mass assignment blocked: field "${field}" cannot be set via review request.`);
+        (err as any).code = 'MASS_ASSIGNMENT_FORBIDDEN';
+        (err as any).statusCode = 400;
+        throw err;
+      }
+    }
+  }
+
+  if (action === 'REJECT') {
+    const reason = body?.rejectionReason;
+    if (typeof reason !== 'string' || !reason.trim()) {
+      const err = new Error('A valid rejection reason is required when rejecting a verification request.');
+      (err as any).code = 'REJECTION_REASON_REQUIRED';
+      (err as any).statusCode = 400;
+      throw err;
+    }
+    const trimmed = reason.trim();
+    if (trimmed.length < 3) {
+      const err = new Error('Rejection reason must be at least 3 characters long.');
+      (err as any).code = 'INVALID_REJECTION_REASON';
+      (err as any).statusCode = 400;
+      throw err;
+    }
+    if (trimmed.length > 500) {
+      const err = new Error('Rejection reason must not exceed 500 characters.');
+      (err as any).code = 'INVALID_REJECTION_REASON';
+      (err as any).statusCode = 400;
+      throw err;
+    }
+    return { rejectionReason: trimmed };
+  }
+
+  return {};
+}
+
+
 

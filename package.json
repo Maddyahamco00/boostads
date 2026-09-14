@@ -8,7 +8,10 @@
     "build": "NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 next build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test:verification": "tsx src/server/tests/verificationStatus.test.ts",
+    "test:verification-request": "tsx src/server/tests/verificationRequestEligibility.test.ts",
+    "test:categories": "tsx src/server/tests/categoryDatabase.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

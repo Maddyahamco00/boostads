@@ -21,11 +21,17 @@ import {
   AlertCircle,
   ShieldAlert,
   Download,
-  Key
+  Key,
+  Clock,
+  ExternalLink,
+  Eye,
+  X,
+  FolderTree
 } from 'lucide-react';
-import { AuditLogEntity } from '../types';
+import { AuditLogEntity, AdminVerificationRequestItem, AdminVerificationDetailResponse, BusinessVerificationStatus } from '../types';
 import { AuthTestSuiteModal } from './AuthTestSuiteModal';
-import { authApi, fetchWithAuth, formatAuthError } from '../lib/api';
+import { CategoryManagementTab } from './CategoryManagementTab';
+import { authApi, adminApi, fetchWithAuth, formatAuthError } from '../lib/api';
 import { Logo } from './Logo';
 
 export const AdminPanelView: React.FC = () => {
@@ -43,9 +49,25 @@ export const AdminPanelView: React.FC = () => {
     refreshData 
   } = useApp();
 
-  const [activeTab, setActiveTab] = useState<'businesses' | 'ads' | 'reports' | 'financials' | 'audit_logs' | 'users' | 'security'>('businesses');
+  const [activeTab, setActiveTab] = useState<'businesses' | 'verifications' | 'categories' | 'ads' | 'reports' | 'financials' | 'audit_logs' | 'users' | 'security'>('businesses');
   const [fxSpread, setFxSpread] = useState<number>(2.0);
   const [isTestSuiteOpen, setIsTestSuiteOpen] = useState(false);
+
+  // Verifications State (Epic 2 Feature 2.3 Task 2.3.3)
+  const [verificationRequests, setVerificationRequests] = useState<AdminVerificationRequestItem[]>([]);
+  const [verificationsLoading, setVerificationsLoading] = useState(false);
+  const [verificationStatusFilter, setVerificationStatusFilter] = useState<'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED'>('PENDING');
+  const [verificationSearch, setVerificationSearch] = useState('');
+  const [pendingCount, setPendingCount] = useState<number>(0);
+  const [selectedVerification, setSelectedVerification] = useState<AdminVerificationDetailResponse | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [rejectionModalOpen, setRejectionModalOpen] = useState(false);
+  const [rejectionReasonInput, setRejectionReasonInput] = useState('');
+  const [rejectionReasonError, setRejectionReasonError] = useState<string | null>(null);
+  const [approveConfirmModalOpen, setApproveConfirmModalOpen] = useState(false);
 
   // Audit Logs state
   const [auditLogs, setAuditLogs] = useState<AuditLogEntity[]>([]);
@@ -156,15 +178,129 @@ export const AdminPanelView: React.FC = () => {
     }
   };
 
+  const fetchPendingCount = async () => {
+    try {
+      const res = await adminApi.getVerifications({ status: 'PENDING' });
+      if (res.success) {
+        setPendingCount(res.total ?? res.count ?? 0);
+      }
+    } catch (err) {
+      console.error('Failed to load pending verifications count:', err);
+    }
+  };
+
+  const fetchVerifications = async (
+    statusOverride?: 'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED',
+    searchOverride?: string
+  ) => {
+    setVerificationsLoading(true);
+    try {
+      const statusToUse = statusOverride !== undefined ? statusOverride : verificationStatusFilter;
+      const searchToUse = searchOverride !== undefined ? searchOverride : verificationSearch;
+      const res = await adminApi.getVerifications({
+        status: statusToUse === 'ALL' ? undefined : statusToUse,
+        search: searchToUse.trim() || undefined
+      });
+      if (res.success) {
+        setVerificationRequests(res.requests || []);
+      }
+      fetchPendingCount();
+    } catch (err) {
+      console.error('Failed to load verification requests:', err);
+    } finally {
+      setVerificationsLoading(false);
+    }
+  };
+
+  const handleOpenDetails = async (requestId: string) => {
+    setDetailLoading(true);
+    setActionError(null);
+    setActionSuccess(null);
+    try {
+      const res = await adminApi.getVerificationDetails(requestId);
+      if (res.success) {
+        setSelectedVerification(res);
+      }
+    } catch (err: any) {
+      setActionError(err?.message || 'Failed to load verification details');
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const handleApprove = async () => {
+    if (!selectedVerification) return;
+    setActionLoading(true);
+    setActionError(null);
+    setActionSuccess(null);
+    try {
+      const res = await adminApi.approveVerification(selectedVerification.request.id);
+      if (res.success) {
+        setActionSuccess('Business verification approved successfully.');
+        setApproveConfirmModalOpen(false);
+        await handleOpenDetails(selectedVerification.request.id);
+        await fetchVerifications();
+        await refreshData();
+      }
+    } catch (err: any) {
+      setActionError(err?.message || 'Failed to approve verification request.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleReject = async () => {
+    if (!selectedVerification) return;
+    const trimmed = rejectionReasonInput.trim();
+    if (!trimmed) {
+      setRejectionReasonError('Please provide a reason for rejecting the request.');
+      return;
+    }
+    if (trimmed.length < 3) {
+      setRejectionReasonError('Rejection reason must be at least 3 characters long.');
+      return;
+    }
+    if (trimmed.length > 500) {
+      setRejectionReasonError('Rejection reason cannot exceed 500 characters.');
+      return;
+    }
+
+    setActionLoading(true);
+    setActionError(null);
+    setActionSuccess(null);
+    setRejectionReasonError(null);
+    try {
+      const res = await adminApi.rejectVerification(selectedVerification.request.id, trimmed);
+      if (res.success) {
+        setActionSuccess('Business verification request has been rejected.');
+        setRejectionModalOpen(false);
+        setRejectionReasonInput('');
+        await handleOpenDetails(selectedVerification.request.id);
+        await fetchVerifications();
+        await refreshData();
+      }
+    } catch (err: any) {
+      setActionError(err?.message || 'Failed to reject verification request.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   useEffect(() => {
-    if (activeTab === 'audit_logs') {
+    fetchPendingCount();
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'verifications') {
+      fetchVerifications();
+    } else if (activeTab === 'audit_logs') {
       fetchAuditLogs();
     } else if (activeTab === 'security') {
       fetchTwoFactorStatus();
       setSecurityError(null);
       setSecurityMessage(null);
     }
-  }, [activeTab]);
+  }, [activeTab, verificationStatusFilter]);
 
   const fetchTwoFactorStatus = async () => {
     setTwoFactorLoading(true);
@@ -463,6 +599,35 @@ export const AdminPanelView: React.FC = () => {
             Businesses ({businesses.length})
           </button>
           <button
+            id="admin-tab-verifications-btn"
+            onClick={() => {
+              setActiveTab('verifications');
+              setActionSuccess(null);
+              setActionError(null);
+            }}
+            className={`pb-2.5 px-3 border-b-2 whitespace-nowrap transition-colors cursor-pointer font-semibold flex items-center gap-1.5 ${
+              activeTab === 'verifications' ? 'border-[#16C784] text-[#16C784]' : 'border-transparent text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            <ShieldCheck className="w-4 h-4" />
+            <span>Verifications</span>
+            {pendingCount > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                {pendingCount}
+              </span>
+            )}
+          </button>
+          <button
+            id="admin-tab-categories-btn"
+            onClick={() => setActiveTab('categories')}
+            className={`pb-2.5 px-3 border-b-2 whitespace-nowrap transition-colors cursor-pointer font-semibold flex items-center gap-1.5 ${
+              activeTab === 'categories' ? 'border-[#16C784] text-[#16C784]' : 'border-transparent text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            <FolderTree className="w-4 h-4" />
+            <span>Categories & Taxonomy</span>
+          </button>
+          <button
             onClick={() => setActiveTab('ads')}
             className={`pb-2.5 px-3 border-b-2 whitespace-nowrap transition-colors cursor-pointer font-semibold ${
               activeTab === 'ads' ? 'border-[#16C784] text-[#16C784]' : 'border-transparent text-slate-500 hover:text-slate-900'
@@ -577,6 +742,231 @@ export const AdminPanelView: React.FC = () => {
                   ))}
                 </tbody>
               </table>
+            </div>
+          </div>
+        )}
+
+        {/* VERIFICATIONS TAB (Epic 2 Feature 2.3 Task 2.3.3) */}
+        {activeTab === 'verifications' && (
+          <div className="space-y-4">
+            {/* Header & Controls */}
+            <div className="bg-white border border-[#E2E8F0] rounded-xl p-4 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+              {/* Status Filter Pills */}
+              <div className="flex items-center gap-1.5 overflow-x-auto">
+                <button
+                  onClick={() => {
+                    setVerificationStatusFilter('PENDING');
+                    fetchVerifications('PENDING');
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                    verificationStatusFilter === 'PENDING'
+                      ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>Pending Review</span>
+                  {pendingCount > 0 && (
+                    <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-amber-200 text-amber-900">
+                      {pendingCount}
+                    </span>
+                  )}
+                </button>
+                <button
+                  onClick={() => {
+                    setVerificationStatusFilter('ALL');
+                    fetchVerifications('ALL');
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                    verificationStatusFilter === 'ALL'
+                      ? 'bg-[#071A17] text-[#16C784] border border-[#16C784]/30'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  All Requests
+                </button>
+                <button
+                  onClick={() => {
+                    setVerificationStatusFilter('APPROVED');
+                    fetchVerifications('APPROVED');
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                    verificationStatusFilter === 'APPROVED'
+                      ? 'bg-[#16C784]/15 text-[#16C784] border border-[#16C784]/30'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Approved</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setVerificationStatusFilter('REJECTED');
+                    fetchVerifications('REJECTED');
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                    verificationStatusFilter === 'REJECTED'
+                      ? 'bg-red-100 text-red-700 border border-red-200'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  <XCircle className="w-3.5 h-3.5" />
+                  <span>Rejected</span>
+                </button>
+              </div>
+
+              {/* Search & Refresh */}
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={verificationSearch}
+                    onChange={(e) => setVerificationSearch(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') fetchVerifications();
+                    }}
+                    placeholder="Search business or notes..."
+                    className="pl-8 pr-8 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:ring-1 focus:ring-[#16C784] focus:border-[#16C784] outline-none w-56 text-slate-900"
+                  />
+                  {verificationSearch && (
+                    <button
+                      onClick={() => {
+                        setVerificationSearch('');
+                        fetchVerifications(undefined, '');
+                      }}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+                <button
+                  onClick={() => fetchVerifications()}
+                  disabled={verificationsLoading}
+                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                  title="Refresh Queue"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${verificationsLoading ? 'animate-spin text-[#16C784]' : ''}`} />
+                  <span>Refresh</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Global Action Alerts */}
+            {actionSuccess && (
+              <div className="p-3 bg-[#16C784]/10 border border-[#16C784]/30 rounded-xl text-xs text-[#16C784] flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-[#16C784]" />
+                  <span className="font-semibold">{actionSuccess}</span>
+                </div>
+                <button onClick={() => setActionSuccess(null)} className="text-[#16C784] hover:opacity-75">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+            {actionError && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-600" />
+                  <span className="font-semibold">{actionError}</span>
+                </div>
+                <button onClick={() => setActionError(null)} className="text-red-600 hover:opacity-75">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+            {/* Verification Queue Table */}
+            <div className="bg-white border border-[#E2E8F0] rounded-xl overflow-hidden shadow-xs">
+              {verificationsLoading ? (
+                <div className="p-12 flex flex-col items-center justify-center gap-2 text-slate-400">
+                  <RefreshCw className="w-6 h-6 animate-spin text-[#16C784]" />
+                  <p className="text-xs">Loading verification requests...</p>
+                </div>
+              ) : verificationRequests.length === 0 ? (
+                <div className="p-12 text-center space-y-2">
+                  <ShieldCheck className="w-8 h-8 text-slate-300 mx-auto" />
+                  <h4 className="text-sm font-semibold text-slate-800">No verification requests found</h4>
+                  <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                    {verificationStatusFilter === 'PENDING'
+                      ? 'There are currently no pending verification requests requiring review.'
+                      : 'No verification requests match the selected filters.'}
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="text-slate-500 border-b border-slate-100 bg-slate-50/50">
+                        <th className="p-3 font-semibold">Business</th>
+                        <th className="p-3 font-semibold">Owner</th>
+                        <th className="p-3 font-semibold">Submitted</th>
+                        <th className="p-3 font-semibold">Status</th>
+                        <th className="p-3 font-semibold text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {verificationRequests.map((req) => (
+                        <tr key={req.id} className="hover:bg-slate-50/60 transition-colors">
+                          <td className="p-3">
+                            <div>
+                              <div className="font-semibold text-slate-900">{req.businessName}</div>
+                              {req.businessSlug && (
+                                <div className="text-[11px] text-slate-400">@{req.businessSlug}</div>
+                              )}
+                              {req.notes && (
+                                <p className="text-[11px] text-slate-500 line-clamp-1 italic mt-0.5">
+                                  &ldquo;{req.notes}&rdquo;
+                                </p>
+                              )}
+                            </div>
+                          </td>
+                          <td className="p-3">
+                            <div className="text-slate-700 font-medium">{req.ownerName || 'Unknown'}</div>
+                            <div className="text-[11px] text-slate-400">{req.ownerEmail || '—'}</div>
+                          </td>
+                          <td className="p-3 text-slate-500 whitespace-nowrap">
+                            {new Date(req.createdAt).toLocaleDateString(undefined, {
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric'
+                            })}
+                          </td>
+                          <td className="p-3 whitespace-nowrap">
+                            {req.status === 'PENDING' && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-800 border border-amber-300">
+                                <Clock className="w-3 h-3 text-amber-600" /> Pending Review
+                              </span>
+                            )}
+                            {req.status === 'APPROVED' && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#16C784]/15 text-[#16C784] border border-[#16C784]/30">
+                                <CheckCircle2 className="w-3 h-3 text-[#16C784]" /> Approved
+                              </span>
+                            )}
+                            {req.status === 'REJECTED' && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-red-100 text-red-700 border border-red-200">
+                                <XCircle className="w-3 h-3 text-red-600" /> Rejected
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-3 text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => handleOpenDetails(req.id)}
+                                className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                                <span>Inspect & Review</span>
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1248,6 +1638,11 @@ export const AdminPanelView: React.FC = () => {
           </div>
         )}
 
+        {/* 8. CATEGORIES & TAXONOMY TAB (Epic 3 Feature 3.1 Tasks 3.1.1 & 3.1.2) */}
+        {activeTab === 'categories' && (
+          <CategoryManagementTab />
+        )}
+
         {/* Modal: Disable 2FA */}
         {isDisableModalOpen && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
@@ -1340,6 +1735,407 @@ export const AdminPanelView: React.FC = () => {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* Verification Request Details Modal (Epic 2 Feature 2.3 Task 2.3.3) */}
+        {selectedVerification && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl border border-slate-200 space-y-5">
+              {/* Header */}
+              <div className="flex items-start justify-between border-b border-slate-100 pb-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold text-slate-900">
+                      Verification Request: {selectedVerification.businessProfile?.name || 'Business'}
+                    </h3>
+                    {selectedVerification.request.status === 'PENDING' && (
+                      <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-800 border border-amber-300">
+                        Pending Review
+                      </span>
+                    )}
+                    {selectedVerification.request.status === 'APPROVED' && (
+                      <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#16C784]/15 text-[#16C784] border border-[#16C784]/30">
+                        Approved
+                      </span>
+                    )}
+                    {selectedVerification.request.status === 'REJECTED' && (
+                      <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-red-100 text-red-700 border border-red-200">
+                        Rejected
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Request ID: <span className="font-mono text-slate-700">{selectedVerification.request.id}</span>
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setSelectedVerification(null);
+                    setActionSuccess(null);
+                    setActionError(null);
+                  }}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Status Alert in Modal */}
+              {actionSuccess && (
+                <div className="p-3 bg-[#16C784]/10 border border-[#16C784]/30 rounded-xl text-xs text-[#16C784] flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-[#16C784]" />
+                  <span>{actionSuccess}</span>
+                </div>
+              )}
+              {actionError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-600" />
+                  <span>{actionError}</span>
+                </div>
+              )}
+
+              {/* 4 Distinct Information Cards */}
+              <div className="space-y-4 text-xs">
+                {/* 1. Submitted Verification Information */}
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2">
+                  <h4 className="font-bold text-slate-900 flex items-center gap-1.5">
+                    <FileText className="w-4 h-4 text-slate-600" />
+                    <span>Submitted Verification Request</span>
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <div>
+                      <span className="text-slate-500">Submission Date:</span>
+                      <p className="font-medium text-slate-800 mt-0.5">
+                        {new Date(selectedVerification.submittedInformation?.submittedAt || selectedVerification.request.createdAt).toLocaleString()}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Current Request Status:</span>
+                      <p className="font-medium text-slate-800 mt-0.5">
+                        {selectedVerification.request.status}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="pt-2 border-t border-slate-200">
+                    <span className="text-slate-500">Merchant Notes & CAC / Registry Information:</span>
+                    <div className="mt-1 p-2.5 bg-white border border-slate-200 rounded-lg text-slate-800 whitespace-pre-wrap leading-relaxed font-sans">
+                      {selectedVerification.submittedInformation?.notes || selectedVerification.request.notes || (
+                        <span className="text-slate-400 italic">No notes provided with this verification submission.</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Business Profile Information */}
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2">
+                  <h4 className="font-bold text-slate-900 flex items-center gap-1.5">
+                    <Building2 className="w-4 h-4 text-slate-600" />
+                    <span>Business Profile</span>
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <div>
+                      <span className="text-slate-500">Business Name:</span>
+                      <p className="font-semibold text-slate-900 mt-0.5">
+                        {selectedVerification.businessProfile?.name || '—'}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Public Slug:</span>
+                      <p className="font-mono text-slate-800 mt-0.5">
+                        @{selectedVerification.businessProfile?.slug || '—'}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Categories:</span>
+                      <p className="font-medium text-slate-800 mt-0.5">
+                        {selectedVerification.businessProfile?.categoryIds?.join(', ') || 'General'}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Location:</span>
+                      <p className="font-medium text-slate-800 mt-0.5">
+                        {selectedVerification.businessProfile?.location ? `${selectedVerification.businessProfile.location.city}, ${selectedVerification.businessProfile.location.state}` : 'Not Specified'}
+                      </p>
+                    </div>
+                  </div>
+                  {selectedVerification.businessProfile?.description && (
+                    <div className="pt-2 border-t border-slate-200">
+                      <span className="text-slate-500">Description:</span>
+                      <p className="mt-0.5 text-slate-700 leading-relaxed">
+                        {selectedVerification.businessProfile.description}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. Owner Information */}
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2">
+                  <h4 className="font-bold text-slate-900 flex items-center gap-1.5">
+                    <Key className="w-4 h-4 text-slate-600" />
+                    <span>Business Owner Account</span>
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <div>
+                      <span className="text-slate-500">Owner Name:</span>
+                      <p className="font-semibold text-slate-900 mt-0.5">
+                        {selectedVerification.ownerInformation?.name || '—'}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Contact Email:</span>
+                      <p className="font-medium text-slate-800 mt-0.5">
+                        {selectedVerification.ownerInformation?.email || '—'}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Account Type:</span>
+                      <p className="font-medium text-slate-800 mt-0.5">
+                        {selectedVerification.ownerInformation?.clientType || 'CLIENT'}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Registered Since:</span>
+                      <p className="font-medium text-slate-800 mt-0.5">
+                        {selectedVerification.ownerInformation?.createdAt ? new Date(selectedVerification.ownerInformation.createdAt).toLocaleDateString() : '—'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4. Review Decision & Audit Metadata */}
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2">
+                  <h4 className="font-bold text-slate-900 flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-slate-600" />
+                    <span>Review Decision & Audit Metadata</span>
+                  </h4>
+                  {selectedVerification.request.status === 'PENDING' ? (
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-900">
+                      <div className="flex items-center gap-2 font-semibold">
+                        <Clock className="w-4 h-4 text-amber-600" />
+                        <span>Awaiting Super Admin Decision</span>
+                      </div>
+                      <p className="text-[11px] text-amber-800 mt-1 leading-relaxed">
+                        This request is currently pending. Review the submitted registration details and business profile above before deciding to approve or reject.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3 pt-1">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <span className="text-slate-500">Decision Status:</span>
+                          <p className={`font-bold mt-0.5 ${selectedVerification.request.status === 'APPROVED' ? 'text-[#16C784]' : 'text-red-600'}`}>
+                            {selectedVerification.request.status}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-slate-500">Reviewed At:</span>
+                          <p className="font-medium text-slate-800 mt-0.5">
+                            {selectedVerification.request.reviewedAt ? new Date(selectedVerification.request.reviewedAt).toLocaleString() : '—'}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-slate-500">Reviewing Administrator:</span>
+                          <p className="font-medium text-slate-800 mt-0.5">
+                            {selectedVerification.reviewInformation?.reviewerEmail || selectedVerification.request.reviewerId || 'Super Admin'}
+                          </p>
+                        </div>
+                      </div>
+                      {selectedVerification.request.status === 'REJECTED' && selectedVerification.request.rejectionReason && (
+                        <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                          <span className="text-xs font-bold text-red-800">Rejection Reason Provided to Merchant:</span>
+                          <p className="text-xs text-red-700 mt-1 leading-relaxed whitespace-pre-wrap font-medium">
+                            {selectedVerification.request.rejectionReason}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Modal Actions Footer */}
+              <div className="flex items-center justify-between border-t border-slate-100 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedVerification(null);
+                    setActionSuccess(null);
+                    setActionError(null);
+                  }}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                >
+                  Close
+                </button>
+
+                {selectedVerification.request.status === 'PENDING' ? (
+                  <div className="flex items-center gap-2">
+                    <button
+                      id="admin-open-reject-btn"
+                      type="button"
+                      onClick={() => {
+                        setRejectionReasonInput('');
+                        setRejectionReasonError(null);
+                        setRejectionModalOpen(true);
+                      }}
+                      className="px-4 py-2 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <XCircle className="w-3.5 h-3.5 text-red-600" />
+                      <span>Reject Request</span>
+                    </button>
+                    <button
+                      id="admin-open-approve-btn"
+                      type="button"
+                      onClick={() => setApproveConfirmModalOpen(true)}
+                      className="px-4 py-2 bg-[#071A17] hover:bg-[#071A17]/90 text-[#16C784] border border-[#16C784]/30 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 text-[#16C784]" />
+                      <span>Approve Verification</span>
+                    </button>
+                  </div>
+                ) : (
+                  <span className="text-xs font-semibold text-slate-400 italic">
+                    Decision finalized — request is locked
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Approve Confirmation Modal */}
+        {approveConfirmModalOpen && selectedVerification && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-60 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-[#16C784]/15 text-[#16C784] flex items-center justify-center flex-shrink-0">
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Approve Business Verification</h3>
+                  <p className="text-xs text-slate-500">Super Admin Approval Action</p>
+                </div>
+              </div>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Are you sure you want to approve verification for <span className="font-semibold text-slate-900">{selectedVerification.businessProfile?.name || 'this business'}</span>?
+              </p>
+              <div className="p-3 bg-emerald-50/70 border border-emerald-100 rounded-lg text-[11px] text-emerald-800 leading-relaxed">
+                This will mark the business as <strong>Verified</strong> across Boost Market, grant the verification badge, and record this decision in the platform security audit log.
+              </div>
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  disabled={actionLoading}
+                  onClick={() => setApproveConfirmModalOpen(false)}
+                  className="px-3.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  id="admin-confirm-approve-btn"
+                  type="button"
+                  disabled={actionLoading}
+                  onClick={handleApprove}
+                  className="px-4 py-2 bg-[#071A17] hover:bg-[#071A17]/90 text-[#16C784] border border-[#16C784]/30 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs disabled:opacity-50"
+                >
+                  {actionLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                  <span>{actionLoading ? 'Approving...' : 'Confirm Approval'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Rejection Reason Modal */}
+        {rejectionModalOpen && selectedVerification && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-60 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-red-100 text-red-600 flex items-center justify-center flex-shrink-0">
+                  <XCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Reject Verification Request</h3>
+                  <p className="text-xs text-slate-500">{selectedVerification.businessProfile?.name || 'Business'}</p>
+                </div>
+              </div>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Provide a clear and constructive reason for rejection. This reason will be displayed to the merchant so they can resolve the issues and resubmit.
+              </p>
+
+              {/* Quick Presets */}
+              <div className="space-y-1.5">
+                <span className="text-[11px] font-semibold text-slate-500">Quick Reason Presets:</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    'CAC / registration documents are unclear or unverified.',
+                    'Physical business location could not be confirmed.',
+                    'Provided contact phone number and email are unreachable.',
+                    'Business profile contains incomplete or mismatched registry data.'
+                  ].map((preset, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => {
+                        setRejectionReasonInput(preset);
+                        setRejectionReasonError(null);
+                      }}
+                      className="px-2 py-1 text-[11px] bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-colors cursor-pointer text-left"
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Textarea */}
+              <div className="space-y-1">
+                <textarea
+                  id="admin-rejection-reason-input"
+                  rows={3}
+                  maxLength={500}
+                  value={rejectionReasonInput}
+                  onChange={(e) => {
+                    setRejectionReasonInput(e.target.value);
+                    if (rejectionReasonError) setRejectionReasonError(null);
+                  }}
+                  placeholder="Explain why verification is rejected (e.g. CAC documents blurry, please re-upload clear certificate)..."
+                  className="w-full p-3 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none text-slate-900 resize-none leading-relaxed"
+                />
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className={rejectionReasonError ? 'text-red-600 font-medium' : 'text-slate-400'}>
+                    {rejectionReasonError || 'Min 3 characters, max 500 characters'}
+                  </span>
+                  <span className="text-slate-400 font-mono">
+                    {rejectionReasonInput.length} / 500
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  disabled={actionLoading}
+                  onClick={() => {
+                    setRejectionModalOpen(false);
+                    setRejectionReasonError(null);
+                  }}
+                  className="px-3.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  id="admin-confirm-reject-btn"
+                  type="button"
+                  disabled={actionLoading || !rejectionReasonInput.trim()}
+                  onClick={handleReject}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {actionLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <XCircle className="w-3.5 h-3.5" />}
+                  <span>{actionLoading ? 'Rejecting...' : 'Confirm Rejection'}</span>
+                </button>
+              </div>
             </div>
           </div>
         )}

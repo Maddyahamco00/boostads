@@ -8,7 +8,7 @@
  * - Type-safe endpoint wrappers
  */
 
-import { UserProfile, AccountSecurityState, ClientProfile, ClientContactInfo, Business, CategoryConfig, BusinessCategory, LocationCoordinates, OpeningHour, BusinessContactInfo, UpdateBusinessContactPayload, PublicBusinessProfile } from '../types';
+import { UserProfile, AccountSecurityState, ClientProfile, ClientContactInfo, Business, Category, CategoryConfig, CategoryTreeNode, CreateCategoryInput, CreateSubcategoryInput, UpdateCategoryInput, BusinessCategory, LocationCoordinates, OpeningHour, BusinessContactInfo, UpdateBusinessContactPayload, PublicBusinessProfile, PublicVerificationRequestDTO, VerificationRequestResponse, BusinessVerificationStatus, BusinessVerificationStatusResponse, AdminVerificationListResponse, AdminVerificationDetailResponse, AdminVerificationRequestItem } from '../types';
 
 export class ApiError extends Error {
   public status: number;
@@ -871,6 +871,69 @@ export const adminApi = {
       method: 'PUT',
       body: JSON.stringify(config)
     });
+  },
+
+  /**
+   * Get Business Verification Queue (Epic 2 Feature 2.3 Task 2.3.3)
+   */
+  async getVerifications(params?: { status?: string; page?: number; limit?: number; search?: string }) {
+    const query = new URLSearchParams();
+    if (params?.status) query.set('status', params.status);
+    if (params?.page) query.set('page', params.page.toString());
+    if (params?.limit) query.set('limit', params.limit.toString());
+    if (params?.search) query.set('search', params.search);
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    return fetchWithAuth<AdminVerificationListResponse>(`/api/admin/verifications${qs}`, {
+      method: 'GET'
+    });
+  },
+
+  /**
+   * Get Verification Request Details (Epic 2 Feature 2.3 Task 2.3.3)
+   */
+  async getVerificationDetails(requestId: string) {
+    return fetchWithAuth<AdminVerificationDetailResponse>(`/api/admin/verifications/${encodeURIComponent(requestId)}`, {
+      method: 'GET'
+    });
+  },
+
+  /**
+   * Approve Business Verification Request (Epic 2 Feature 2.3 Task 2.3.3)
+   */
+  async approveVerification(requestId: string) {
+    return fetchWithAuth<{ success: boolean; message: string; request: any }>(
+      `/api/admin/verifications/${encodeURIComponent(requestId)}/approve`,
+      {
+        method: 'POST',
+        body: JSON.stringify({})
+      }
+    );
+  },
+
+  /**
+   * Reject Business Verification Request (Epic 2 Feature 2.3 Task 2.3.3)
+   */
+  async rejectVerification(requestId: string, rejectionReason: string) {
+    return fetchWithAuth<{ success: boolean; message: string; request: any }>(
+      `/api/admin/verifications/${encodeURIComponent(requestId)}/reject`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ rejectionReason })
+      }
+    );
+  },
+
+  /**
+   * General Review Business Verification Request (Epic 2 Feature 2.3 Task 2.3.3)
+   */
+  async reviewVerification(requestId: string, payload: { status: 'APPROVED' | 'REJECTED'; rejectionReason?: string }) {
+    return fetchWithAuth<{ success: boolean; message: string; request: any }>(
+      `/api/admin/verifications/${encodeURIComponent(requestId)}/review`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }
+    );
   }
 };
 
@@ -1186,6 +1249,210 @@ export const businessApi = {
       success: boolean;
       business: PublicBusinessProfile;
     };
+  },
+
+  /**
+   * Submit a business verification request (Epic 2 Feature 2.3 Task 2.3.1)
+   */
+  async submitVerificationRequest(businessId: string, data?: { notes?: string }) {
+    return fetchWithAuth<VerificationRequestResponse>(`/api/businesses/${encodeURIComponent(businessId)}/verification`, {
+      method: 'POST',
+      body: JSON.stringify(data || {})
+    });
+  },
+
+  /**
+   * Get latest verification request and overall status for a business (Epic 2 Feature 2.3 Tasks 2.3.1 & 2.3.2)
+   */
+  async getVerificationRequest(businessId: string) {
+    return fetchWithAuth<BusinessVerificationStatusResponse>(`/api/businesses/${encodeURIComponent(businessId)}/verification`, {
+      method: 'GET'
+    });
+  },
+
+  async getVerificationStatus(businessId: string) {
+    return this.getVerificationRequest(businessId);
+  },
+
+  /**
+   * Check verification eligibility for an owned business (Epic 2 Feature 2.3 Task 2.3.1)
+   */
+  async checkEligibility(businessId: string) {
+    return fetchWithAuth<{
+      success: boolean;
+      businessId: string;
+      eligible: boolean;
+      missingFields: string[];
+      fieldErrors: Record<string, string>;
+      message: string;
+    }>(`/api/businesses/${encodeURIComponent(businessId)}/verification/eligibility`, {
+      method: 'GET'
+    });
   }
 };
+
+/**
+ * Categories & Subcategories API Client (Epic 3 Feature 3.1 Tasks 3.1.1 & 3.1.2)
+ */
+export const categoryApi = {
+  /**
+   * Fetch all active categories (optionally filter by parentId or include inactive)
+   */
+  async getAll(options?: { includeInactive?: boolean; parentId?: string | null }) {
+    const params = new URLSearchParams();
+    if (options?.includeInactive) params.set('includeInactive', 'true');
+    if (options?.parentId !== undefined) params.set('parentId', options.parentId === null ? 'null' : options.parentId);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return fetchWithAuth<{ success: boolean; categories: Category[]; count: number }>(`/api/categories${query}`);
+  },
+
+  /**
+   * Fetch hierarchical category tree with nested children and counts (Task 3.1.2)
+   */
+  async getTree(includeInactive: boolean = false) {
+    const query = includeInactive ? '?includeInactive=true' : '';
+    return fetchWithAuth<{ success: boolean; tree: CategoryTreeNode[]; count: number }>(`/api/categories/tree${query}`);
+  },
+
+  /**
+   * Fetch top-level categories only (Task 3.1.2)
+   */
+  async getTopLevel(includeInactive: boolean = false) {
+    const query = includeInactive ? '?includeInactive=true' : '';
+    return fetchWithAuth<{ success: boolean; categories: Category[]; count: number }>(`/api/categories/top-level${query}`);
+  },
+
+  /**
+   * Fetch subcategories for a specific parent category by ID or slug (Task 3.1.2)
+   */
+  async getSubcategories(parentIdOrSlug: string, includeInactive: boolean = false) {
+    const query = includeInactive ? '?includeInactive=true' : '';
+    return fetchWithAuth<{
+      success: boolean;
+      parent: Category;
+      subcategories: Category[];
+      subcategoriesCount: number;
+      tags: string[];
+    }>(`/api/categories/${encodeURIComponent(parentIdOrSlug)}/subcategories${query}`);
+  },
+
+  /**
+   * Fetch single category by ID or slug
+   */
+  async getByIdOrSlug(idOrSlug: string) {
+    return fetchWithAuth<{ success: boolean; category: Category }>(`/api/categories/${encodeURIComponent(idOrSlug)}`);
+  },
+
+  /**
+   * Super Admin: Create a new category
+   */
+  async createCategory(data: CreateCategoryInput) {
+    return fetchWithAuth<{ success: boolean; category: Category; categories: Category[] }>(`/api/admin/categories`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  /**
+   * Super Admin: Create a child subcategory under a parent (Task 3.1.2)
+   */
+  async createSubcategory(parentId: string, data: CreateSubcategoryInput) {
+    return fetchWithAuth<{ success: boolean; subcategory: Category; categories: Category[] }>(`/api/admin/categories/${encodeURIComponent(parentId)}/subcategories`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  /**
+   * Super Admin: Add subcategory string tag to a parent (Task 3.1.2)
+   */
+  async addSubcategoryTag(parentId: string, name: string) {
+    return fetchWithAuth<{ success: boolean; category: Category; subcategories: string[] }>(`/api/admin/categories/${encodeURIComponent(parentId)}/subcategories/items`, {
+      method: 'POST',
+      body: JSON.stringify({ name })
+    });
+  },
+
+  /**
+   * Super Admin: Remove subcategory string tag from parent (Task 3.1.2)
+   */
+  async removeSubcategoryTag(parentId: string, name: string) {
+    return fetchWithAuth<{ success: boolean; category: Category; subcategories: string[] }>(`/api/admin/categories/${encodeURIComponent(parentId)}/subcategories/items/${encodeURIComponent(name)}`, {
+      method: 'DELETE'
+    });
+  },
+
+  /**
+   * Super Admin: Update category
+   */
+  async updateCategory(id: string, data: UpdateCategoryInput) {
+    return fetchWithAuth<{ success: boolean; category: Category; categories: Category[] }>(`/api/admin/categories/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  },
+
+  /**
+   * Super Admin: Toggle or set category status (Task 3.1.3 Section 5)
+   */
+  async updateStatus(id: string, status: 'active' | 'inactive') {
+    return fetchWithAuth<{ success: boolean; category: Category; categories: Category[] }>(`/api/admin/categories/${encodeURIComponent(id)}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status })
+    });
+  },
+
+  /**
+   * Super Admin: Update subcategory under a parent (Task 3.1.3 Section 6)
+   */
+  async updateSubcategory(parentId: string, subcategoryId: string, data: UpdateCategoryInput) {
+    return fetchWithAuth<{ success: boolean; subcategory: Category; categories: Category[] }>(`/api/admin/categories/${encodeURIComponent(parentId)}/subcategories/${encodeURIComponent(subcategoryId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data)
+    });
+  },
+
+  /**
+   * Super Admin: Delete subcategory under a parent (Task 3.1.3 Section 6 & 7)
+   */
+  async deleteSubcategory(parentId: string, subcategoryId: string, force?: boolean) {
+    const query = force ? '?force=true' : '';
+    return fetchWithAuth<{ success: boolean; message: string; categories: Category[] }>(`/api/admin/categories/${encodeURIComponent(parentId)}/subcategories/${encodeURIComponent(subcategoryId)}${query}`, {
+      method: 'DELETE'
+    });
+  },
+
+  /**
+   * Super Admin: Delete category (safe retention or forced cascade)
+   */
+  async deleteCategory(id: string, force?: boolean) {
+    const query = force ? '?force=true' : '';
+    return fetchWithAuth<{ success: boolean; message: string; categories: Category[] }>(`/api/admin/categories/${encodeURIComponent(id)}${query}`, {
+      method: 'DELETE'
+    });
+  },
+
+  /**
+   * Super Admin: Re-seed categories
+   */
+  async seedCategories() {
+    return fetchWithAuth<{ success: boolean; created: number; existing: number; total: number; categories: Category[] }>(`/api/admin/categories/seed`, {
+      method: 'POST'
+    });
+  },
+
+  /**
+   * Run automated category test suite (Tasks 3.1.1 & 3.1.2)
+   */
+  async runTestSuite() {
+    return fetchWithAuth<{
+      success: boolean;
+      summary: { total: number; passed: number; failed: number; allPassed: boolean };
+      results: Array<{ id: string; name: string; status: 'passed' | 'failed'; message: string; durationMs: number }>;
+    }>(`/api/tests/categories`, {
+      method: 'POST'
+    });
+  }
+};
+
 
