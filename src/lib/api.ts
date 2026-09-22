@@ -8,7 +8,7 @@
  * - Type-safe endpoint wrappers
  */
 
-import { UserProfile, AccountSecurityState, ClientProfile, ClientContactInfo, Business, Category, CategoryConfig, CategoryTreeNode, CreateCategoryInput, CreateSubcategoryInput, UpdateCategoryInput, BusinessCategory, LocationCoordinates, OpeningHour, BusinessContactInfo, UpdateBusinessContactPayload, PublicBusinessProfile, PublicVerificationRequestDTO, VerificationRequestResponse, BusinessVerificationStatus, BusinessVerificationStatusResponse, AdminVerificationListResponse, AdminVerificationDetailResponse, AdminVerificationRequestItem } from '../types';
+import { UserProfile, AccountSecurityState, ClientProfile, ClientContactInfo, Business, Category, CategoryConfig, CategoryTreeNode, CreateCategoryInput, CreateSubcategoryInput, UpdateCategoryInput, BusinessCategory, LocationCoordinates, OpeningHour, BusinessContactInfo, UpdateBusinessContactPayload, PublicBusinessProfile, PublicVerificationRequestDTO, VerificationRequestResponse, BusinessVerificationStatus, BusinessVerificationStatusResponse, AdminVerificationListResponse, AdminVerificationDetailResponse, AdminVerificationRequestItem, BusinessSearchResponse, Product, PublicProductProfile, ProductSearchResponse, Service, PublicServiceProfile, ServiceSearchResponse, Advertisement, PublicAdvertisementProfile, AdvertisementSearchResponse } from '../types';
 
 export class ApiError extends Error {
   public status: number;
@@ -944,7 +944,17 @@ export const businessApi = {
   /**
    * Create a new business with authenticated user as owner
    */
-  async create(data: { name: string; description?: string; categoryIds?: string[]; location?: LocationCoordinates }) {
+  async create(data: {
+    name: string;
+    description?: string;
+    categoryId?: string;
+    category?: string;
+    subcategoryId?: string | null;
+    subcategory?: string | null;
+    subcategories?: string[];
+    categoryIds?: string[];
+    location?: LocationCoordinates;
+  }) {
     return fetchWithAuth<{
       success: boolean;
       business: Business;
@@ -1058,9 +1068,9 @@ export const businessApi = {
   },
 
   /**
-   * Update categories for a business (Epic 2 Feature 2.2 Task 2.2.5)
+   * Update categories for a business (Epic 2 Feature 2.2 Task 2.2.5 & Epic 3 Feature 3.1 Task 3.1.4)
    */
-  async updateCategories(businessId: string, data: { categoryIds: string[] }) {
+  async updateCategories(businessId: string, data: { categoryIds?: string[]; categoryId?: string; subcategoryId?: string | null }) {
     return fetchWithAuth<{
       success: boolean;
       business: Business;
@@ -1068,6 +1078,22 @@ export const businessApi = {
       businessCategories: BusinessCategory[];
       message?: string;
     }>(`/api/businesses/${encodeURIComponent(businessId)}/categories`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  },
+
+  /**
+   * Select or change primary category and subcategory for a business (Epic 3 Feature 3.1 Task 3.1.4)
+   */
+  async updateCategorySelection(businessId: string, data: { categoryId: string; subcategoryId?: string | null }) {
+    return fetchWithAuth<{
+      success: boolean;
+      business: Business;
+      categoryIds: string[];
+      businessCategories: BusinessCategory[];
+      message?: string;
+    }>(`/api/businesses/${encodeURIComponent(businessId)}/category`, {
       method: 'PUT',
       body: JSON.stringify(data)
     });
@@ -1249,6 +1275,28 @@ export const businessApi = {
       success: boolean;
       business: PublicBusinessProfile;
     };
+  },
+
+  /**
+   * Search public businesses by query with pagination (Epic 3 Feature 3.2 Task 3.2.1)
+   */
+  async search(query: string, options?: { page?: number; limit?: number }): Promise<BusinessSearchResponse> {
+    const params = new URLSearchParams();
+    params.set('q', query);
+    if (options?.page) params.set('page', String(options.page));
+    if (options?.limit) params.set('limit', String(options.limit));
+
+    const res = await fetch(`/api/businesses/search?${params.toString()}`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new ApiError(data.error || 'Failed to search businesses.', res.status, data.code);
+    }
+    return data as BusinessSearchResponse;
   },
 
   /**
@@ -1455,4 +1503,194 @@ export const categoryApi = {
   }
 };
 
+/**
+ * Product API client (Epic 3 Feature 3.2 Task 3.2.2)
+ */
+export const productApi = {
+  /**
+   * Search public products by query with pagination
+   */
+  async search(query: string, options?: { page?: number; limit?: number }): Promise<ProductSearchResponse> {
+    const params = new URLSearchParams();
+    params.set('q', query);
+    if (options?.page) params.set('page', String(options.page));
+    if (options?.limit) params.set('limit', String(options.limit));
 
+    const res = await fetch(`/api/products/search?${params.toString()}`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new ApiError(data.error || 'Failed to search products.', res.status, data.code);
+    }
+    return data as ProductSearchResponse;
+  },
+
+  /**
+   * Get single public product by ID
+   */
+  async getById(id: string): Promise<{ success: boolean; product: PublicProductProfile }> {
+    const res = await fetch(`/api/products/${encodeURIComponent(id)}`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new ApiError(data.error || 'Failed to fetch product.', res.status, data.code);
+    }
+    return data;
+  },
+
+  /**
+   * Get products by business ID or all products
+   */
+  async getByBusiness(businessId?: string): Promise<{ success: boolean; products: Product[] }> {
+    const url = businessId ? `/api/products?businessId=${encodeURIComponent(businessId)}` : '/api/products';
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new ApiError(data.error || 'Failed to fetch products.', res.status, data.code);
+    }
+    return data;
+  }
+};
+
+/**
+ * Service API client (Epic 3 Feature 3.2 Task 3.2.3)
+ */
+export const serviceApi = {
+  /**
+   * Search public services by query with pagination
+   */
+  async search(query: string, options?: { page?: number; limit?: number }): Promise<ServiceSearchResponse> {
+    const params = new URLSearchParams();
+    params.set('q', query);
+    if (options?.page) params.set('page', String(options.page));
+    if (options?.limit) params.set('limit', String(options.limit));
+
+    const res = await fetch(`/api/services/search?${params.toString()}`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new ApiError(data.error || 'Failed to search services.', res.status, data.code);
+    }
+    return data as ServiceSearchResponse;
+  },
+
+  /**
+   * Get single public service by ID
+   */
+  async getById(id: string): Promise<{ success: boolean; service: PublicServiceProfile }> {
+    const res = await fetch(`/api/services/${encodeURIComponent(id)}`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new ApiError(data.error || 'Failed to fetch service.', res.status, data.code);
+    }
+    return data;
+  },
+
+  /**
+   * Get services by business ID or all services
+   */
+  async getByBusiness(businessId?: string): Promise<{ success: boolean; services: Service[] }> {
+    const url = businessId ? `/api/services?businessId=${encodeURIComponent(businessId)}` : '/api/services';
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new ApiError(data.error || 'Failed to fetch services.', res.status, data.code);
+    }
+    return data;
+  }
+};
+
+/**
+ * Advertisement API client (Epic 3 Feature 3.2 Task 3.2.4)
+ */
+export const advertisementApi = {
+  /**
+   * Search public advertisements by query with pagination
+   */
+  async search(query: string, options?: { page?: number; limit?: number }): Promise<AdvertisementSearchResponse> {
+    const params = new URLSearchParams();
+    params.set('q', query);
+    if (options?.page) params.set('page', String(options.page));
+    if (options?.limit) params.set('limit', String(options.limit));
+
+    const res = await fetch(`/api/advertisements/search?${params.toString()}`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new ApiError(data.error || 'Failed to search advertisements.', res.status, data.code);
+    }
+    return data as AdvertisementSearchResponse;
+  },
+
+  /**
+   * Get single public advertisement by ID
+   */
+  async getById(id: string): Promise<{ success: boolean; advertisement: PublicAdvertisementProfile }> {
+    const res = await fetch(`/api/advertisements/${encodeURIComponent(id)}`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new ApiError(data.error || 'Failed to fetch advertisement.', res.status, data.code);
+    }
+    return data;
+  },
+
+  /**
+   * Get advertisements list (feed) with optional filters
+   */
+  async getFeed(filters?: { category?: string; search?: string; city?: string; boostedOnly?: boolean; businessId?: string }): Promise<{ success: boolean; ads: Advertisement[]; total: number }> {
+    const params = new URLSearchParams();
+    if (filters?.category) params.set('category', filters.category);
+    if (filters?.search) params.set('search', filters.search);
+    if (filters?.city) params.set('city', filters.city);
+    if (filters?.boostedOnly) params.set('boostedOnly', 'true');
+    if (filters?.businessId) params.set('businessId', filters.businessId);
+
+    const res = await fetch(`/api/ads?${params.toString()}`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new ApiError(data.error || 'Failed to fetch advertisements.', res.status, data.code);
+    }
+    return data;
+  }
+};

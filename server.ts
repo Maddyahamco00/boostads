@@ -48,6 +48,9 @@ import { auditService } from './src/server/services/auditService';
 import { testRunnerService } from './src/server/services/testRunnerService';
 import { businessService, BusinessServiceError } from './src/server/services/businessService';
 import { categoryService, CategoryServiceError } from './src/server/services/categoryService';
+import { productService, ProductServiceError } from './src/server/services/productService';
+import { serviceService, ServiceServiceError } from './src/server/services/serviceService';
+import { advertisementService, AdvertisementServiceError } from './src/server/services/advertisementService';
 import { categoryTestRunnerService } from './src/server/services/categoryTestRunnerService';
 import { 
   SubmitVerificationRequestSchema, 
@@ -3153,6 +3156,33 @@ async function startServer() {
     res.json({ success: true, businesses: list, total: list.length });
   });
 
+  // Epic 3 Feature 3.2 Task 3.2.1: Dedicated Public Business Search Endpoint
+  app.get('/api/businesses/search', async (req: express.Request, res: express.Response) => {
+    try {
+      const result = await businessService.searchBusinesses({
+        q: req.query.q,
+        query: req.query.query,
+        search: req.query.search,
+        page: req.query.page,
+        limit: req.query.limit
+      });
+      return res.status(200).json(result);
+    } catch (err: unknown) {
+      if (err instanceof BusinessServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code
+        });
+      }
+      return res.status(500).json({
+        success: false,
+        error: 'An unexpected error occurred while searching businesses.',
+        code: 'INTERNAL_SERVER_ERROR'
+      });
+    }
+  });
+
   // Epic 2 Feature 2.2 Task 2.2.9: Dedicated Public Business Profile Endpoint
   app.get('/api/businesses/public/:idOrSlug', async (req: express.Request, res: express.Response) => {
     try {
@@ -3926,6 +3956,9 @@ async function startServer() {
   app.put('/api/businesses/:id/categories', authenticate, handleBusinessCategoriesUpdate);
   app.patch('/api/businesses/:id/categories', authenticate, handleBusinessCategoriesUpdate);
   app.post('/api/businesses/:id/categories', authenticate, handleBusinessCategoriesUpdate);
+  app.put('/api/businesses/:id/category', authenticate, handleBusinessCategoriesUpdate);
+  app.patch('/api/businesses/:id/category', authenticate, handleBusinessCategoriesUpdate);
+  app.post('/api/businesses/:id/category', authenticate, handleBusinessCategoriesUpdate);
 
   app.delete('/api/businesses/:id/categories/:categoryId', authenticate, async (req: AuthenticatedRequest, res: express.Response) => {
     try {
@@ -4432,6 +4465,61 @@ async function startServer() {
   // ==========================================
   // 5. ADVERTISEMENTS & BOOST ENGINE
   // ==========================================
+  // Dedicated Public Advertisement Search Endpoints (Epic 3 Feature 3.2 Task 3.2.4)
+  const handleAdvertisementSearch = async (req: any, res: any) => {
+    try {
+      const result = await advertisementService.searchAdvertisements({
+        q: req.query.q,
+        query: req.query.query,
+        search: req.query.search,
+        page: req.query.page,
+        limit: req.query.limit
+      });
+      return res.status(200).json(result);
+    } catch (err: unknown) {
+      if (err instanceof AdvertisementServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code
+        });
+      }
+      return res.status(500).json({
+        success: false,
+        error: 'An unexpected error occurred while searching advertisements.',
+        code: 'INTERNAL_SERVER_ERROR'
+      });
+    }
+  };
+
+  app.get('/api/advertisements/search', handleAdvertisementSearch);
+  app.get('/api/ads/search', handleAdvertisementSearch);
+
+  // Single public advertisement profile by ID (Epic 3 Feature 3.2 Task 3.2.4)
+  app.get('/api/advertisements/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const advertisement = await advertisementService.getPublicAdvertisementById(id);
+      if (!advertisement) {
+        return res.status(404).json({
+          success: false,
+          error: 'Advertisement not found or owning business is not available.',
+          code: 'ADVERTISEMENT_NOT_FOUND'
+        });
+      }
+      return res.status(200).json({
+        success: true,
+        advertisement
+      });
+    } catch (err: unknown) {
+      return res.status(500).json({
+        success: false,
+        error: 'An unexpected error occurred while fetching advertisement.',
+        code: 'INTERNAL_SERVER_ERROR'
+      });
+    }
+  });
+
   app.get('/api/ads', (req, res) => {
     const { category, search, city, status, boostedOnly, businessId } = req.query;
     let list = Array.from(db.advertisements.values());
@@ -4597,11 +4685,63 @@ async function startServer() {
   // ==========================================
   // 6. PRODUCTS, SERVICES & PORTFOLIO
   // ==========================================
+  // Dedicated Public Product Search Endpoint (Epic 3 Feature 3.2 Task 3.2.2)
+  app.get('/api/products/search', async (req, res) => {
+    try {
+      const result = await productService.searchProducts({
+        q: req.query.q,
+        query: req.query.query,
+        search: req.query.search,
+        page: req.query.page,
+        limit: req.query.limit
+      });
+      return res.status(200).json(result);
+    } catch (err: unknown) {
+      if (err instanceof ProductServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code
+        });
+      }
+      return res.status(500).json({
+        success: false,
+        error: 'An unexpected error occurred while searching products.',
+        code: 'INTERNAL_SERVER_ERROR'
+      });
+    }
+  });
+
   app.get('/api/products', (req, res) => {
     const { businessId } = req.query;
     let list = Array.from(db.products.values());
     if (businessId) list = list.filter(p => p.businessId === businessId);
     res.json({ success: true, products: list });
+  });
+
+  // Single public product profile by ID (Epic 3 Feature 3.2 Task 3.2.2)
+  app.get('/api/products/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const product = await productService.getPublicProductById(id);
+      if (!product) {
+        return res.status(404).json({
+          success: false,
+          error: 'Product not found or owning business is not available.',
+          code: 'PRODUCT_NOT_FOUND'
+        });
+      }
+      return res.status(200).json({
+        success: true,
+        product
+      });
+    } catch (err: unknown) {
+      return res.status(500).json({
+        success: false,
+        error: 'An unexpected error occurred while fetching product.',
+        code: 'INTERNAL_SERVER_ERROR'
+      });
+    }
   });
 
   app.post('/api/products/create', (req, res) => {
@@ -4624,11 +4764,64 @@ async function startServer() {
     res.json({ success: true, product: newProd });
   });
 
+  // ==========================================
+  // Dedicated Public Service Search Endpoint (Epic 3 Feature 3.2 Task 3.2.3)
+  app.get('/api/services/search', async (req, res) => {
+    try {
+      const result = await serviceService.searchServices({
+        q: req.query.q,
+        query: req.query.query,
+        search: req.query.search,
+        page: req.query.page,
+        limit: req.query.limit
+      });
+      return res.status(200).json(result);
+    } catch (err: unknown) {
+      if (err instanceof ServiceServiceError) {
+        return res.status(err.statusCode).json({
+          success: false,
+          error: err.message,
+          code: err.code
+        });
+      }
+      return res.status(500).json({
+        success: false,
+        error: 'An unexpected error occurred while searching services.',
+        code: 'INTERNAL_SERVER_ERROR'
+      });
+    }
+  });
+
   app.get('/api/services', (req, res) => {
     const { businessId } = req.query;
     let list = Array.from(db.services.values());
     if (businessId) list = list.filter(s => s.businessId === businessId);
     res.json({ success: true, services: list });
+  });
+
+  // Single public service profile by ID (Epic 3 Feature 3.2 Task 3.2.3)
+  app.get('/api/services/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const service = await serviceService.getPublicServiceById(id);
+      if (!service) {
+        return res.status(404).json({
+          success: false,
+          error: 'Service not found or owning business is not available.',
+          code: 'SERVICE_NOT_FOUND'
+        });
+      }
+      return res.status(200).json({
+        success: true,
+        service
+      });
+    } catch (err: unknown) {
+      return res.status(500).json({
+        success: false,
+        error: 'An unexpected error occurred while fetching service.',
+        code: 'INTERNAL_SERVER_ERROR'
+      });
+    }
   });
 
   app.post('/api/services/create', (req, res) => {

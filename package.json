@@ -11,17 +11,20 @@
     "lint": "tsc --noEmit",
     "test:verification": "tsx src/server/tests/verificationStatus.test.ts",
     "test:verification-request": "tsx src/server/tests/verificationRequestEligibility.test.ts",
-    "test:categories": "tsx src/server/tests/categoryDatabase.test.ts"
+    "test:categories": "tsx src/server/tests/categoryDatabase.test.ts",
+    "test:business-category": "tsx src/server/tests/businessCategorySelection.test.ts",
+    "test:business-search": "tsx src/server/tests/businessSearch.test.ts",
+    "test:product-search": "tsx src/server/tests/productSearch.test.ts",
+    "test:service-search": "tsx src/server/tests/serviceSearch.test.ts",
+    "test:ad-search": "tsx src/server/tests/advertisementSearch.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
     "@tailwindcss/postcss": "^4.1.14",
-    "@tailwindcss/vite": "^4.1.14",
     "@types/bcryptjs": "^3.0.0",
     "@types/canvas-confetti": "^1.9.0",
     "@types/cookie-parser": "^1.4.10",
     "@types/jsonwebtoken": "^9.0.10",
-    "@vitejs/plugin-react": "^5.0.4",
     "bcryptjs": "^3.0.3",
     "canvas-confetti": "^1.9.4",
     "cookie-parser": "^1.4.7",
@@ -34,7 +37,6 @@
     "postcss": "^8.4.38",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
-    "vite": "^6.2.3",
     "zod": "^4.5.4"
   },
   "devDependencies": {
@@ -45,7 +47,6 @@
     "esbuild": "^0.25.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
-    "typescript": "~5.8.2",
-    "vite": "^6.2.3"
+    "typescript": "~5.8.2"
   }
 }

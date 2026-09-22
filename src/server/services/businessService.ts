@@ -8,8 +8,8 @@ import { db, DatabaseUniqueConstraintError, DatabaseValidationError, isDesignate
 import { authService } from './authService';
 import { auditService } from './auditService';
 import { storageService } from './storageService';
-import { CreateBusinessSchema, UpdateBusinessDescriptionSchema, UpdateBusinessCategoriesSchema, UpdateBusinessLocationSchema, UpdateOpeningHoursSchema, OpeningHoursArraySchema, UpdateBusinessContactSchema, validateAndNormalizeBusinessPhone, validateAndNormalizeBusinessEmail, validateAndNormalizeBusinessWebsite, PROTECTED_BUSINESS_FIELDS, SubmitVerificationRequestSchema, validateNoVerificationPrivilegeEscalation, validateBusinessVerificationEligibility } from '../validators/businessValidators';
-import { Business, CategoryConfig, BusinessCategory, LocationCoordinates, OpeningHour, formatOpeningHourDisplay, BusinessContactInfo, PublicBusinessProfile, BusinessVerificationRequest, PublicVerificationRequestDTO, BusinessVerificationStatus, BusinessVerificationStatusResponse } from '../../types';
+import { CreateBusinessSchema, UpdateBusinessDescriptionSchema, UpdateBusinessCategoriesSchema, SelectBusinessCategorySchema, UpdateBusinessLocationSchema, UpdateOpeningHoursSchema, OpeningHoursArraySchema, UpdateBusinessContactSchema, validateAndNormalizeBusinessPhone, validateAndNormalizeBusinessEmail, validateAndNormalizeBusinessWebsite, PROTECTED_BUSINESS_FIELDS, SubmitVerificationRequestSchema, validateNoVerificationPrivilegeEscalation, validateBusinessVerificationEligibility, BusinessSearchQuerySchema, sanitizeSearchQuery } from '../validators/businessValidators';
+import { Business, Category, CategoryConfig, BusinessCategory, LocationCoordinates, OpeningHour, formatOpeningHourDisplay, BusinessContactInfo, PublicBusinessProfile, BusinessVerificationRequest, PublicVerificationRequestDTO, BusinessVerificationStatus, BusinessVerificationStatusResponse, BusinessSearchResponse } from '../../types';
 
 export class BusinessServiceError extends Error {
   public statusCode: number;
@@ -36,6 +36,96 @@ export function generateBusinessSlug(name: string): string {
 }
 
 export class BusinessService {
+  /**
+   * Helper to validate and resolve category & subcategory against database taxonomy (Epic 3 Task 3.1.4)
+   */
+  public resolveAndValidateCategorySelection(
+    categoryIdOrSlug: string,
+    subcategoryIdOrTag?: string | null
+  ): {
+    category: Category;
+    subcategoryId?: string;
+    subcategoryName?: string;
+  } {
+    const catConfig = db.getCategoryById(categoryIdOrSlug);
+    if (!catConfig) {
+      throw new BusinessServiceError(`Invalid category: "${categoryIdOrSlug}" does not exist.`, 400, 'CATEGORY_NOT_FOUND');
+    }
+    if (catConfig.active === false || catConfig.status === 'inactive') {
+      throw new BusinessServiceError(`Category "${catConfig.name || categoryIdOrSlug}" is currently inactive and cannot be selected.`, 400, 'CATEGORY_INACTIVE');
+    }
+
+    let resolvedSubcategoryId: string | undefined;
+    let resolvedSubcategoryName: string | undefined;
+
+    if (subcategoryIdOrTag && typeof subcategoryIdOrTag === 'string' && subcategoryIdOrTag.trim()) {
+      const trimmedSub = subcategoryIdOrTag.trim();
+      const childCat = db.getCategoryById(trimmedSub) ||
+        db.categories.find(c =>
+          (c.parentId === catConfig.id || c.parentId === catConfig.slug) &&
+          c.name.trim().toLowerCase() === trimmedSub.toLowerCase()
+        );
+
+      if (childCat) {
+        // Must belong to this parent category
+        const isChildOfParent = childCat.parentId === catConfig.id || childCat.parentId === catConfig.slug;
+        if (!isChildOfParent) {
+          throw new BusinessServiceError(
+            `The selected subcategory "${childCat.name || trimmedSub}" does not belong to category "${catConfig.name}".`,
+            400,
+            'SUBCATEGORY_MISMATCH'
+          );
+        }
+        if (childCat.active === false || childCat.status === 'inactive') {
+          throw new BusinessServiceError(
+            `Subcategory "${childCat.name || trimmedSub}" is currently inactive and cannot be selected.`,
+            400,
+            'SUBCATEGORY_INACTIVE'
+          );
+        }
+        resolvedSubcategoryId = childCat.id;
+        resolvedSubcategoryName = childCat.name;
+      } else {
+        // Check if matching tag in parent category's subcategories list
+        const matchedTag = (catConfig.subcategories || []).find(
+          t => t.toLowerCase() === trimmedSub.toLowerCase() ||
+               t.toLowerCase().replace(/[^a-z0-9]+/g, '-') === trimmedSub.toLowerCase()
+        );
+
+        if (matchedTag) {
+          resolvedSubcategoryId = matchedTag.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+          resolvedSubcategoryName = matchedTag;
+        } else {
+          // Check if it belongs to any other category to provide an exact mismatch error
+          const anyOtherCategory = db.categories.find(c =>
+            c.id !== catConfig.id &&
+            c.slug !== catConfig.slug &&
+            c.subcategories &&
+            c.subcategories.some(t => t.toLowerCase() === trimmedSub.toLowerCase())
+          );
+          if (anyOtherCategory) {
+            throw new BusinessServiceError(
+              `The selected subcategory "${trimmedSub}" does not belong to category "${catConfig.name}".`,
+              400,
+              'SUBCATEGORY_MISMATCH'
+            );
+          }
+          throw new BusinessServiceError(
+            `Invalid subcategory: "${trimmedSub}" does not exist or does not belong to category "${catConfig.name}".`,
+            400,
+            'SUBCATEGORY_NOT_FOUND'
+          );
+        }
+      }
+    }
+
+    return {
+      category: catConfig,
+      subcategoryId: resolvedSubcategoryId,
+      subcategoryName: resolvedSubcategoryName
+    };
+  }
+
   /**
    * Create a new business owned by authenticated user
    */
@@ -108,16 +198,30 @@ export class BusinessService {
       );
     }
 
-    const { name, description, categoryIds, location } = parseResult.data;
+    const { name, description, categoryId, category, subcategoryId, subcategory, subcategories, categoryIds, location } = parseResult.data;
 
-    // Validate category IDs if provided
+    let primaryCatConfig: Category | undefined;
+    let resolvedSubcategoryId: string | undefined;
+    let resolvedSubcategoryName: string | undefined;
+
+    const primaryCatId = categoryId || category || (categoryIds && categoryIds.length > 0 ? categoryIds[0] : undefined);
+    const rawSubcategory = subcategoryId || subcategory || (subcategories && subcategories.length > 0 ? subcategories[0] : undefined);
+
+    if (primaryCatId) {
+      const resolved = this.resolveAndValidateCategorySelection(primaryCatId, rawSubcategory);
+      primaryCatConfig = resolved.category;
+      resolvedSubcategoryId = resolved.subcategoryId;
+      resolvedSubcategoryName = resolved.subcategoryName;
+    }
+
+    // Validate additional category IDs if provided
     if (categoryIds && categoryIds.length > 0) {
       for (const catId of categoryIds) {
         const catConfig = db.getCategoryById(catId);
         if (!catConfig) {
           throw new BusinessServiceError(`Invalid category: "${catId}" does not exist.`, 400, 'CATEGORY_NOT_FOUND');
         }
-        if (catConfig.active === false) {
+        if (catConfig.active === false || catConfig.status === 'inactive') {
           throw new BusinessServiceError(`Category "${catConfig.name || catId}" is currently inactive.`, 400, 'CATEGORY_INACTIVE');
         }
       }
@@ -127,12 +231,24 @@ export class BusinessService {
     const id = `biz_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
     const slug = generateBusinessSlug(name);
 
+    const initialCategories = primaryCatConfig
+      ? (categoryIds && categoryIds.length > 0 ? categoryIds : [primaryCatConfig.id])
+      : (categoryIds || []);
+
     const newBiz: Business = {
       id,
       ownerId: userId,
       name,
       slug,
       ...(description ? { description } : {}),
+      categoryId: primaryCatConfig ? primaryCatConfig.id : undefined,
+      category: primaryCatConfig ? (primaryCatConfig.id as any) : undefined,
+      categoryLabel: primaryCatConfig ? primaryCatConfig.name : undefined,
+      subcategoryId: resolvedSubcategoryId,
+      subcategoryName: resolvedSubcategoryName,
+      subcategory: resolvedSubcategoryName || resolvedSubcategoryId,
+      categories: initialCategories,
+      subcategories: resolvedSubcategoryName ? [resolvedSubcategoryName] : (subcategories || []),
       ...(location ? {
         location: {
           city: location.city,
@@ -155,12 +271,17 @@ export class BusinessService {
     // 5. Atomically persist business and link to user
     db.createBusiness(newBiz);
 
-    if (categoryIds && categoryIds.length > 0) {
-      db.setBusinessCategories(newBiz.id, categoryIds);
+    if (initialCategories.length > 0) {
+      db.setBusinessCategories(newBiz.id, initialCategories as string[]);
     }
 
     // 6. Record audit event
-    auditService.log('BUSINESS_CREATED', id, userId, 'merchant', { businessName: name, categoryIds });
+    auditService.log('BUSINESS_CREATED', id, userId, 'merchant', {
+      businessName: name,
+      categoryId: newBiz.categoryId,
+      subcategoryId: newBiz.subcategoryId,
+      categoryIds: initialCategories
+    });
 
     const persistedBiz = db.getBusinessById(id) || newBiz;
 
@@ -774,26 +895,9 @@ export class BusinessService {
       }
     }
 
-    // 5. Normalize categoryIds from payload
-    let rawCategoryIds: any[] = [];
-    if (payload && Array.isArray(payload.categoryIds)) {
-      rawCategoryIds = payload.categoryIds;
-    } else if (payload && Array.isArray(payload.categories)) {
-      rawCategoryIds = payload.categories;
-    } else if (payload && typeof payload.categoryId === 'string') {
-      rawCategoryIds = [payload.categoryId];
-    } else if (Array.isArray(payload)) {
-      rawCategoryIds = payload;
-    } else if (payload && typeof payload === 'object' && Object.keys(payload).length === 0) {
-      rawCategoryIds = [];
-    } else if (!payload || typeof payload !== 'object') {
-      throw new BusinessServiceError('Invalid payload: expected categoryIds array.', 400, 'INVALID_PAYLOAD');
-    } else {
-      throw new BusinessServiceError('Invalid payload: categoryIds must be an array of category identifiers.', 400, 'INVALID_PAYLOAD');
-    }
-
-    // 6. Schema validation
-    const parseResult = UpdateBusinessCategoriesSchema.safeParse({ categoryIds: rawCategoryIds });
+    // 5. Normalize & validate payload
+    const normalizedPayload = Array.isArray(payload) ? { categoryIds: payload } : payload;
+    const parseResult = UpdateBusinessCategoriesSchema.safeParse(normalizedPayload);
     if (!parseResult.success) {
       const firstIssue = parseResult.error.issues[0];
       throw new BusinessServiceError(
@@ -804,41 +908,107 @@ export class BusinessService {
       );
     }
 
-    const categoryIds = parseResult.data.categoryIds;
+    const data = parseResult.data;
+    const targetCatId = data.categoryId || data.category;
+    const targetSubcategory = data.subcategoryId !== undefined ? data.subcategoryId : data.subcategory;
 
-    // 7. Verify category existence and active status against controlled taxonomy
-    for (const catId of categoryIds) {
-      const catConfig = db.getCategoryById(catId);
-      if (!catConfig) {
-        throw new BusinessServiceError(
-          `Invalid category: "${catId}" does not exist. Please select from available categories.`,
-          400,
-          'CATEGORY_NOT_FOUND'
-        );
-      }
-      if (catConfig.active === false) {
-        throw new BusinessServiceError(
-          `Category "${catConfig.name || catId}" is currently inactive and cannot be assigned.`,
-          400,
-          'CATEGORY_INACTIVE'
-        );
+    let updatedCategoryIds: string[] = [];
+
+    if (targetCatId) {
+      // Direct category & subcategory selection (Task 3.1.4)
+      const resolved = this.resolveAndValidateCategorySelection(targetCatId, targetSubcategory);
+
+      business.categoryId = resolved.category.id;
+      business.category = resolved.category.id as any;
+      business.categoryLabel = resolved.category.name;
+      business.subcategoryId = resolved.subcategoryId;
+      business.subcategoryName = resolved.subcategoryName;
+      business.subcategory = resolved.subcategoryName || resolved.subcategoryId;
+      business.subcategories = resolved.subcategoryName ? [resolved.subcategoryName] : [];
+      business.categories = [resolved.category.id];
+      updatedCategoryIds = [resolved.category.id];
+
+      db.setBusinessCategories(business.id, updatedCategoryIds);
+    } else if (data.categoryIds !== undefined) {
+      // Array-based category update (Task 2.2.5 backward-compatibility)
+      if (data.categoryIds.length === 0) {
+        // Clear categories and subcategory
+        business.categoryId = undefined;
+        business.category = undefined;
+        business.categoryLabel = undefined;
+        business.subcategoryId = undefined;
+        business.subcategoryName = undefined;
+        business.subcategory = undefined;
+        business.subcategories = [];
+        business.categories = [];
+        updatedCategoryIds = [];
+        db.clearBusinessCategories(business.id);
+      } else {
+        // Validate all category IDs
+        for (const catId of data.categoryIds) {
+          const catConfig = db.getCategoryById(catId);
+          if (!catConfig) {
+            throw new BusinessServiceError(
+              `Invalid category: "${catId}" does not exist. Please select from available categories.`,
+              400,
+              'CATEGORY_NOT_FOUND'
+            );
+          }
+          if (catConfig.active === false || catConfig.status === 'inactive') {
+            throw new BusinessServiceError(
+              `Category "${catConfig.name || catId}" is currently inactive and cannot be assigned.`,
+              400,
+              'CATEGORY_INACTIVE'
+            );
+          }
+        }
+
+        const primaryCat = db.getCategoryById(data.categoryIds[0])!;
+        const previousCatId = business.categoryId || (business.categories && business.categories.length > 0 ? business.categories[0] : undefined);
+        const categoryChanged = previousCatId !== primaryCat.id;
+
+        business.categoryId = primaryCat.id;
+        business.category = primaryCat.id as any;
+        business.categoryLabel = primaryCat.name;
+        business.categories = data.categoryIds;
+        updatedCategoryIds = data.categoryIds;
+
+        // If target subcategory was explicitly provided, validate and attach it
+        if (targetSubcategory && targetSubcategory.trim()) {
+          const resolved = this.resolveAndValidateCategorySelection(primaryCat.id, targetSubcategory);
+          business.subcategoryId = resolved.subcategoryId;
+          business.subcategoryName = resolved.subcategoryName;
+          business.subcategory = resolved.subcategoryName || resolved.subcategoryId;
+          business.subcategories = resolved.subcategoryName ? [resolved.subcategoryName] : [];
+        } else if (categoryChanged) {
+          // Reset previous subcategory so invalid combination cannot persist!
+          business.subcategoryId = undefined;
+          business.subcategoryName = undefined;
+          business.subcategory = undefined;
+          business.subcategories = [];
+        }
+
+        db.setBusinessCategories(business.id, updatedCategoryIds);
       }
     }
 
-    // 8. Atomically update database join table & business entity
-    const updateResult = db.setBusinessCategories(business.id, categoryIds);
+    business.updatedAt = new Date().toISOString();
+    db.businesses.set(business.id, business);
 
-    // 9. Record audit event
+    // Record audit event
     auditService.log('BUSINESS_CATEGORIES_UPDATED', business.id, userId, 'merchant', {
-      categoryIds,
-      count: categoryIds.length
+      categoryId: business.categoryId,
+      subcategoryId: business.subcategoryId,
+      categoryIds: updatedCategoryIds
     });
+
+    const updatedBiz = db.getBusinessById(business.id) || business;
 
     return {
       success: true,
-      business: updateResult.business,
-      categoryIds,
-      businessCategories: updateResult.businessCategories,
+      business: updatedBiz,
+      categoryIds: updatedCategoryIds,
+      businessCategories: updatedBiz.businessCategories || [],
       message: 'Business categories updated successfully'
     };
   }
@@ -1637,40 +1807,201 @@ export class BusinessService {
     }
 
     // Project strictly approved public fields
-    const publicProfile: PublicBusinessProfile = {
-      id: business.id,
-      slug: business.slug,
-      name: business.name,
-      tagline: business.tagline || undefined,
-      description: business.description || undefined,
-      logoUrl: business.logoUrl || undefined,
-      coverImageUrl: business.coverImageUrl || undefined,
-      category: business.category || undefined,
-      categoryLabel: business.categoryLabel || undefined,
-      categories: business.categories && business.categories.length > 0 ? business.categories : undefined,
-      location: business.location ? {
-        city: business.location.city,
-        state: business.location.state,
-        country: business.location.country,
-        address: business.location.isServiceAreaOnly ? undefined : (business.location.address || undefined),
-        lga: business.location.lga || undefined,
-        postalCode: business.location.isServiceAreaOnly ? undefined : (business.location.postalCode || undefined),
-        serviceAreaKm: business.location.serviceAreaKm || undefined,
-        isServiceAreaOnly: business.location.isServiceAreaOnly || undefined,
-        lat: business.location.lat,
-        lng: business.location.lng,
-      } : undefined,
-      openingHours: business.openingHours && business.openingHours.length > 0 ? business.openingHours : undefined,
-      phone: business.phone || undefined,
-      email: business.email || undefined,
-      website: business.website || undefined,
-      isVerified: Boolean(business.isVerified),
-      createdAt: business.createdAt
-    };
+    const publicProfile: PublicBusinessProfile = toPublicBusinessProfile(business);
 
     return {
       success: true,
       business: publicProfile
+    };
+  }
+
+  /**
+   * Public Business Search (Epic 3 Feature 3.2 Task 3.2.1)
+   * 
+   * Searches businesses by name, description, relational category name, subcategory name, and location.
+   * Enforces public visibility, excludes private owner account details, handles safe sanitization,
+   * relevance ranking, and server-side pagination.
+   */
+  public async searchBusinesses(queryParams: {
+    q?: unknown;
+    query?: unknown;
+    search?: unknown;
+    page?: unknown;
+    limit?: unknown;
+  }): Promise<BusinessSearchResponse> {
+    const rawQuery = queryParams.q ?? queryParams.query ?? queryParams.search;
+
+    const parsed = BusinessSearchQuerySchema.safeParse({
+      q: rawQuery,
+      page: queryParams.page,
+      limit: queryParams.limit
+    });
+
+    if (!parsed.success) {
+      const errorMsg = parsed.error.issues[0]?.message || 'Invalid search query.';
+      const isTooLong = parsed.error.issues.some(i => i.message.includes('100'));
+      const isRequiredOrEmpty = parsed.error.issues.some(i => i.message.includes('required') || i.message.includes('empty'));
+      const code = isTooLong ? 'SEARCH_QUERY_TOO_LONG' : (isRequiredOrEmpty ? 'EMPTY_SEARCH_QUERY' : 'INVALID_SEARCH_QUERY');
+      throw new BusinessServiceError(errorMsg, 400, code);
+    }
+
+    const { q, page, limit } = parsed.data;
+    const normalizedQuery = q.toLowerCase();
+    const queryTokens = normalizedQuery.split(/\s+/).filter(Boolean);
+
+    // Build category map from database to look up category names relationally without data duplication
+    const categoryMap = new Map<string, Category>();
+    for (const cat of db.categories) {
+      if (cat.id) categoryMap.set(cat.id.toLowerCase(), cat);
+      if (cat.slug) categoryMap.set(cat.slug.toLowerCase(), cat);
+    }
+
+    interface ScoredBusiness {
+      business: Business;
+      score: number;
+    }
+
+    const matched: ScoredBusiness[] = [];
+
+    // Query businesses in database
+    for (const business of db.businesses.values()) {
+      // 1. Visibility Check: exclude businesses whose owner is suspended, disabled, or deleted
+      if (business.ownerId) {
+        const owner = db.getUserById(business.ownerId);
+        if (owner && (owner.status === 'SUSPENDED' || owner.status === 'DISABLED' || owner.status === 'DELETED')) {
+          continue;
+        }
+      }
+
+      // 2. Relational Category Names (Never duplicated onto business records purely for search)
+      const categoryNames: string[] = [];
+      const subcategoryNames: string[] = [];
+
+      // Primary Category
+      if (business.categoryId) {
+        const cat = categoryMap.get(business.categoryId.toLowerCase());
+        if (cat) categoryNames.push(cat.name);
+      } else if (business.category) {
+        const cat = categoryMap.get(String(business.category).toLowerCase());
+        if (cat) categoryNames.push(cat.name);
+        else categoryNames.push(String(business.category));
+      }
+
+      // Multiple categories if defined
+      if (Array.isArray(business.categories)) {
+        for (const catId of business.categories) {
+          const cat = categoryMap.get(String(catId).toLowerCase());
+          if (cat && !categoryNames.includes(cat.name)) {
+            categoryNames.push(cat.name);
+          }
+        }
+      }
+
+      // Business categories join table
+      const joinRecords = db.getBusinessCategories(business.id);
+      for (const jr of joinRecords) {
+        const cat = categoryMap.get(jr.categoryId.toLowerCase());
+        if (cat && !categoryNames.includes(cat.name)) {
+          categoryNames.push(cat.name);
+        }
+      }
+
+      // Subcategories
+      if (business.subcategoryId) {
+        const subCat = categoryMap.get(business.subcategoryId.toLowerCase());
+        if (subCat) {
+          subcategoryNames.push(subCat.name);
+        }
+      }
+      if (business.subcategoryName) {
+        if (!subcategoryNames.includes(business.subcategoryName)) {
+          subcategoryNames.push(business.subcategoryName);
+        }
+      }
+      if (business.subcategory) {
+        if (!subcategoryNames.includes(business.subcategory)) {
+          subcategoryNames.push(business.subcategory);
+        }
+      }
+      if (Array.isArray(business.subcategories)) {
+        for (const sc of business.subcategories) {
+          if (sc && !subcategoryNames.includes(sc)) {
+            subcategoryNames.push(sc);
+          }
+        }
+      }
+
+      // Search fields
+      const name = (business.name || '').toLowerCase();
+      const description = (business.description || '').toLowerCase();
+      const catText = categoryNames.join(' ').toLowerCase();
+      const subcatText = subcategoryNames.join(' ').toLowerCase();
+      const cityText = (business.location?.city || '').toLowerCase();
+      const stateText = (business.location?.state || '').toLowerCase();
+      const lgaText = (business.location?.lga || '').toLowerCase();
+
+      // Check matches
+      const exactNameMatch = name === normalizedQuery;
+      const prefixNameMatch = name.startsWith(normalizedQuery);
+      const partialNameMatch = name.includes(normalizedQuery);
+      const partialDescMatch = description.includes(normalizedQuery);
+      const partialCatMatch = catText.includes(normalizedQuery);
+      const partialSubcatMatch = subcatText.includes(normalizedQuery);
+      const partialLocationMatch = cityText.includes(normalizedQuery) || stateText.includes(normalizedQuery) || lgaText.includes(normalizedQuery);
+
+      let isMatch = exactNameMatch || prefixNameMatch || partialNameMatch || partialDescMatch || partialCatMatch || partialSubcatMatch || partialLocationMatch;
+
+      // Multi-word token matching (all words match across combined fields)
+      if (!isMatch && queryTokens.length > 1) {
+        const combinedText = `${name} ${description} ${catText} ${subcatText} ${cityText} ${stateText} ${lgaText}`;
+        isMatch = queryTokens.every(tok => combinedText.includes(tok));
+      }
+
+      if (!isMatch) continue;
+
+      // Calculate relevance score
+      let score = 0;
+      if (exactNameMatch) score += 100;
+      else if (prefixNameMatch) score += 60;
+      else if (partialNameMatch) score += 40;
+
+      if (partialCatMatch) score += 30;
+      if (partialSubcatMatch) score += 30;
+      if (partialDescMatch) score += 15;
+      if (partialLocationMatch) score += 10;
+
+      // Quality / verification boosts
+      if (business.isVerified) score += 10;
+      if (business.tier === 'enterprise') score += 5;
+      else if (business.tier === 'pro') score += 3;
+
+      matched.push({ business, score });
+    }
+
+    // Sort by relevance score descending, then rating, then name
+    matched.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      const bRating = b.business.rating || 0;
+      const aRating = a.business.rating || 0;
+      if (bRating !== aRating) return bRating - aRating;
+      return a.business.name.localeCompare(b.business.name);
+    });
+
+    const total = matched.length;
+    const totalPages = Math.ceil(total / limit);
+    const startIndex = (page - 1) * limit;
+    const paginatedSlice = matched.slice(startIndex, startIndex + limit);
+
+    const publicBusinesses = paginatedSlice.map(item => toPublicBusinessProfile(item.business));
+
+    return {
+      success: true,
+      businesses: publicBusinesses,
+      total,
+      page,
+      limit,
+      totalPages,
+      hasMore: page < totalPages
     };
   }
 
@@ -2068,3 +2399,45 @@ export class BusinessService {
 }
 
 export const businessService = new BusinessService();
+
+/**
+ * Project strictly approved public fields for public business profile.
+ * Explicitly excludes ownerId, private credentials, storage keys, internal metrics, and masks address if isServiceAreaOnly.
+ */
+export function toPublicBusinessProfile(business: Business): PublicBusinessProfile {
+  return {
+    id: business.id,
+    slug: business.slug,
+    name: business.name,
+    tagline: business.tagline || undefined,
+    description: business.description || undefined,
+    logoUrl: business.logoUrl || undefined,
+    coverImageUrl: business.coverImageUrl || undefined,
+    category: business.category || undefined,
+    categoryId: business.categoryId || undefined,
+    categoryLabel: business.categoryLabel || undefined,
+    subcategoryId: business.subcategoryId || undefined,
+    subcategoryName: business.subcategoryName || undefined,
+    subcategory: business.subcategory || undefined,
+    categories: business.categories && business.categories.length > 0 ? business.categories : undefined,
+    subcategories: business.subcategories && business.subcategories.length > 0 ? business.subcategories : undefined,
+    location: business.location ? {
+      city: business.location.city,
+      state: business.location.state,
+      country: business.location.country,
+      address: business.location.isServiceAreaOnly ? undefined : (business.location.address || undefined),
+      lga: business.location.lga || undefined,
+      postalCode: business.location.isServiceAreaOnly ? undefined : (business.location.postalCode || undefined),
+      serviceAreaKm: business.location.serviceAreaKm || undefined,
+      isServiceAreaOnly: business.location.isServiceAreaOnly || undefined,
+      lat: business.location.lat,
+      lng: business.location.lng,
+    } : undefined,
+    openingHours: business.openingHours && business.openingHours.length > 0 ? business.openingHours : undefined,
+    phone: business.phone || undefined,
+    email: business.email || undefined,
+    website: business.website || undefined,
+    isVerified: Boolean(business.isVerified),
+    createdAt: business.createdAt
+  };
+}

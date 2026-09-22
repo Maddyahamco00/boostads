@@ -416,7 +416,7 @@ export const BusinessProfileView: React.FC<BusinessProfileViewProps> = ({
                   )}
 
                   {/* Categories */}
-                  {categoryNames.length > 0 && (
+                  {(categoryNames.length > 0 || business.subcategoryName || business.subcategory) && (
                     <div id="public-business-categories" className="flex flex-wrap items-center gap-1.5 mt-2">
                       {categoryNames.map((label, idx) => (
                         <span
@@ -426,6 +426,14 @@ export const BusinessProfileView: React.FC<BusinessProfileViewProps> = ({
                           {label}
                         </span>
                       ))}
+                      {(business.subcategoryName || business.subcategory) && (
+                        <span
+                          id="public-business-subcategory"
+                          className="px-2.5 py-0.5 rounded-md text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300"
+                        >
+                          {business.subcategoryName || business.subcategory}
+                        </span>
+                      )}
                     </div>
                   )}
                 </div>

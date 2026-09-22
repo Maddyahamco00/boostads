@@ -13,13 +13,15 @@ import {
   CheckCircle2, 
   Sparkles,
   ArrowUpRight,
-  Bookmark
+  Bookmark,
+  Package,
+  Briefcase
 } from 'lucide-react';
-import { Advertisement, Business } from '../types';
+import { Advertisement, PublicAdvertisementProfile, Business } from '../types';
 import { useApp } from '../context/AppContext';
 
 interface AdvertisementCardProps {
-  ad: Advertisement;
+  ad: Advertisement | PublicAdvertisementProfile;
   business?: Business;
   onViewBusiness?: (businessId: string) => void;
   featured?: boolean;
@@ -34,7 +36,7 @@ export const AdvertisementCard: React.FC<AdvertisementCardProps> = ({
   const { setActiveView, viewBusinessDetail, currentLocation } = useApp();
   const [isLiked, setIsLiked] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
-  const [likesCount, setLikesCount] = useState(Math.floor((ad.clicksCount || 12) * 1.5) + (ad.isBoosted ? 24 : 5));
+  const [likesCount, setLikesCount] = useState(Math.floor(((ad as any).clicksCount || 12) * 1.5) + (ad.isBoosted ? 24 : 5));
   const [copied, setCopied] = useState(false);
 
   const isBoosted = ad.isBoosted || featured;
@@ -209,7 +211,7 @@ export const AdvertisementCard: React.FC<AdvertisementCardProps> = ({
         {/* Views & Reach Metric Badge */}
         <div className="absolute top-3 left-3 flex items-center gap-1 px-2.5 py-1 rounded-full bg-slate-900/70 backdrop-blur-md text-[11px] font-medium text-slate-200 border border-white/10">
           <Eye className="w-3 h-3 text-cyan-400" />
-          <span>{Number(ad.viewsCount || 140).toLocaleString()} views</span>
+          <span>{Number((ad as any).viewsCount || 140).toLocaleString()} views</span>
         </div>
       </div>
 
@@ -226,12 +228,26 @@ export const AdvertisementCard: React.FC<AdvertisementCardProps> = ({
             {ad.description}
           </p>
 
-          {/* Location & Tags */}
+          {/* Location & Tags & Linked Entities */}
           <div className="mt-3.5 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
             <div className="flex items-center gap-1 font-medium text-slate-700 dark:text-slate-300">
               <MapPin className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
               <span>{ad.location?.city || currentLocation?.city || 'Nigeria'}</span>
             </div>
+
+            {ad.productName && (
+              <span className="px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-cyan-300 text-[11px] font-semibold flex items-center gap-1">
+                <Package className="w-3 h-3 shrink-0" />
+                <span className="truncate max-w-[120px]">{ad.productName}</span>
+              </span>
+            )}
+
+            {ad.serviceName && (
+              <span className="px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 text-[11px] font-semibold flex items-center gap-1">
+                <Briefcase className="w-3 h-3 shrink-0" />
+                <span className="truncate max-w-[120px]">{ad.serviceName}</span>
+              </span>
+            )}
 
             {ad.tags && ad.tags.slice(0, 2).map((t, idx) => (
               <span 

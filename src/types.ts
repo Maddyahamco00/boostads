@@ -332,7 +332,11 @@ export interface Business {
   coverImageUrl?: string;
   coverImageKey?: string;
   category?: BusinessCategoryType;
+  categoryId?: string;
   categoryLabel?: string;
+  subcategoryId?: string;
+  subcategoryName?: string;
+  subcategory?: string;
   categories?: (BusinessCategoryType | string)[];
   businessCategories?: BusinessCategory[];
   subcategories?: string[];
@@ -374,8 +378,13 @@ export interface PublicBusinessProfile {
   logoUrl?: string;
   coverImageUrl?: string;
   category?: BusinessCategoryType;
+  categoryId?: string;
   categoryLabel?: string;
+  subcategoryId?: string;
+  subcategoryName?: string;
+  subcategory?: string;
   categories?: (BusinessCategoryType | string)[];
+  subcategories?: string[];
   location?: {
     city: string;
     state: string;
@@ -394,6 +403,19 @@ export interface PublicBusinessProfile {
   website?: string;
   isVerified?: boolean;
   createdAt?: string;
+}
+
+/**
+ * Public Business Search API Response Structure (Epic 3 Feature 3.2 Task 3.2.1)
+ */
+export interface BusinessSearchResponse {
+  success: boolean;
+  businesses: PublicBusinessProfile[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+  hasMore?: boolean;
 }
 
 /**
@@ -509,9 +531,72 @@ export interface Product {
   currency: string;
   imageUrls: string[];
   category: string;
+  categoryId?: string;
+  subcategoryId?: string;
+  subcategoryName?: string;
   inStock: boolean;
   sku?: string;
   createdAt: string;
+  updatedAt?: string;
+}
+
+/**
+ * Public Business Info attached to Public Product Profile (Epic 3 Feature 3.2 Task 3.2.2)
+ * Strips private owner and internal operational credentials.
+ */
+export interface PublicProductBusinessInfo {
+  id: string;
+  name: string;
+  slug?: string;
+  logoUrl?: string;
+  category?: string;
+  categoryId?: string;
+  categoryLabel?: string;
+  subcategoryId?: string;
+  subcategoryName?: string;
+  location?: {
+    city: string;
+    state: string;
+    country: string;
+    lga?: string;
+  };
+  isVerified?: boolean;
+}
+
+/**
+ * Public Product Profile DTO returned by search and discovery (Epic 3 Feature 3.2 Task 3.2.2)
+ */
+export interface PublicProductProfile {
+  id: string;
+  businessId: string;
+  name: string;
+  description: string;
+  price: number;
+  currency: string;
+  imageUrls: string[];
+  category: string;
+  categoryId?: string;
+  categoryName?: string;
+  subcategoryId?: string;
+  subcategoryName?: string;
+  inStock: boolean;
+  sku?: string;
+  createdAt: string;
+  updatedAt?: string;
+  business?: PublicProductBusinessInfo;
+}
+
+/**
+ * Public Product Search API Response Structure (Epic 3 Feature 3.2 Task 3.2.2)
+ */
+export interface ProductSearchResponse {
+  success: boolean;
+  products: PublicProductProfile[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+  hasMore?: boolean;
 }
 
 export interface Service {
@@ -524,8 +609,155 @@ export interface Service {
   durationUnit: string;
   imageUrls: string[];
   category: string;
+  categoryId?: string;
+  categoryName?: string;
+  subcategoryId?: string;
+  subcategoryName?: string;
   deliveryMode: 'on-premise' | 'remote' | 'at-client';
   createdAt: string;
+  updatedAt?: string;
+}
+
+/**
+ * Public Business Info attached to Public Service Profile (Epic 3 Feature 3.2 Task 3.2.3)
+ * Strips private owner and internal operational credentials.
+ */
+export interface PublicServiceBusinessInfo {
+  id: string;
+  name: string;
+  slug?: string;
+  logoUrl?: string;
+  category?: string;
+  categoryId?: string;
+  categoryLabel?: string;
+  subcategoryId?: string;
+  subcategoryName?: string;
+  location?: {
+    city: string;
+    state: string;
+    country: string;
+    lga?: string;
+  };
+  isVerified?: boolean;
+}
+
+/**
+ * Public Service Profile DTO returned by search and discovery (Epic 3 Feature 3.2 Task 3.2.3)
+ */
+export interface PublicServiceProfile {
+  id: string;
+  businessId: string;
+  name: string;
+  description: string;
+  startingPrice: number;
+  currency: string;
+  durationUnit: string;
+  imageUrls: string[];
+  category: string;
+  categoryId?: string;
+  categoryName?: string;
+  subcategoryId?: string;
+  subcategoryName?: string;
+  deliveryMode: 'on-premise' | 'remote' | 'at-client';
+  createdAt: string;
+  updatedAt?: string;
+  business?: PublicServiceBusinessInfo;
+}
+
+/**
+ * Public Service Search API Response Structure (Epic 3 Feature 3.2 Task 3.2.3)
+ */
+export interface ServiceSearchResponse {
+  success: boolean;
+  services: PublicServiceProfile[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+  hasMore?: boolean;
+}
+
+/**
+ * Public Business Info attached to Public Advertisement Profile (Epic 3 Feature 3.2 Task 3.2.4)
+ * Strips private owner and internal operational credentials.
+ */
+export interface PublicAdvertisementBusinessInfo {
+  id: string;
+  name: string;
+  slug?: string;
+  logoUrl?: string;
+  category?: string;
+  categoryId?: string;
+  categoryLabel?: string;
+  subcategoryId?: string;
+  subcategoryName?: string;
+  location?: {
+    city: string;
+    state: string;
+    country: string;
+    lga?: string;
+  };
+  isVerified?: boolean;
+}
+
+/**
+ * Public Advertisement Profile DTO returned by search and discovery (Epic 3 Feature 3.2 Task 3.2.4)
+ * Strictly excludes private owner credentials, internal metrics, and raw payment/budget configs.
+ */
+export interface PublicAdvertisementProfile {
+  id: string;
+  businessId: string;
+  businessName: string;
+  businessLogo?: string;
+  businessCategory?: string;
+  title: string;
+  description: string;
+  mediaUrls: string[];
+  mediaType: 'image' | 'video';
+  category: string;
+  categoryId?: string;
+  categoryName?: string;
+  subcategory?: string;
+  subcategoryId?: string;
+  subcategoryName?: string;
+  productId?: string;
+  productName?: string;
+  serviceId?: string;
+  serviceName?: string;
+  price?: number;
+  currency?: string;
+  location?: {
+    city: string;
+    state: string;
+    country: string;
+    lga?: string;
+    address?: string;
+    lat?: number;
+    lng?: number;
+  };
+  tags: string[];
+  targetRadiusKm?: number;
+  status: 'active';
+  isBoosted?: boolean;
+  boostType?: string;
+  contactPhone?: string;
+  contactWhatsApp?: string;
+  createdAt: string;
+  expiresAt: string;
+  business?: PublicAdvertisementBusinessInfo;
+}
+
+/**
+ * Public Advertisement Search API Response Structure (Epic 3 Feature 3.2 Task 3.2.4)
+ */
+export interface AdvertisementSearchResponse {
+  success: boolean;
+  advertisements: PublicAdvertisementProfile[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+  hasMore?: boolean;
 }
 
 export interface PortfolioItem {
@@ -730,7 +962,14 @@ export interface Advertisement {
   mediaUrls: string[];
   mediaType: 'image' | 'video';
   category: string;
+  categoryId?: string;
   subcategory?: string;
+  subcategoryId?: string;
+  subcategoryName?: string;
+  productId?: string;
+  productName?: string;
+  serviceId?: string;
+  serviceName?: string;
   price?: number;
   currency?: string;
   location: LocationCoordinates;

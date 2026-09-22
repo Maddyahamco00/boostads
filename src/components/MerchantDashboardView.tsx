@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
   DollarSign, 
@@ -94,8 +94,10 @@ export const MerchantDashboardView: React.FC = () => {
     }
   }, [userBiz?.description, isEditingDescription]);
 
-  // Business Categories Management States (Epic 2 Feature 2.2 Task 2.2.5)
+  // Business Categories Management States (Epic 2 Feature 2.2 Task 2.2.5 & Epic 3 Feature 3.1 Task 3.1.4)
   const [isEditingCategories, setIsEditingCategories] = useState(false);
+  const [selectedPrimaryCategoryId, setSelectedPrimaryCategoryId] = useState('');
+  const [selectedSubcategoryId, setSelectedSubcategoryId] = useState('');
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   const [categorySearchQuery, setCategorySearchQuery] = useState('');
   const [isSavingCategories, setIsSavingCategories] = useState(false);
@@ -103,6 +105,10 @@ export const MerchantDashboardView: React.FC = () => {
 
   useEffect(() => {
     if (!isEditingCategories && userBiz) {
+      const primaryCat = userBiz.categoryId || userBiz.category || (Array.isArray(userBiz.categories) && userBiz.categories.length > 0 ? userBiz.categories[0] : '');
+      const primarySub = userBiz.subcategoryId || userBiz.subcategoryName || userBiz.subcategory || (Array.isArray(userBiz.subcategories) && userBiz.subcategories.length > 0 ? userBiz.subcategories[0] : '');
+      setSelectedPrimaryCategoryId(primaryCat);
+      setSelectedSubcategoryId(primarySub);
       if (Array.isArray(userBiz.categories) && userBiz.categories.length > 0) {
         setSelectedCategoryIds(userBiz.categories);
       } else if (userBiz.category) {
@@ -111,7 +117,42 @@ export const MerchantDashboardView: React.FC = () => {
         setSelectedCategoryIds([]);
       }
     }
-  }, [userBiz?.categories, userBiz?.category, isEditingCategories]);
+  }, [userBiz?.categoryId, userBiz?.category, userBiz?.subcategoryId, userBiz?.subcategoryName, userBiz?.subcategory, userBiz?.categories, isEditingCategories]);
+
+  // Top-level categories for primary category selection (Epic 3 Task 3.1.4)
+  const topLevelMerchantCategories = useMemo(() => {
+    return categories
+      .filter(c => !c.parentId && c.active !== false && c.status !== 'inactive')
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [categories]);
+
+  // Dynamically populated subcategories for selected primary category (Epic 3 Task 3.1.4)
+  const availableMerchantSubcategories = useMemo(() => {
+    if (!selectedPrimaryCategoryId) return [];
+    const parent = categories.find(c => c.id === selectedPrimaryCategoryId || c.slug === selectedPrimaryCategoryId);
+    if (!parent) return [];
+
+    const options: { id: string; name: string }[] = [];
+    const seen = new Set<string>();
+
+    categories
+      .filter(c => (c.parentId === parent.id || c.parentId === parent.slug) && c.active !== false && c.status !== 'inactive')
+      .forEach(c => {
+        if (!seen.has(c.name.toLowerCase())) {
+          seen.add(c.name.toLowerCase());
+          options.push({ id: c.id, name: c.name });
+        }
+      });
+
+    (parent.subcategories || []).forEach(tag => {
+      if (!seen.has(tag.toLowerCase())) {
+        seen.add(tag.toLowerCase());
+        options.push({ id: tag.toLowerCase().replace(/[^a-z0-9]+/g, '-'), name: tag });
+      }
+    });
+
+    return options.sort((a, b) => a.name.localeCompare(b.name));
+  }, [selectedPrimaryCategoryId, categories]);
 
   // Business Location Management States (Epic 2 Feature 2.2 Task 2.2.6)
   const [isEditingLocation, setIsEditingLocation] = useState(false);
@@ -610,13 +651,18 @@ export const MerchantDashboardView: React.FC = () => {
     setIsSavingCategories(true);
 
     try {
-      const res = await businessApi.updateCategories(userBiz.id, {
-        categoryIds: selectedCategoryIds
+      if (!selectedPrimaryCategoryId) {
+        throw new Error('Please select a business category.');
+      }
+
+      const res = await businessApi.updateCategorySelection(userBiz.id, {
+        categoryId: selectedPrimaryCategoryId,
+        subcategoryId: selectedSubcategoryId || null
       });
 
-      if (res.success) {
+      if (res.success && res.business) {
         setCategoriesMessage({
-          text: res.message || 'Business categories updated successfully.',
+          text: res.message || 'Business category and subcategory updated successfully.',
           isError: false
         });
         setIsEditingCategories(false);
@@ -1133,9 +1179,8 @@ export const MerchantDashboardView: React.FC = () => {
                 ) : null}
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                {(userBiz?.categories && userBiz.categories.length > 0)
-                  ? userBiz.categories.map(cId => categories.find(c => c.id === cId)?.name || cId).join(', ')
-                  : (userBiz?.categoryLabel || userBiz?.category || 'General Business')}
+                {(userBiz?.categoryLabel || userBiz?.category || (userBiz?.categories && userBiz.categories.length > 0 ? categories.find(c => c.id === userBiz.categories[0])?.name : 'General Business'))}
+                {(userBiz?.subcategoryName || userBiz?.subcategory) ? ` › ${userBiz.subcategoryName || userBiz.subcategory}` : ''}
                 {userBiz?.location?.city ? ` • ${userBiz.location.city}, ${userBiz.location.state}` : ''}
               </p>
 
@@ -1361,18 +1406,24 @@ export const MerchantDashboardView: React.FC = () => {
         </div>
       </div>
 
-      {/* Business Categories Management Card (Epic 2 Feature 2.2 Task 2.2.5) */}
+      {/* Business Categories Management Card (Epic 2 Feature 2.2 Task 2.2.5 & Epic 3 Feature 3.1 Task 3.1.4) */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-5">
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs">
-          <div className="flex items-center justify-between gap-4 mb-2">
+          <div className="flex items-center justify-between gap-4 mb-3">
             <div className="flex items-center gap-2">
               <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <Tag className="w-4 h-4 text-indigo-600 dark:text-cyan-400" />
-                <span>Business Categories</span>
+                <span>Business Category & Subcategory</span>
               </h2>
-              <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-medium">
-                {selectedCategoryIds.length}/5
-              </span>
+              {userBiz?.categoryLabel || userBiz?.category ? (
+                <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-semibold border border-emerald-200 dark:border-emerald-800">
+                  Assigned
+                </span>
+              ) : (
+                <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 font-semibold border border-amber-200 dark:border-amber-800">
+                  Required
+                </span>
+              )}
             </div>
             {isOwner && !isEditingCategories && (
               <button
@@ -1381,11 +1432,12 @@ export const MerchantDashboardView: React.FC = () => {
                 onClick={() => {
                   setIsEditingCategories(true);
                   setCategoriesMessage(null);
-                  setCategorySearchQuery('');
+                  setSelectedPrimaryCategoryId(userBiz?.categoryId || userBiz?.category || '');
+                  setSelectedSubcategoryId(userBiz?.subcategoryId || userBiz?.subcategoryName || userBiz?.subcategory || '');
                 }}
                 className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
               >
-                {selectedCategoryIds.length > 0 ? 'Edit Categories' : 'Add Categories'}
+                {userBiz?.category ? 'Change Category' : 'Select Category'}
               </button>
             )}
           </div>
@@ -1419,87 +1471,93 @@ export const MerchantDashboardView: React.FC = () => {
           {isEditingCategories ? (
             <div className="space-y-4">
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Select up to 5 controlled categories that classify your business. The first category acts as your primary category.
+                Choose your primary business category and optional subcategory. Changing the category immediately resets the subcategory to ensure valid taxonomy.
               </p>
 
-              {/* Selected Categories Chips with Remove */}
-              {selectedCategoryIds.length > 0 && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <div className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
-                    Selected Categories ({selectedCategoryIds.length}/5):
+                  <label htmlFor="merchant-category-select" className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Primary Category <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    id="merchant-category-select"
+                    value={selectedPrimaryCategoryId}
+                    onChange={(e) => {
+                      const newCat = e.target.value;
+                      setSelectedPrimaryCategoryId(newCat);
+                      // Reset subcategory immediately when category changes
+                      setSelectedSubcategoryId('');
+                      setCategoriesMessage(null);
+                    }}
+                    disabled={isSavingCategories}
+                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white transition-all cursor-pointer font-medium"
+                  >
+                    <option value="">Select a Category...</option>
+                    {topLevelMerchantCategories.map(cat => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label htmlFor="merchant-subcategory-select" className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Subcategory <span className="text-xs font-normal text-slate-400">(Optional)</span>
+                  </label>
+                  <select
+                    id="merchant-subcategory-select"
+                    value={selectedSubcategoryId}
+                    onChange={(e) => {
+                      setSelectedSubcategoryId(e.target.value);
+                      setCategoriesMessage(null);
+                    }}
+                    disabled={isSavingCategories || !selectedPrimaryCategoryId || availableMerchantSubcategories.length === 0}
+                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                  >
+                    {!selectedPrimaryCategoryId ? (
+                      <option value="">Select a category first</option>
+                    ) : availableMerchantSubcategories.length === 0 ? (
+                      <option value="">No subcategories available (optional)</option>
+                    ) : (
+                      <>
+                        <option value="">None / Clear Subcategory</option>
+                        {availableMerchantSubcategories.map(sub => (
+                          <option key={sub.id} value={sub.name}>
+                            {sub.name}
+                          </option>
+                        ))}
+                      </>
+                    )}
+                  </select>
+                </div>
+              </div>
+
+              {selectedPrimaryCategoryId && (
+                <div className="p-3 bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200/80 dark:border-indigo-800/80 rounded-xl flex items-center justify-between text-xs text-indigo-900 dark:text-indigo-200">
+                  <div className="flex items-center gap-1.5 font-medium">
+                    <span>Selected taxonomy:</span>
+                    <strong className="text-indigo-700 dark:text-indigo-300">
+                      {categories.find(c => c.id === selectedPrimaryCategoryId)?.name || selectedPrimaryCategoryId}
+                    </strong>
+                    {selectedSubcategoryId && (
+                      <>
+                        <span>›</span>
+                        <strong className="text-indigo-800 dark:text-indigo-200">{selectedSubcategoryId}</strong>
+                      </>
+                    )}
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedCategoryIds.map((catId, idx) => {
-                      const catConfig = categories.find(c => c.id === catId);
-                      const name = catConfig?.name || catId;
-                      return (
-                        <span
-                          key={catId}
-                          id={`selected-category-${catId}`}
-                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-indigo-900 dark:text-indigo-200"
-                        >
-                          {idx === 0 && (
-                            <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-indigo-200 dark:bg-indigo-800 text-indigo-800 dark:text-indigo-100">
-                              Primary
-                            </span>
-                          )}
-                          <span>{name}</span>
-                          <button
-                            type="button"
-                            id={`remove-category-${catId}`}
-                            onClick={() => handleToggleCategory(catId)}
-                            className="p-0.5 text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-100 rounded transition-colors cursor-pointer"
-                            title={`Remove ${name}`}
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </span>
-                      );
-                    })}
-                  </div>
+                  {selectedSubcategoryId && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSubcategoryId('')}
+                      className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                    >
+                      Clear subcategory
+                    </button>
+                  )}
                 </div>
               )}
-
-              {/* Search filter if there are many categories */}
-              <div className="relative">
-                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="text"
-                  id="category-search-input"
-                  value={categorySearchQuery}
-                  onChange={(e) => setCategorySearchQuery(e.target.value)}
-                  placeholder="Filter available categories..."
-                  className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                />
-              </div>
-
-              {/* Available Categories Grid */}
-              <div className="border border-slate-200 dark:border-slate-800 rounded-xl p-3 bg-slate-50/50 dark:bg-slate-800/30 max-h-56 overflow-y-auto">
-                <div className="flex flex-wrap gap-2">
-                  {categories
-                    .filter(cat => cat.active !== false)
-                    .filter(cat => !categorySearchQuery || cat.name.toLowerCase().includes(categorySearchQuery.toLowerCase()))
-                    .map((cat) => {
-                      const isSelected = selectedCategoryIds.includes(cat.id);
-                      return (
-                        <button
-                          key={cat.id}
-                          type="button"
-                          id={`category-toggle-${cat.id}`}
-                          onClick={() => handleToggleCategory(cat.id)}
-                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition-all cursor-pointer ${
-                            isSelected
-                              ? 'bg-indigo-600 border-indigo-600 text-white font-semibold shadow-xs'
-                              : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 text-slate-700 dark:text-slate-300'
-                          }`}
-                        >
-                          {isSelected && <Check className="w-3.5 h-3.5 text-white" />}
-                          <span>{cat.name}</span>
-                        </button>
-                      );
-                    })}
-                </div>
-              </div>
 
               {/* Action Buttons */}
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
@@ -1508,13 +1566,8 @@ export const MerchantDashboardView: React.FC = () => {
                   id="cancel-business-categories-btn"
                   onClick={() => {
                     setIsEditingCategories(false);
-                    if (userBiz?.categories) {
-                      setSelectedCategoryIds(userBiz.categories);
-                    } else if (userBiz?.category) {
-                      setSelectedCategoryIds([userBiz.category]);
-                    } else {
-                      setSelectedCategoryIds([]);
-                    }
+                    setSelectedPrimaryCategoryId(userBiz?.categoryId || userBiz?.category || '');
+                    setSelectedSubcategoryId(userBiz?.subcategoryId || userBiz?.subcategoryName || userBiz?.subcategory || '');
                     setCategoriesMessage(null);
                   }}
                   disabled={isSavingCategories}
@@ -1527,7 +1580,7 @@ export const MerchantDashboardView: React.FC = () => {
                   type="button"
                   id="save-business-categories-btn"
                   onClick={() => handleSaveCategories()}
-                  disabled={isSavingCategories}
+                  disabled={isSavingCategories || !selectedPrimaryCategoryId}
                   className="px-4 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isSavingCategories ? (
@@ -1536,38 +1589,47 @@ export const MerchantDashboardView: React.FC = () => {
                       <span>Saving...</span>
                     </>
                   ) : (
-                    <span>Save Categories</span>
+                    <span>Save Category</span>
                   )}
                 </button>
               </div>
             </div>
           ) : (
             <div>
-              {selectedCategoryIds.length > 0 ? (
-                <div id="business-categories-display" className="flex flex-wrap gap-2 items-center">
-                  {selectedCategoryIds.map((catId, idx) => {
-                    const catConfig = categories.find(c => c.id === catId);
-                    const name = catConfig?.name || catId;
-                    return (
-                      <span
-                        key={catId}
-                        id={`category-chip-${catId}`}
-                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200"
-                      >
-                        {idx === 0 && (
-                          <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300">
-                            Primary
-                          </span>
-                        )}
-                        <span>{name}</span>
+              {userBiz?.category || userBiz?.categoryId ? (
+                <div id="business-categories-display" className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      id={`category-chip-${userBiz.categoryId || userBiz.category}`}
+                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-indigo-900 dark:text-indigo-200"
+                    >
+                      <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-indigo-200 dark:bg-indigo-800 text-indigo-800 dark:text-indigo-100">
+                        Category
                       </span>
-                    );
-                  })}
+                      <span>{userBiz.categoryLabel || categories.find(c => c.id === (userBiz.categoryId || userBiz.category))?.name || userBiz.category}</span>
+                    </span>
+
+                    {(userBiz.subcategoryName || userBiz.subcategoryId || userBiz.subcategory) && (
+                      <span
+                        id="subcategory-chip"
+                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200"
+                      >
+                        <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-emerald-200 dark:bg-emerald-800 text-emerald-800 dark:text-emerald-100">
+                          Subcategory
+                        </span>
+                        <span>{userBiz.subcategoryName || userBiz.subcategory || userBiz.subcategoryId}</span>
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Your business is discoverable under <strong>{userBiz.categoryLabel || userBiz.category}</strong>
+                    {(userBiz.subcategoryName || userBiz.subcategory) ? <> › <strong>{userBiz.subcategoryName || userBiz.subcategory}</strong></> : ' (all subcategories)'}.
+                  </p>
                 </div>
               ) : (
                 <p id="business-categories-empty" className="text-sm text-slate-400 dark:text-slate-500 italic">
-                  No categories selected yet.
-                  {isOwner && ' Click "Add Categories" above to associate your business with relevant categories.'}
+                  No category selected yet.
+                  {isOwner && ' Click "Select Category" above to choose your business classification.'}
                 </p>
               )}
             </div>

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
   PlusCircle, 
@@ -22,11 +22,20 @@ import {
   Target, 
   BarChart3, 
   ChevronRight,
+  ChevronLeft,
   ExternalLink,
-  DollarSign
+  DollarSign,
+  Loader2,
+  AlertCircle,
+  X,
+  Package,
+  Tag,
+  Briefcase,
+  Clock
 } from 'lucide-react';
 import { AdvertisementCard } from './AdvertisementCard';
-import { Advertisement, Business } from '../types';
+import { Advertisement, Business, PublicBusinessProfile, PublicProductProfile, Product, PublicServiceProfile, Service, PublicAdvertisementProfile } from '../types';
+import { businessApi, productApi, serviceApi, advertisementApi } from '../lib/api';
 
 export const DiscoverView: React.FC = () => {
   const { 
@@ -45,7 +54,7 @@ export const DiscoverView: React.FC = () => {
   } = useApp();
 
   // Feed Filter States
-  const [feedTab, setFeedTab] = useState<'all' | 'promoted' | 'nearby' | 'trending' | 'businesses'>('all');
+  const [feedTab, setFeedTab] = useState<'all' | 'promoted' | 'nearby' | 'trending' | 'advertisements' | 'businesses' | 'products' | 'services'>('all');
   const [selectedRadiusKm, setSelectedRadiusKm] = useState<number>(25);
 
   // Interactive Reach Calculator State
@@ -191,6 +200,335 @@ export const DiscoverView: React.FC = () => {
 
   const handleOpenBusiness = (bizId: string) => {
     viewBusinessDetail(bizId);
+  };
+
+  // Dedicated Business Search State (Epic 3 Feature 3.2 Task 3.2.1)
+  const [businessSearchInput, setBusinessSearchInput] = useState<string>('');
+  const [businessSearchResults, setBusinessSearchResults] = useState<PublicBusinessProfile[] | null>(null);
+  const [businessSearchTotal, setBusinessSearchTotal] = useState<number>(0);
+  const [businessSearchPage, setBusinessSearchPage] = useState<number>(1);
+  const [businessSearchTotalPages, setBusinessSearchTotalPages] = useState<number>(1);
+  const [isBusinessSearchLoading, setIsBusinessSearchLoading] = useState<boolean>(false);
+  const [businessSearchError, setBusinessSearchError] = useState<string | null>(null);
+  const [hasExecutedBusinessSearch, setHasExecutedBusinessSearch] = useState<boolean>(false);
+
+  const executeBusinessSearch = async (query: string, page: number = 1) => {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      setBusinessSearchResults(null);
+      setHasExecutedBusinessSearch(false);
+      setBusinessSearchError(null);
+      return;
+    }
+
+    setIsBusinessSearchLoading(true);
+    setBusinessSearchError(null);
+    setHasExecutedBusinessSearch(true);
+
+    try {
+      const res = await businessApi.search(trimmed, { page, limit: 12 });
+      if (res.success) {
+        setBusinessSearchResults(res.businesses);
+        setBusinessSearchTotal(res.total);
+        setBusinessSearchPage(res.page);
+        setBusinessSearchTotalPages(res.totalPages);
+      }
+    } catch (err: any) {
+      setBusinessSearchError(err?.message || 'Failed to complete business search. Please try again.');
+      setBusinessSearchResults([]);
+    } finally {
+      setIsBusinessSearchLoading(false);
+    }
+  };
+
+  const handleClearBusinessSearch = () => {
+    setBusinessSearchInput('');
+    setBusinessSearchResults(null);
+    setHasExecutedBusinessSearch(false);
+    setBusinessSearchError(null);
+  };
+
+  // Dedicated Product Search State (Epic 3 Feature 3.2 Task 3.2.2)
+  const [productSearchInput, setProductSearchInput] = useState<string>('');
+  const [productSearchResults, setProductSearchResults] = useState<PublicProductProfile[] | null>(null);
+  const [allCatalogProducts, setAllCatalogProducts] = useState<PublicProductProfile[]>([]);
+  const [productSearchTotal, setProductSearchTotal] = useState<number>(0);
+  const [productSearchPage, setProductSearchPage] = useState<number>(1);
+  const [productSearchTotalPages, setProductSearchTotalPages] = useState<number>(1);
+  const [isProductSearchLoading, setIsProductSearchLoading] = useState<boolean>(false);
+  const [productSearchError, setProductSearchError] = useState<string | null>(null);
+  const [hasExecutedProductSearch, setHasExecutedProductSearch] = useState<boolean>(false);
+
+  // Load initial product catalog when on products tab
+  useEffect(() => {
+    if (feedTab === 'products' && allCatalogProducts.length === 0 && !hasExecutedProductSearch) {
+      let isMounted = true;
+      setIsProductSearchLoading(true);
+      fetch('/api/products')
+        .then(res => res.json())
+        .then(data => {
+          if (isMounted && data.success && Array.isArray(data.products)) {
+            const mapped: PublicProductProfile[] = data.products.map((p: Product) => {
+              const biz = businesses.find(b => b.id === p.businessId);
+              return {
+                id: p.id,
+                businessId: p.businessId,
+                name: p.name,
+                description: p.description,
+                price: p.price,
+                currency: p.currency,
+                imageUrls: p.imageUrls,
+                category: p.category,
+                inStock: p.inStock,
+                sku: p.sku,
+                createdAt: p.createdAt,
+                business: biz ? {
+                  id: biz.id,
+                  name: biz.name,
+                  slug: biz.slug,
+                  logoUrl: biz.logoUrl,
+                  category: biz.category,
+                  categoryId: biz.categoryId,
+                  categoryLabel: biz.categoryLabel,
+                  subcategoryId: biz.subcategoryId,
+                  subcategoryName: biz.subcategoryName,
+                  location: biz.location ? {
+                    city: biz.location.city,
+                    state: biz.location.state,
+                    country: biz.location.country,
+                    lga: biz.location.lga
+                  } : undefined,
+                  isVerified: biz.isVerified
+                } : undefined
+              };
+            });
+            setAllCatalogProducts(mapped);
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (isMounted) setIsProductSearchLoading(false);
+        });
+      return () => { isMounted = false; };
+    }
+  }, [feedTab, allCatalogProducts.length, hasExecutedProductSearch, businesses]);
+
+  const executeProductSearch = async (query: string, page: number = 1) => {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      setProductSearchResults(null);
+      setHasExecutedProductSearch(false);
+      setProductSearchError(null);
+      return;
+    }
+
+    setIsProductSearchLoading(true);
+    setProductSearchError(null);
+    setHasExecutedProductSearch(true);
+
+    try {
+      const res = await productApi.search(trimmed, { page, limit: 12 });
+      if (res.success) {
+        setProductSearchResults(res.products);
+        setProductSearchTotal(res.total);
+        setProductSearchPage(res.page);
+        setProductSearchTotalPages(res.totalPages);
+      }
+    } catch (err: any) {
+      setProductSearchError(err?.message || 'Failed to complete product search. Please try again.');
+      setProductSearchResults([]);
+    } finally {
+      setIsProductSearchLoading(false);
+    }
+  };
+
+  const handleClearProductSearch = () => {
+    setProductSearchInput('');
+    setProductSearchResults(null);
+    setHasExecutedProductSearch(false);
+    setProductSearchError(null);
+  };
+
+  const displayedProducts = useMemo(() => {
+    if (hasExecutedProductSearch) {
+      return productSearchResults || [];
+    }
+    if (matchingCategoryIdentifiers && allCatalogProducts.length > 0) {
+      return allCatalogProducts.filter(p => {
+        const catStr = (p.category || '').toLowerCase();
+        for (const id of matchingCategoryIdentifiers) {
+          if (catStr.includes(id)) return true;
+        }
+        return false;
+      });
+    }
+    return allCatalogProducts;
+  }, [hasExecutedProductSearch, productSearchResults, allCatalogProducts, matchingCategoryIdentifiers]);
+
+  // Dedicated Service Search State (Epic 3 Feature 3.2 Task 3.2.3)
+  const [serviceSearchInput, setServiceSearchInput] = useState<string>('');
+  const [serviceSearchResults, setServiceSearchResults] = useState<PublicServiceProfile[] | null>(null);
+  const [allCatalogServices, setAllCatalogServices] = useState<PublicServiceProfile[]>([]);
+  const [serviceSearchTotal, setServiceSearchTotal] = useState<number>(0);
+  const [serviceSearchPage, setServiceSearchPage] = useState<number>(1);
+  const [serviceSearchTotalPages, setServiceSearchTotalPages] = useState<number>(1);
+  const [isServiceSearchLoading, setIsServiceSearchLoading] = useState<boolean>(false);
+  const [serviceSearchError, setServiceSearchError] = useState<string | null>(null);
+  const [hasExecutedServiceSearch, setHasExecutedServiceSearch] = useState<boolean>(false);
+
+  // Load initial service catalog when on services tab
+  useEffect(() => {
+    if (feedTab === 'services' && allCatalogServices.length === 0 && !hasExecutedServiceSearch) {
+      let isMounted = true;
+      setIsServiceSearchLoading(true);
+      fetch('/api/services')
+        .then(res => res.json())
+        .then(data => {
+          if (isMounted && data.success && Array.isArray(data.services)) {
+            const mapped: PublicServiceProfile[] = data.services.map((s: Service) => {
+              const biz = businesses.find(b => b.id === s.businessId);
+              return {
+                id: s.id,
+                businessId: s.businessId,
+                name: s.name,
+                description: s.description,
+                startingPrice: s.startingPrice,
+                currency: s.currency,
+                durationUnit: s.durationUnit,
+                imageUrls: s.imageUrls,
+                category: s.category,
+                categoryId: s.categoryId,
+                subcategoryId: s.subcategoryId,
+                subcategoryName: s.subcategoryName,
+                deliveryMode: s.deliveryMode,
+                createdAt: s.createdAt,
+                business: biz ? {
+                  id: biz.id,
+                  name: biz.name,
+                  slug: biz.slug,
+                  logoUrl: biz.logoUrl,
+                  category: biz.category,
+                  categoryId: biz.categoryId,
+                  categoryLabel: biz.categoryLabel,
+                  subcategoryId: biz.subcategoryId,
+                  subcategoryName: biz.subcategoryName,
+                  location: biz.location ? {
+                    city: biz.location.city,
+                    state: biz.location.state,
+                    country: biz.location.country,
+                    lga: biz.location.lga
+                  } : undefined,
+                  isVerified: biz.isVerified
+                } : undefined
+              };
+            });
+            setAllCatalogServices(mapped);
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (isMounted) setIsServiceSearchLoading(false);
+        });
+      return () => { isMounted = false; };
+    }
+  }, [feedTab, allCatalogServices.length, hasExecutedServiceSearch, businesses]);
+
+  const executeServiceSearch = async (query: string, page: number = 1) => {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      setServiceSearchResults(null);
+      setHasExecutedServiceSearch(false);
+      setServiceSearchError(null);
+      return;
+    }
+
+    setIsServiceSearchLoading(true);
+    setServiceSearchError(null);
+    setHasExecutedServiceSearch(true);
+
+    try {
+      const res = await serviceApi.search(trimmed, { page, limit: 12 });
+      if (res.success) {
+        setServiceSearchResults(res.services);
+        setServiceSearchTotal(res.total);
+        setServiceSearchPage(res.page);
+        setServiceSearchTotalPages(res.totalPages);
+      }
+    } catch (err: any) {
+      setServiceSearchError(err?.message || 'Failed to complete service search. Please try again.');
+      setServiceSearchResults([]);
+    } finally {
+      setIsServiceSearchLoading(false);
+    }
+  };
+
+  const handleClearServiceSearch = () => {
+    setServiceSearchInput('');
+    setServiceSearchResults(null);
+    setHasExecutedServiceSearch(false);
+    setServiceSearchError(null);
+  };
+
+  const displayedServices = useMemo(() => {
+    if (hasExecutedServiceSearch) {
+      return serviceSearchResults || [];
+    }
+    if (matchingCategoryIdentifiers && allCatalogServices.length > 0) {
+      return allCatalogServices.filter(s => {
+        const catStr = (s.category || '').toLowerCase();
+        for (const id of matchingCategoryIdentifiers) {
+          if (catStr.includes(id)) return true;
+        }
+        return false;
+      });
+    }
+    return allCatalogServices;
+  }, [hasExecutedServiceSearch, serviceSearchResults, matchingCategoryIdentifiers, allCatalogServices]);
+
+  // Dedicated Advertisement Search State (Epic 3 Feature 3.2 Task 3.2.4)
+  const [adSearchInput, setAdSearchInput] = useState<string>('');
+  const [adSearchResults, setAdSearchResults] = useState<PublicAdvertisementProfile[] | null>(null);
+  const [adSearchTotal, setAdSearchTotal] = useState<number>(0);
+  const [adSearchPage, setAdSearchPage] = useState<number>(1);
+  const [adSearchTotalPages, setAdSearchTotalPages] = useState<number>(1);
+  const [isAdSearchLoading, setIsAdSearchLoading] = useState<boolean>(false);
+  const [adSearchError, setAdSearchError] = useState<string | null>(null);
+  const [hasExecutedAdSearch, setHasExecutedAdSearch] = useState<boolean>(false);
+
+  const executeAdSearch = async (query: string, page: number = 1) => {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      setAdSearchResults(null);
+      setHasExecutedAdSearch(false);
+      setAdSearchError(null);
+      return;
+    }
+
+    setIsAdSearchLoading(true);
+    setAdSearchError(null);
+    setHasExecutedAdSearch(true);
+
+    try {
+      const res = await advertisementApi.search(trimmed, { page, limit: 12 });
+      if (res.success) {
+        setAdSearchResults(res.advertisements);
+        setAdSearchTotal(res.total);
+        setAdSearchPage(res.page);
+        setAdSearchTotalPages(res.totalPages);
+      }
+    } catch (err: any) {
+      setAdSearchError(err?.message || 'Failed to complete advertisement search. Please try again.');
+      setAdSearchResults([]);
+    } finally {
+      setIsAdSearchLoading(false);
+    }
+  };
+
+  const handleClearAdSearch = () => {
+    setAdSearchInput('');
+    setAdSearchResults(null);
+    setHasExecutedAdSearch(false);
+    setAdSearchError(null);
   };
 
   // Reach estimates for calculator
@@ -482,6 +820,19 @@ export const DiscoverView: React.FC = () => {
             </button>
 
             <button
+              id="feed-tab-advertisements"
+              onClick={() => setFeedTab('advertisements')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                feedTab === 'advertisements'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Search Ads</span>
+            </button>
+
+            <button
               onClick={() => setFeedTab('businesses')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer ${
                 feedTab === 'businesses'
@@ -491,6 +842,32 @@ export const DiscoverView: React.FC = () => {
             >
               <Store className="w-3.5 h-3.5" />
               <span>Businesses ({businesses.length})</span>
+            </button>
+
+            <button
+              id="feed-tab-products"
+              onClick={() => setFeedTab('products')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                feedTab === 'products'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              <Package className="w-3.5 h-3.5" />
+              <span>Products</span>
+            </button>
+
+            <button
+              id="feed-tab-services"
+              onClick={() => setFeedTab('services')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                feedTab === 'services'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              <Briefcase className="w-3.5 h-3.5" />
+              <span>Services</span>
             </button>
           </div>
         </div>
@@ -574,8 +951,705 @@ export const DiscoverView: React.FC = () => {
           )}
         </div>
 
-        {/* FEED CONTENT: Advertisement Cards or Business Profiles */}
-        {feedTab !== 'businesses' ? (
+        {/* FEED CONTENT: Service Catalog, Product Catalog, Business Profiles, or Advertisement Cards */}
+        {feedTab === 'advertisements' ? (
+          /* Advertisement Catalog & Search Showcase Tab (Epic 3 Feature 3.2 Task 3.2.4) */
+          <div id="advertisement-search-section" className="space-y-8">
+            {/* Search Header & Input */}
+            <div className="glass-panel p-6 sm:p-8 rounded-2xl">
+              <div className="max-w-2xl">
+                <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+                  Search advertisements
+                </h2>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                  Discover live promotional campaigns, verified deals, and product &amp; service discounts from local businesses.
+                </p>
+
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    executeAdSearch(adSearchInput, 1);
+                  }}
+                  className="mt-5 flex flex-col sm:flex-row gap-3"
+                >
+                  <div className="relative flex-1">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      id="ad-search-input"
+                      type="text"
+                      value={adSearchInput}
+                      onChange={(e) => setAdSearchInput(e.target.value)}
+                      placeholder="Search advertisements by title, description, business, or category..."
+                      className="w-full pl-10 pr-9 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                    />
+                    {adSearchInput && (
+                      <button
+                        type="button"
+                        onClick={handleClearAdSearch}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded cursor-pointer"
+                        title="Clear search query"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={isAdSearchLoading || !adSearchInput.trim()}
+                    className="px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap shadow-xs"
+                  >
+                    {isAdSearchLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Searching...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Search className="w-4 h-4" />
+                        <span>Search Ads</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+              </div>
+            </div>
+
+            {/* Error Message if search failed */}
+            {adSearchError && (
+              <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-sm flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-5 h-5 shrink-0" />
+                  <span>{adSearchError}</span>
+                </div>
+                <button
+                  onClick={() => executeAdSearch(adSearchInput, adSearchPage)}
+                  className="px-3 py-1 bg-rose-600 text-white rounded-lg text-xs font-semibold hover:bg-rose-700 cursor-pointer"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+
+            {/* Active Search Result Feedback */}
+            {hasExecutedAdSearch && !isAdSearchLoading && !adSearchError && (
+              <div className="flex items-center justify-between flex-wrap gap-2 text-sm text-slate-500 dark:text-slate-400 px-1">
+                <p>
+                  Found <span className="font-bold text-slate-900 dark:text-white">{adSearchTotal}</span> {adSearchTotal === 1 ? 'advertisement' : 'advertisements'} for &ldquo;<span className="text-indigo-600 dark:text-indigo-400 font-medium">{adSearchInput}</span>&rdquo;
+                </p>
+                <button
+                  onClick={handleClearAdSearch}
+                  className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                >
+                  Clear search &amp; view all
+                </button>
+              </div>
+            )}
+
+            {/* Loading Indicator */}
+            {isAdSearchLoading && (
+              <div className="py-16 text-center">
+                <Loader2 className="w-8 h-8 text-indigo-600 animate-spin mx-auto mb-3" />
+                <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
+                  Searching live advertisements across verified businesses...
+                </p>
+              </div>
+            )}
+
+            {/* Empty State */}
+            {!isAdSearchLoading && (adSearchResults || (hasExecutedAdSearch ? [] : filteredAds)).length === 0 && (
+              <div className="text-center py-16 px-4 glass-panel rounded-2xl max-w-lg mx-auto">
+                <div className="w-12 h-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto mb-3 text-slate-400">
+                  <Search className="w-6 h-6" />
+                </div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white mb-1">
+                  No advertisements found
+                </h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm mx-auto mb-5">
+                  {hasExecutedAdSearch
+                    ? `We couldn't find any advertisements matching "${adSearchInput}". Try checking spelling or using broader search terms like 'fashion', 'tech', or 'special offer'.`
+                    : 'There are currently no active public advertisements matching your filters.'}
+                </p>
+                {hasExecutedAdSearch && (
+                  <button
+                    onClick={handleClearAdSearch}
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                  >
+                    Clear Search Query
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Advertisements Grid */}
+            {!isAdSearchLoading && (adSearchResults || (hasExecutedAdSearch ? [] : filteredAds)).length > 0 && (
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-7">
+                  {(adSearchResults || filteredAds).map((ad, idx) => (
+                    <AdvertisementCard 
+                      key={ad.id} 
+                      ad={ad} 
+                      business={businesses.find(b => b.id === ad.businessId)}
+                      onViewBusiness={handleOpenBusiness}
+                      featured={idx === 0 && !hasExecutedAdSearch}
+                    />
+                  ))}
+                </div>
+
+                {/* Pagination Controls */}
+                {hasExecutedAdSearch && adSearchTotalPages > 1 && (
+                  <div className="flex items-center justify-center gap-3 pt-6 border-t border-slate-200/80 dark:border-slate-800/80">
+                    <button
+                      onClick={() => executeAdSearch(adSearchInput, adSearchPage - 1)}
+                      disabled={adSearchPage <= 1 || isAdSearchLoading}
+                      className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-bold text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                      <span>Previous</span>
+                    </button>
+                    <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                      Page {adSearchPage} of {adSearchTotalPages}
+                    </span>
+                    <button
+                      onClick={() => executeAdSearch(adSearchInput, adSearchPage + 1)}
+                      disabled={adSearchPage >= adSearchTotalPages || isAdSearchLoading}
+                      className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-bold text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                    >
+                      <span>Next</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ) : feedTab === 'services' ? (
+          /* Service Catalog & Search Showcase Tab (Epic 3 Feature 3.2 Task 3.2.3) */
+          <div id="service-search-section" className="space-y-8">
+            {/* Search Header & Input */}
+            <div className="glass-panel p-6 sm:p-8 rounded-2xl">
+              <div className="max-w-2xl">
+                <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+                  Search services
+                </h2>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                  Discover professional services, technical consulting, repairs, and bespoke packages from verified businesses.
+                </p>
+
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    executeServiceSearch(serviceSearchInput, 1);
+                  }}
+                  className="mt-5 flex flex-col sm:flex-row gap-3"
+                >
+                  <div className="relative flex-1">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      id="service-search-input"
+                      type="text"
+                      value={serviceSearchInput}
+                      onChange={(e) => setServiceSearchInput(e.target.value)}
+                      placeholder="Search services by name, description, category, or business..."
+                      className="w-full pl-10 pr-9 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                    />
+                    {serviceSearchInput && (
+                      <button
+                        type="button"
+                        onClick={handleClearServiceSearch}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded cursor-pointer"
+                        title="Clear search query"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={isServiceSearchLoading || !serviceSearchInput.trim()}
+                    className="px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap shadow-xs"
+                  >
+                    {isServiceSearchLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Searching...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Search className="w-4 h-4" />
+                        <span>Search Services</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+              </div>
+            </div>
+
+            {/* Error Message if search failed */}
+            {serviceSearchError && (
+              <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-sm flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-5 h-5 shrink-0" />
+                  <span>{serviceSearchError}</span>
+                </div>
+                <button
+                  onClick={() => executeServiceSearch(serviceSearchInput, serviceSearchPage)}
+                  className="px-3 py-1 bg-rose-600 text-white rounded-lg text-xs font-semibold hover:bg-rose-700 cursor-pointer"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+
+            {/* Active Search Result Feedback */}
+            {hasExecutedServiceSearch && !isServiceSearchLoading && !serviceSearchError && (
+              <div className="flex items-center justify-between flex-wrap gap-2 text-sm text-slate-500 dark:text-slate-400 px-1">
+                <p>
+                  Found <span className="font-bold text-slate-900 dark:text-white">{serviceSearchTotal}</span> {serviceSearchTotal === 1 ? 'service' : 'services'} for &ldquo;<span className="text-indigo-600 dark:text-indigo-400 font-medium">{serviceSearchInput}</span>&rdquo;
+                </p>
+                <button
+                  onClick={handleClearServiceSearch}
+                  className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                >
+                  Clear search &amp; view all services
+                </button>
+              </div>
+            )}
+
+            {/* Loading Indicator */}
+            {isServiceSearchLoading && (
+              <div className="py-16 text-center">
+                <Loader2 className="w-8 h-8 text-indigo-600 animate-spin mx-auto mb-3" />
+                <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
+                  Searching services across verified businesses...
+                </p>
+              </div>
+            )}
+
+            {/* Empty State */}
+            {!isServiceSearchLoading && displayedServices.length === 0 && (
+              <div className="text-center py-16 px-4 glass-panel rounded-2xl max-w-lg mx-auto">
+                <div className="w-12 h-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto mb-3 text-slate-400">
+                  <Briefcase className="w-6 h-6" />
+                </div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white mb-1">
+                  {hasExecutedServiceSearch ? 'No services found' : 'No services in this category'}
+                </h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm mx-auto mb-5">
+                  {hasExecutedServiceSearch
+                    ? `We couldn't find any services matching "${serviceSearchInput}". Try checking spelling or using broader search terms like 'mechanic', 'consulting', or 'marketing'.`
+                    : 'There are currently no active public services matching the selected category.'}
+                </p>
+                {hasExecutedServiceSearch && (
+                  <button
+                    onClick={handleClearServiceSearch}
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                  >
+                    Clear Search Query
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Service Grid */}
+            {!isServiceSearchLoading && displayedServices.length > 0 && (
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-7">
+                  {displayedServices.map((service) => {
+                    const primaryImage = service.imageUrls?.[0] || 'https://images.unsplash.com/photo-1551650975-87deedd944c3?w=600&auto=format&fit=crop&q=80';
+                    const categoryDisplay = service.subcategoryName || service.categoryName || service.category || 'Services';
+                    const businessName = service.business?.name || 'Verified Merchant';
+                    const businessLocation = service.business?.location ? `${service.business.location.city}, ${service.business.location.state}` : null;
+                    const deliveryModeLabel = service.deliveryMode === 'remote' ? 'Remote Delivery' : service.deliveryMode === 'on-premise' ? 'On-Premise' : 'At Client Location';
+
+                    return (
+                      <div
+                        key={service.id}
+                        id={`service-card-${service.id}`}
+                        className="glass-panel overflow-hidden rounded-2xl flex flex-col group hover:shadow-lg transition-all duration-300 border border-slate-200/80 dark:border-slate-800/80"
+                      >
+                        {/* Service Thumbnail */}
+                        <div className="relative aspect-16/10 w-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                          <img
+                            src={primaryImage}
+                            alt={service.name}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                            loading="lazy"
+                          />
+                          <div className="absolute top-3 left-3 flex flex-wrap gap-1.5">
+                            <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-white/95 dark:bg-slate-900/95 text-slate-800 dark:text-slate-200 shadow-xs backdrop-blur-sm">
+                              {categoryDisplay}
+                            </span>
+                            <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-600/90 text-white shadow-xs backdrop-blur-sm">
+                              {deliveryModeLabel}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Service Details */}
+                        <div className="p-5 sm:p-6 flex-1 flex flex-col justify-between">
+                          <div className="space-y-2">
+                            {/* Price / Rate & Duration */}
+                            <div className="flex items-baseline justify-between gap-2">
+                              <span className="text-lg font-black text-indigo-600 dark:text-indigo-400">
+                                {service.startingPrice > 0 ? (
+                                  <>
+                                    <span className="text-xs font-medium text-slate-500 dark:text-slate-400 mr-1">from</span>
+                                    {service.currency === 'NGN' ? '₦' : service.currency + ' '}
+                                    {service.startingPrice.toLocaleString()}
+                                  </>
+                                ) : (
+                                  'Price on Inquiry'
+                                )}
+                              </span>
+                              {service.durationUnit && (
+                                <span className="text-xs font-medium text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                                  <Clock className="w-3 h-3" />
+                                  <span>{service.durationUnit}</span>
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Title */}
+                            <h3 className="text-base font-bold text-slate-900 dark:text-white line-clamp-2 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                              {service.name}
+                            </h3>
+
+                            {/* Description */}
+                            {service.description && (
+                              <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
+                                {service.description}
+                              </p>
+                            )}
+                          </div>
+
+                          {/* Owning Business Footer */}
+                          <div
+                            onClick={() => service.business && viewBusinessDetail(service.business.id)}
+                            className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between cursor-pointer group/biz"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div className="w-7 h-7 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200/50 dark:border-indigo-800/50 flex items-center justify-center shrink-0 overflow-hidden">
+                                {service.business?.logoUrl ? (
+                                  <img src={service.business.logoUrl} alt={businessName} className="w-full h-full object-cover" />
+                                ) : (
+                                  <span className="text-xs font-black text-indigo-600 dark:text-indigo-400">
+                                    {businessName.charAt(0)}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1">
+                                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate group-hover/biz:text-indigo-600 dark:group-hover/biz:text-indigo-400 transition-colors">
+                                    {businessName}
+                                  </span>
+                                  {service.business?.isVerified && (
+                                    <span title="Verified Business">
+                                      <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />
+                                    </span>
+                                  )}
+                                </div>
+                                {businessLocation && (
+                                  <p className="text-[11px] text-slate-400 truncate flex items-center gap-0.5">
+                                    <MapPin className="w-2.5 h-2.5 shrink-0" />
+                                    <span>{businessLocation}</span>
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                            <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-0.5 transition-transform shrink-0" />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Pagination Controls */}
+                {hasExecutedServiceSearch && serviceSearchTotalPages > 1 && (
+                  <div className="pt-6 flex items-center justify-center gap-3">
+                    <button
+                      onClick={() => executeServiceSearch(serviceSearchInput, serviceSearchPage - 1)}
+                      disabled={serviceSearchPage <= 1 || isServiceSearchLoading}
+                      className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                      <span>Previous</span>
+                    </button>
+                    <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                      Page {serviceSearchPage} of {serviceSearchTotalPages}
+                    </span>
+                    <button
+                      onClick={() => executeServiceSearch(serviceSearchInput, serviceSearchPage + 1)}
+                      disabled={serviceSearchPage >= serviceSearchTotalPages || isServiceSearchLoading}
+                      className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <span>Next</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ) : feedTab === 'products' ? (
+          /* Product Catalog & Search Showcase Tab (Epic 3 Feature 3.2 Task 3.2.2) */
+          <div id="product-search-section" className="space-y-8">
+            {/* Search Header & Input */}
+            <div className="glass-panel p-6 sm:p-8 rounded-2xl">
+              <div className="max-w-2xl">
+                <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+                  Search products
+                </h2>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                  Discover publicly listed products, equipment, and goods from verified businesses across Boost Market.
+                </p>
+
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    executeProductSearch(productSearchInput, 1);
+                  }}
+                  className="mt-5 flex flex-col sm:flex-row gap-3"
+                >
+                  <div className="relative flex-1">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      id="product-search-input"
+                      type="text"
+                      value={productSearchInput}
+                      onChange={(e) => setProductSearchInput(e.target.value)}
+                      placeholder="Search products by name, description, category, or business..."
+                      className="w-full pl-10 pr-9 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                    />
+                    {productSearchInput && (
+                      <button
+                        type="button"
+                        onClick={handleClearProductSearch}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded cursor-pointer"
+                        title="Clear search query"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={isProductSearchLoading || !productSearchInput.trim()}
+                    className="px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap shadow-xs"
+                  >
+                    {isProductSearchLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Searching...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Search className="w-4 h-4" />
+                        <span>Search</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+              </div>
+            </div>
+
+            {/* State 1: Loading State */}
+            {isProductSearchLoading && (
+              <div className="py-16 text-center glass-panel rounded-2xl p-8 max-w-md mx-auto">
+                <Loader2 className="w-8 h-8 animate-spin text-indigo-600 dark:text-cyan-400 mx-auto mb-3" />
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">Searching products...</h3>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  Checking product names, descriptions, categories, and business listings.
+                </p>
+              </div>
+            )}
+
+            {/* State 2: Error State */}
+            {!isProductSearchLoading && productSearchError && (
+              <div className="py-12 text-center glass-panel rounded-2xl p-8 max-w-md mx-auto border-rose-200 dark:border-rose-900/50 bg-rose-50/50 dark:bg-rose-950/20">
+                <AlertCircle className="w-8 h-8 text-rose-600 dark:text-rose-400 mx-auto mb-3" />
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">Search Error</h3>
+                <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                  {productSearchError}
+                </p>
+                <div className="mt-4 flex items-center justify-center gap-2">
+                  <button
+                    onClick={() => executeProductSearch(productSearchInput, productSearchPage)}
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors cursor-pointer"
+                  >
+                    Retry Search
+                  </button>
+                  <button
+                    onClick={handleClearProductSearch}
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                  >
+                    Clear Search
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* State 3: No Results Found State */}
+            {!isProductSearchLoading && !productSearchError && hasExecutedProductSearch && (productSearchResults?.length === 0) && (
+              <div className="py-16 text-center glass-panel rounded-2xl p-8 max-w-md mx-auto">
+                <Package className="w-10 h-10 text-slate-400 dark:text-slate-500 mx-auto mb-3" />
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">No products found</h3>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  We couldn&apos;t find any products matching &quot;{productSearchInput}&quot;. Try searching by category, alternative keywords, or brand name.
+                </p>
+                <button
+                  onClick={handleClearProductSearch}
+                  className="mt-4 px-4 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                >
+                  Clear search
+                </button>
+              </div>
+            )}
+
+            {/* State 4: Results Found or Initial Products */}
+            {!isProductSearchLoading && !productSearchError && (
+              (!hasExecutedProductSearch && displayedProducts.length > 0) || 
+              (hasExecutedProductSearch && productSearchResults && productSearchResults.length > 0)
+            ) && (
+              <div className="space-y-4">
+                {/* Result header count */}
+                <div className="flex items-center justify-between px-1">
+                  <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                    {hasExecutedProductSearch 
+                      ? `Found ${productSearchTotal} matching product${productSearchTotal === 1 ? '' : 's'}`
+                      : `Product Catalog (${displayedProducts.length} items)`}
+                  </p>
+                  {hasExecutedProductSearch && (
+                    <button
+                      onClick={handleClearProductSearch}
+                      className="text-xs font-bold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer"
+                    >
+                      Clear search
+                    </button>
+                  )}
+                </div>
+
+                {/* Product Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                  {displayedProducts.map((prod) => {
+                    const businessObj = businesses.find(b => b.id === prod.businessId);
+                    const businessName = prod.business?.name || businessObj?.name || 'Verified Business';
+                    const isVerified = prod.business?.isVerified ?? businessObj?.isVerified;
+                    const businessLocation = prod.business?.location ? 
+                      `${prod.business.location.city}, ${prod.business.location.state}` : 
+                      (businessObj?.location ? `${businessObj.location.city}, ${businessObj.location.state}` : null);
+                    const imageUrl = (prod.imageUrls && prod.imageUrls.length > 0 && prod.imageUrls[0]) || 
+                      'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=600&auto=format&fit=crop&q=80';
+
+                    return (
+                      <div
+                        key={prod.id}
+                        className="glass-card rounded-2xl overflow-hidden hover:border-indigo-400 dark:hover:border-indigo-500 transition-all flex flex-col justify-between group shadow-sm"
+                      >
+                        <div>
+                          {/* Image & Badges */}
+                          <div className="h-44 w-full relative bg-slate-100 dark:bg-slate-900 overflow-hidden">
+                            <img
+                              src={imageUrl}
+                              alt={prod.name}
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                            />
+                            <div className="absolute top-2.5 right-2.5">
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                prod.inStock 
+                                  ? 'bg-emerald-600/90 text-white' 
+                                  : 'bg-slate-700/90 text-slate-200'
+                              }`}>
+                                {prod.inStock ? 'In Stock' : 'Out of Stock'}
+                              </span>
+                            </div>
+                            <div className="absolute bottom-2.5 left-2.5">
+                              <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-slate-900/80 text-white backdrop-blur-xs">
+                                {prod.category || 'General'}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Content */}
+                          <div className="p-4 sm:p-5">
+                            <div className="flex items-baseline justify-between gap-2 mb-1.5">
+                              <span className="text-base font-black text-indigo-600 dark:text-cyan-400">
+                                ₦{prod.price?.toLocaleString()} <span className="text-xs font-semibold text-slate-400">{prod.currency || 'NGN'}</span>
+                              </span>
+                              {prod.subcategoryName && (
+                                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 truncate max-w-[100px]">
+                                  {prod.subcategoryName}
+                                </span>
+                              )}
+                            </div>
+
+                            <h3 className="text-sm font-bold text-slate-900 dark:text-white line-clamp-1 group-hover:text-indigo-600 dark:group-hover:text-cyan-400 transition-colors">
+                              {prod.name}
+                            </h3>
+
+                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 line-clamp-2">
+                              {prod.description || 'Quality product listed on Boost Market.'}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Owning Business Footer */}
+                        <div 
+                          onClick={() => handleOpenBusiness(prod.businessId)}
+                          className="px-4 py-3 bg-slate-50/80 dark:bg-slate-900/60 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="w-6 h-6 rounded-full bg-indigo-100 dark:bg-slate-800 flex items-center justify-center text-[10px] font-bold text-indigo-600 dark:text-cyan-400 shrink-0">
+                              {businessName.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate flex items-center gap-1">
+                                <span className="truncate">{businessName}</span>
+                                {isVerified && <CheckCircle2 className="w-3 h-3 text-indigo-600 dark:text-cyan-400 shrink-0" />}
+                              </p>
+                              {businessLocation && (
+                                <p className="text-[10px] text-slate-400 truncate flex items-center gap-0.5">
+                                  <MapPin className="w-2.5 h-2.5 shrink-0" />
+                                  <span>{businessLocation}</span>
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-0.5 transition-transform shrink-0" />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Pagination Controls */}
+                {hasExecutedProductSearch && productSearchTotalPages > 1 && (
+                  <div className="pt-6 flex items-center justify-center gap-3">
+                    <button
+                      onClick={() => executeProductSearch(productSearchInput, productSearchPage - 1)}
+                      disabled={productSearchPage <= 1 || isProductSearchLoading}
+                      className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                      <span>Previous</span>
+                    </button>
+                    <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                      Page {productSearchPage} of {productSearchTotalPages}
+                    </span>
+                    <button
+                      onClick={() => executeProductSearch(productSearchInput, productSearchPage + 1)}
+                      disabled={productSearchPage >= productSearchTotalPages || isProductSearchLoading}
+                      className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <span>Next</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ) : feedTab !== 'businesses' ? (
           <div>
             {filteredAds.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-7">
@@ -612,61 +1686,257 @@ export const DiscoverView: React.FC = () => {
             )}
           </div>
         ) : (
-          /* Business Directory Showcase Tab */
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-7">
-            {filteredBusinesses.map((biz) => (
-              <div 
-                key={biz.id}
-                onClick={() => handleOpenBusiness(biz.id)}
-                className="glass-card rounded-2xl overflow-hidden cursor-pointer group hover:border-indigo-400 dark:hover:border-indigo-500 transition-all flex flex-col justify-between"
-              >
-                <div>
-                  <div className="h-32 w-full relative bg-slate-900">
-                    <img 
-                      src={biz.coverImageUrl || 'https://images.unsplash.com/photo-1557804506-669a67965ba0?w=600&auto=format&fit=crop&q=80'} 
-                      alt={biz.name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+          /* Business Directory & Search Showcase Tab (Epic 3 Feature 3.2 Task 3.2.1) */
+          <div className="space-y-8">
+            {/* Search Header & Input */}
+            <div className="glass-panel p-6 sm:p-8 rounded-2xl">
+              <div className="max-w-2xl">
+                <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+                  Search businesses
+                </h2>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                  Discover registered, verified local and regional businesses by name, description, category, subcategory, or location.
+                </p>
+
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    executeBusinessSearch(businessSearchInput, 1);
+                  }}
+                  className="mt-5 flex flex-col sm:flex-row gap-3"
+                >
+                  <div className="relative flex-1">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      id="business-search-input"
+                      type="text"
+                      value={businessSearchInput}
+                      onChange={(e) => setBusinessSearchInput(e.target.value)}
+                      placeholder="Search businesses by name, description, category, or subcategory..."
+                      className="w-full pl-10 pr-9 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
                     />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-                    
-                    <div className="absolute -bottom-5 left-4 w-14 h-14 rounded-xl overflow-hidden border-2 border-white dark:border-slate-800 bg-white shadow-md">
-                      <img src={biz.logoUrl} alt={biz.name} className="w-full h-full object-cover" />
-                    </div>
+                    {businessSearchInput && (
+                      <button
+                        type="button"
+                        onClick={handleClearBusinessSearch}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded cursor-pointer"
+                        title="Clear search query"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
+                  <button
+                    type="submit"
+                    disabled={isBusinessSearchLoading || !businessSearchInput.trim()}
+                    className="px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap shadow-xs"
+                  >
+                    {isBusinessSearchLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Searching...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Search className="w-4 h-4" />
+                        <span>Search</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+              </div>
+            </div>
 
-                  <div className="pt-7 p-5">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-base font-bold text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-cyan-400 transition-colors flex items-center gap-1.5">
-                        <span>{biz.name}</span>
-                        {biz.isVerified && <CheckCircle2 className="w-4 h-4 text-indigo-600 dark:text-cyan-400" />}
-                      </h3>
-                      <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 capitalize">
-                        {biz.category}
-                      </span>
-                    </div>
+            {/* State 1: Loading State */}
+            {isBusinessSearchLoading && (
+              <div className="py-16 text-center glass-panel rounded-2xl p-8 max-w-md mx-auto">
+                <Loader2 className="w-8 h-8 animate-spin text-indigo-600 dark:text-cyan-400 mx-auto mb-3" />
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">Searching businesses...</h3>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  Checking business names, descriptions, categories, and locations.
+                </p>
+              </div>
+            )}
 
-                    <p className="mt-2 text-xs sm:text-sm text-slate-600 dark:text-slate-300 line-clamp-2">
-                      {biz.description}
-                    </p>
-
-                    <div className="mt-3.5 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-                      <MapPin className="w-3.5 h-3.5 text-indigo-500" />
-                      <span>{biz.location?.city}, {biz.location?.state}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="px-5 pb-5 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                  <div className="text-xs text-slate-500">
-                    <span className="font-bold text-slate-800 dark:text-slate-200">{advertisements.filter(a => a.businessId === biz.id).length}</span> Active Ads
-                  </div>
-                  <button className="text-xs font-bold text-indigo-600 dark:text-cyan-400 hover:underline flex items-center gap-1">
-                    <span>View Business</span>
-                    <ChevronRight className="w-3.5 h-3.5" />
+            {/* State 2: Error State */}
+            {!isBusinessSearchLoading && businessSearchError && (
+              <div className="py-12 text-center glass-panel rounded-2xl p-8 max-w-md mx-auto border-rose-200 dark:border-rose-900/50 bg-rose-50/50 dark:bg-rose-950/20">
+                <AlertCircle className="w-8 h-8 text-rose-600 dark:text-rose-400 mx-auto mb-3" />
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">Search Error</h3>
+                <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                  {businessSearchError}
+                </p>
+                <div className="mt-4 flex items-center justify-center gap-2">
+                  <button
+                    onClick={() => executeBusinessSearch(businessSearchInput, businessSearchPage)}
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors cursor-pointer"
+                  >
+                    Retry Search
+                  </button>
+                  <button
+                    onClick={handleClearBusinessSearch}
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                  >
+                    Clear Search
                   </button>
                 </div>
               </div>
-            ))}
+            )}
+
+            {/* State 3: No Results Found */}
+            {!isBusinessSearchLoading && !businessSearchError && hasExecutedBusinessSearch && businessSearchResults && businessSearchResults.length === 0 && (
+              <div className="py-16 text-center glass-panel rounded-2xl p-8 max-w-md mx-auto">
+                <div className="w-14 h-14 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 flex items-center justify-center mx-auto text-amber-600 dark:text-amber-400 mb-4">
+                  <Store className="w-7 h-7" />
+                </div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">No businesses found</h3>
+                <p className="mt-2 text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+                  We couldn&apos;t find any businesses matching &quot;{businessSearchInput}&quot;. Try searching by industry, keyword, or location.
+                </p>
+                <button
+                  onClick={handleClearBusinessSearch}
+                  className="mt-5 px-5 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                >
+                  View All Businesses
+                </button>
+              </div>
+            )}
+
+            {/* State 4: Results Found or Initial State */}
+            {!isBusinessSearchLoading && !businessSearchError && (!hasExecutedBusinessSearch || (businessSearchResults && businessSearchResults.length > 0)) && (
+              <div className="space-y-6">
+                {/* Result header count */}
+                <div className="flex items-center justify-between">
+                  <span className="text-xs sm:text-sm font-semibold text-slate-600 dark:text-slate-400">
+                    {hasExecutedBusinessSearch ? (
+                      <>
+                        Found <span className="text-indigo-600 dark:text-cyan-400 font-bold">{businessSearchTotal}</span> {businessSearchTotal === 1 ? 'business' : 'businesses'} matching &quot;{businessSearchInput}&quot;
+                      </>
+                    ) : (
+                      <>
+                        Showing <span className="text-indigo-600 dark:text-cyan-400 font-bold">{filteredBusinesses.length}</span> registered {filteredBusinesses.length === 1 ? 'business' : 'businesses'}
+                      </>
+                    )}
+                  </span>
+                  {hasExecutedBusinessSearch && (
+                    <button
+                      onClick={handleClearBusinessSearch}
+                      className="text-xs font-bold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer"
+                    >
+                      Clear search
+                    </button>
+                  )}
+                </div>
+
+                {/* Business Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-7">
+                  {(hasExecutedBusinessSearch ? (businessSearchResults || []) : filteredBusinesses).map((biz) => {
+                    const categoryObj = categories.find(c => c.id === biz.categoryId || c.slug === biz.category);
+                    const categoryDisplayName = categoryObj?.name || biz.categoryLabel || biz.category || 'General';
+                    const subcategoryDisplayName = biz.subcategoryName || biz.subcategory || (biz.subcategories && biz.subcategories[0]);
+
+                    return (
+                      <div 
+                        key={biz.id}
+                        onClick={() => handleOpenBusiness(biz.id)}
+                        className="glass-card rounded-2xl overflow-hidden cursor-pointer group hover:border-indigo-400 dark:hover:border-indigo-500 transition-all flex flex-col justify-between"
+                      >
+                        <div>
+                          <div className="h-32 w-full relative bg-slate-900">
+                            <img 
+                              src={biz.coverImageUrl || 'https://images.unsplash.com/photo-1557804506-669a67965ba0?w=600&auto=format&fit=crop&q=80'} 
+                              alt={biz.name}
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+                            
+                            <div className="absolute -bottom-5 left-4 w-14 h-14 rounded-xl overflow-hidden border-2 border-white dark:border-slate-800 bg-white shadow-md flex items-center justify-center">
+                              {biz.logoUrl ? (
+                                <img src={biz.logoUrl} alt={biz.name} className="w-full h-full object-cover" />
+                              ) : (
+                                <span className="text-base font-black text-indigo-600 dark:text-cyan-400">
+                                  {biz.name.charAt(0).toUpperCase()}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="pt-7 p-5">
+                            <div className="flex items-center justify-between gap-2">
+                              <h3 className="text-base font-bold text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-cyan-400 transition-colors flex items-center gap-1.5 truncate">
+                                <span className="truncate">{biz.name}</span>
+                                {biz.isVerified && <CheckCircle2 className="w-4 h-4 text-indigo-600 dark:text-cyan-400 shrink-0" />}
+                              </h3>
+                              <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 capitalize shrink-0 truncate max-w-[120px]">
+                                {categoryDisplayName}
+                              </span>
+                            </div>
+
+                            {subcategoryDisplayName && (
+                              <div className="mt-1">
+                                <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-cyan-400">
+                                  {subcategoryDisplayName}
+                                </span>
+                              </div>
+                            )}
+
+                            <p className="mt-2 text-xs sm:text-sm text-slate-600 dark:text-slate-300 line-clamp-2">
+                              {biz.description || 'No description provided.'}
+                            </p>
+
+                            {biz.location && (biz.location.city || biz.location.state) && (
+                              <div className="mt-3.5 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+                                <MapPin className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                                <span className="truncate">
+                                  {[biz.location.city, biz.location.state].filter(Boolean).join(', ')}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="px-5 pb-5 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                          <div className="text-xs text-slate-500">
+                            <span className="font-bold text-slate-800 dark:text-slate-200">
+                              {advertisements.filter(a => a.businessId === biz.id).length}
+                            </span> Active Ads
+                          </div>
+                          <button className="text-xs font-bold text-indigo-600 dark:text-cyan-400 hover:underline flex items-center gap-1">
+                            <span>View Business</span>
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Pagination Controls */}
+                {hasExecutedBusinessSearch && businessSearchTotalPages > 1 && (
+                  <div className="pt-6 flex items-center justify-center gap-3">
+                    <button
+                      onClick={() => executeBusinessSearch(businessSearchInput, businessSearchPage - 1)}
+                      disabled={businessSearchPage <= 1 || isBusinessSearchLoading}
+                      className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                      <span>Previous</span>
+                    </button>
+                    <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                      Page {businessSearchPage} of {businessSearchTotalPages}
+                    </span>
+                    <button
+                      onClick={() => executeBusinessSearch(businessSearchInput, businessSearchPage + 1)}
+                      disabled={businessSearchPage >= businessSearchTotalPages || isBusinessSearchLoading}
+                      className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <span>Next</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 

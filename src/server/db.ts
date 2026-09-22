@@ -1459,6 +1459,9 @@ export class DatabaseStore {
       durationUnit: 'per month',
       imageUrls: ['https://images.unsplash.com/photo-1533750516457-a7f992034fec?w=600&auto=format&fit=crop&q=80'],
       category: 'Performance Marketing',
+      categoryId: 'professional',
+      subcategoryId: 'sub_marketing_advertising',
+      subcategoryName: 'Digital Marketing & Ads',
       deliveryMode: 'remote',
       createdAt: new Date().toISOString()
     };
@@ -1474,6 +1477,9 @@ export class DatabaseStore {
       durationUnit: 'per project (4 weeks)',
       imageUrls: ['https://images.unsplash.com/photo-1551650975-87deedd944c3?w=600&auto=format&fit=crop&q=80'],
       category: 'Software & Cloud Engineering',
+      categoryId: 'tech_development',
+      subcategoryId: 'sub_mobile_app_dev',
+      subcategoryName: 'Mobile Application Development',
       deliveryMode: 'remote',
       createdAt: new Date().toISOString()
     };
@@ -1489,10 +1495,49 @@ export class DatabaseStore {
       durationUnit: 'per vehicle',
       imageUrls: ['https://images.unsplash.com/photo-1619642751034-765dfdf7c58e?w=600&auto=format&fit=crop&q=80'],
       category: 'Automobile Engineering & Diagnostics',
+      categoryId: 'services',
+      subcategoryId: 'sub_auto_mechanic',
+      subcategoryName: 'Auto Mechanic & Diagnostics',
       deliveryMode: 'on-premise',
       createdAt: new Date().toISOString()
     };
     this.services.set(s3.id, s3);
+
+    const s4: Service = {
+      id: 'serv_tractor_plowing',
+      businessId: 'biz_savannah_agro',
+      name: 'Commercial Farm Tractor Plowing & Mechanical Land Clearing',
+      description: 'Heavy-duty 4WD tractor plowing, harrowing, and ridge preparation for large-scale agricultural acreage across Kaduna and neighboring states.',
+      startingPrice: 45000,
+      currency: 'NGN',
+      durationUnit: 'per hectare',
+      imageUrls: ['https://images.unsplash.com/photo-1595974482597-4b8da8879bc5?w=600&auto=format&fit=crop&q=80'],
+      category: 'Agriculture & Farm Equipment',
+      categoryId: 'agriculture',
+      subcategoryId: 'sub_machinery_tractors',
+      subcategoryName: 'Farm Machinery & Tractors',
+      deliveryMode: 'at-client',
+      createdAt: new Date().toISOString()
+    };
+    this.services.set(s4.id, s4);
+
+    const s5: Service = {
+      id: 'serv_bespoke_tailoring',
+      businessId: 'biz_zeenat_couture',
+      name: 'Bespoke Senator & Bridal Wear Custom Tailoring',
+      description: 'Handcrafted luxury traditional attires, kaftans, Senator suits, and bridal gowns tailored to precise personal measurements with premium imported fabrics.',
+      startingPrice: 35000,
+      currency: 'NGN',
+      durationUnit: 'per outfit',
+      imageUrls: ['https://images.unsplash.com/photo-1558769132-cb1aea458c5e?w=600&auto=format&fit=crop&q=80'],
+      category: 'Fashion & Tailoring',
+      categoryId: 'retail',
+      subcategoryId: 'sub_fashion_tailoring',
+      subcategoryName: 'Fashion Design & Tailoring',
+      deliveryMode: 'at-client',
+      createdAt: new Date().toISOString()
+    };
+    this.services.set(s5.id, s5);
 
     // 6. Seed Advertisements
     const ad1: Advertisement = {
@@ -2808,6 +2853,92 @@ export class DatabaseStore {
       if (b.ownerId === ownerId) list.push(b);
     }
     return list;
+  }
+
+  // ==========================================
+  // Product database methods (Epic 3 Feature 3.2 Task 3.2.2)
+  // ==========================================
+
+  public getProductById(id: string): Product | undefined {
+    if (!id || typeof id !== 'string') return undefined;
+    return this.products.get(id);
+  }
+
+  public getProductsByBusinessId(businessId: string): Product[] {
+    if (!businessId) return [];
+    const list: Product[] = [];
+    for (const p of this.products.values()) {
+      if (p.businessId === businessId) {
+        list.push(p);
+      }
+    }
+    return list;
+  }
+
+  public createProduct(product: Product): Product {
+    this.products.set(product.id, product);
+    return product;
+  }
+
+  public updateProduct(id: string, updates: Partial<Product>): Product | undefined {
+    const existing = this.products.get(id);
+    if (!existing) return undefined;
+    const updated: Product = {
+      ...existing,
+      ...updates,
+      id: existing.id,
+      businessId: existing.businessId,
+      updatedAt: new Date().toISOString()
+    };
+    this.products.set(id, updated);
+    return updated;
+  }
+
+  public deleteProduct(id: string): boolean {
+    return this.products.delete(id);
+  }
+
+  // ==========================================
+  // Service database methods (Epic 3 Feature 3.2 Task 3.2.3)
+  // ==========================================
+
+  public getServiceById(id: string): Service | undefined {
+    if (!id || typeof id !== 'string') return undefined;
+    return this.services.get(id);
+  }
+
+  public getServicesByBusinessId(businessId: string): Service[] {
+    if (!businessId) return [];
+    const list: Service[] = [];
+    for (const s of this.services.values()) {
+      if (s.businessId === businessId) {
+        list.push(s);
+      }
+    }
+    return list;
+  }
+
+  public createService(service: Service): Service {
+    this.services.set(service.id, service);
+    return service;
+  }
+
+  public updateService(id: string, updates: Partial<Service>): Service | undefined {
+    const existing = this.services.get(id);
+    if (!existing) return undefined;
+    const updated: Service = {
+      ...existing,
+      ...updates,
+      id: existing.id,
+      businessId: existing.businessId,
+      updatedAt: new Date().toISOString()
+    };
+    this.services.set(id, updated);
+    return updated;
+  }
+
+  public deleteService(id: string): boolean {
+    return this.services.delete(id);
   }
 
   // ==========================================

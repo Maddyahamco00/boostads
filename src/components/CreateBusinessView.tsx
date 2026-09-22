@@ -11,6 +11,8 @@ export const CreateBusinessView: React.FC = () => {
 
   const [businessName, setBusinessName] = useState('');
   const [businessDescription, setBusinessDescription] = useState('');
+  const [selectedCategoryId, setSelectedCategoryId] = useState('');
+  const [selectedSubcategoryId, setSelectedSubcategoryId] = useState('');
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   const [categorySearch, setCategorySearch] = useState('');
   const [expandedSectorIds, setExpandedSectorIds] = useState<Set<string>>(new Set());
@@ -22,6 +24,43 @@ export const CreateBusinessView: React.FC = () => {
   const [categoryError, setCategoryError] = useState<string | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  // Top-level categories for primary category selection (Epic 3 Task 3.1.4)
+  const topLevelCategories = useMemo(() => {
+    return categories
+      .filter(c => !c.parentId && c.active !== false && c.status !== 'inactive')
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [categories]);
+
+  // Dynamically populated subcategories for selected primary category (Epic 3 Task 3.1.4)
+  const availableSubcategories = useMemo(() => {
+    if (!selectedCategoryId) return [];
+    const parent = categories.find(c => c.id === selectedCategoryId || c.slug === selectedCategoryId);
+    if (!parent) return [];
+
+    const options: { id: string; name: string }[] = [];
+    const seenNames = new Set<string>();
+
+    // 1. Child Category entities
+    categories
+      .filter(c => (c.parentId === parent.id || c.parentId === parent.slug) && c.active !== false && c.status !== 'inactive')
+      .forEach(c => {
+        if (!seenNames.has(c.name.toLowerCase())) {
+          seenNames.add(c.name.toLowerCase());
+          options.push({ id: c.id, name: c.name });
+        }
+      });
+
+    // 2. Subcategory tags defined on parent
+    (parent.subcategories || []).forEach(tag => {
+      if (!seenNames.has(tag.toLowerCase())) {
+        seenNames.add(tag.toLowerCase());
+        options.push({ id: tag.toLowerCase().replace(/[^a-z0-9]+/g, '-'), name: tag });
+      }
+    });
+
+    return options.sort((a, b) => a.name.localeCompare(b.name));
+  }, [selectedCategoryId, categories]);
 
   // Map of category ID to breadcrumb path (e.g. "Construction › HVAC Services")
   const categoryBreadcrumbs = useMemo(() => {
@@ -153,7 +192,13 @@ export const CreateBusinessView: React.FC = () => {
       const response = await businessApi.create({
         name: businessName.trim(),
         description: businessDescription.trim() || undefined,
-        categoryIds: selectedCategoryIds.length > 0 ? selectedCategoryIds : undefined,
+        categoryId: selectedCategoryId || undefined,
+        category: selectedCategoryId || undefined,
+        subcategoryId: selectedSubcategoryId || undefined,
+        subcategory: selectedSubcategoryId || undefined,
+        categoryIds: selectedCategoryId
+          ? [selectedCategoryId, ...selectedCategoryIds.filter(id => id !== selectedCategoryId)]
+          : (selectedCategoryIds.length > 0 ? selectedCategoryIds : undefined),
         location: locationPayload
       });
 
@@ -322,6 +367,88 @@ export const CreateBusinessView: React.FC = () => {
             <p className="mt-1 text-xs text-slate-400">
               You can also edit or expand this at any time in your Merchant Dashboard.
             </p>
+          </div>
+
+          {/* Primary Category & Subcategory Selection (Epic 3 Feature 3.1 Task 3.1.4) */}
+          <div className="p-4 bg-slate-50/80 border border-slate-200/90 rounded-2xl space-y-3.5">
+            <div className="flex items-center justify-between">
+              <label className="block text-sm font-semibold text-slate-800 flex items-center gap-1.5">
+                <Tag className="w-4 h-4 text-emerald-600" />
+                <span>Primary Category & Subcategory</span>
+              </label>
+              <span className="text-xs text-slate-500 font-medium">Task 3.1.4</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              <div>
+                <label htmlFor="business-category-select" className="block text-xs font-semibold text-slate-700 mb-1">
+                  Primary Category <span className="text-red-500">*</span>
+                </label>
+                <select
+                  id="business-category-select"
+                  name="categoryId"
+                  value={selectedCategoryId}
+                  onChange={(e) => {
+                    const newCat = e.target.value;
+                    setSelectedCategoryId(newCat);
+                    // Reset subcategory immediately when category changes to prevent invalid combinations
+                    setSelectedSubcategoryId('');
+                    if (categoryError) setCategoryError(null);
+                  }}
+                  disabled={isSubmitting || !!successMessage}
+                  className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#16C784] text-slate-900 transition-all cursor-pointer shadow-2xs font-medium"
+                >
+                  <option value="">Select a Category...</option>
+                  {topLevelCategories.map(cat => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor="business-subcategory-select" className="block text-xs font-semibold text-slate-700 mb-1">
+                  Subcategory <span className="text-xs font-normal text-slate-400">(Optional)</span>
+                </label>
+                <select
+                  id="business-subcategory-select"
+                  name="subcategoryId"
+                  value={selectedSubcategoryId}
+                  onChange={(e) => {
+                    setSelectedSubcategoryId(e.target.value);
+                    if (categoryError) setCategoryError(null);
+                  }}
+                  disabled={isSubmitting || !!successMessage || !selectedCategoryId || availableSubcategories.length === 0}
+                  className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#16C784] text-slate-900 transition-all cursor-pointer disabled:bg-slate-100 disabled:opacity-60 disabled:cursor-not-allowed shadow-2xs font-medium"
+                >
+                  {!selectedCategoryId ? (
+                    <option value="">Select a category first</option>
+                  ) : availableSubcategories.length === 0 ? (
+                    <option value="">No subcategories available</option>
+                  ) : (
+                    <>
+                      <option value="">None / All subcategories</option>
+                      {availableSubcategories.map(sub => (
+                        <option key={sub.id} value={sub.name}>
+                          {sub.name}
+                        </option>
+                      ))}
+                    </>
+                  )}
+                </select>
+              </div>
+            </div>
+
+            {selectedCategoryId && (
+              <p className="text-[11px] text-emerald-700 font-medium flex items-center gap-1">
+                <Check className="w-3.5 h-3.5 shrink-0" />
+                <span>
+                  Selected: <strong>{categories.find(c => c.id === selectedCategoryId)?.name}</strong>
+                  {selectedSubcategoryId ? <> › <strong>{selectedSubcategoryId}</strong></> : ' (General)'}
+                </span>
+              </p>
+            )}
           </div>
 
           {/* Hierarchical Categories Selection (Epic 3 Feature 3.1 Task 3.1.2) */}

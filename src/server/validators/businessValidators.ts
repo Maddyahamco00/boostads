@@ -172,6 +172,55 @@ export const CreateBusinessSchema = z.object({
     })
     .optional()
     .transform((val) => (val !== undefined ? sanitizeDescription(val) : undefined)),
+  categoryId: z
+    .string({ message: 'Category ID must be a string' })
+    .trim()
+    .min(1, 'Category ID cannot be empty')
+    .max(100, 'Category ID must not exceed 100 characters')
+    .refine((val) => !/[\u0000-\u001F\u007F]/.test(val), {
+      message: 'Category ID cannot contain control characters or null bytes'
+    })
+    .optional()
+    .nullable(),
+  category: z
+    .string({ message: 'Category must be a string' })
+    .trim()
+    .min(1, 'Category cannot be empty')
+    .max(100, 'Category must not exceed 100 characters')
+    .refine((val) => !/[\u0000-\u001F\u007F]/.test(val), {
+      message: 'Category cannot contain control characters or null bytes'
+    })
+    .optional()
+    .nullable(),
+  subcategoryId: z
+    .string({ message: 'Subcategory ID must be a string' })
+    .trim()
+    .max(100, 'Subcategory ID must not exceed 100 characters')
+    .refine((val) => !/[\u0000-\u001F\u007F]/.test(val), {
+      message: 'Subcategory ID cannot contain control characters or null bytes'
+    })
+    .optional()
+    .nullable()
+    .or(z.literal('')),
+  subcategory: z
+    .string({ message: 'Subcategory must be a string' })
+    .trim()
+    .max(100, 'Subcategory must not exceed 100 characters')
+    .refine((val) => !/[\u0000-\u001F\u007F]/.test(val), {
+      message: 'Subcategory cannot contain control characters or null bytes'
+    })
+    .optional()
+    .nullable()
+    .or(z.literal('')),
+  subcategories: z
+    .array(
+      z.string({ message: 'Subcategory item must be a string' })
+        .trim()
+        .min(1, 'Subcategory item cannot be empty')
+        .max(100, 'Subcategory item must not exceed 100 characters')
+    )
+    .max(10)
+    .optional(),
   categoryIds: z
     .array(
       z.string({ message: 'Category ID must be a string' })
@@ -218,14 +267,50 @@ export const UpdateBusinessDescriptionSchema = z.object({
 export type UpdateBusinessDescriptionInput = z.infer<typeof UpdateBusinessDescriptionSchema>;
 
 /**
- * Epic 2 Feature 2.2 Task 2.2.5: Update Business Categories Schema
+ * Epic 3 Feature 3.1 Task 3.1.4: Select Business Category & Subcategory Schema
  * 
- * Requirements:
- * - Controlled category identifiers
- * - Maximum 5 categories per business
- * - No duplicate categories
+ * Validates selection of primary Category and optional Subcategory for a business.
+ */
+export const SelectBusinessCategorySchema = z.object({
+  categoryId: z
+    .string({ message: 'Category ID is required' })
+    .trim()
+    .min(1, 'Category ID is required')
+    .max(100, 'Category ID must not exceed 100 characters')
+    .refine((val) => !/[\u0000-\u001F\u007F]/.test(val), {
+      message: 'Category ID cannot contain control characters or null bytes'
+    }),
+  subcategoryId: z
+    .string({ message: 'Subcategory ID must be a string' })
+    .trim()
+    .max(100, 'Subcategory ID must not exceed 100 characters')
+    .refine((val) => !/[\u0000-\u001F\u007F]/.test(val), {
+      message: 'Subcategory ID cannot contain control characters or null bytes'
+    })
+    .optional()
+    .nullable()
+    .or(z.literal('')),
+  subcategory: z
+    .string({ message: 'Subcategory must be a string' })
+    .trim()
+    .max(100, 'Subcategory must not exceed 100 characters')
+    .refine((val) => !/[\u0000-\u001F\u007F]/.test(val), {
+      message: 'Subcategory cannot contain control characters or null bytes'
+    })
+    .optional()
+    .nullable()
+    .or(z.literal(''))
+}).strict();
+
+export type SelectBusinessCategoryInput = z.infer<typeof SelectBusinessCategorySchema>;
+
+/**
+ * Epic 2 Feature 2.2 Task 2.2.5 & Epic 3 Feature 3.1 Task 3.1.4: Update Business Categories Schema
+ * 
+ * Supports both:
+ * 1. Single category + subcategory selection ({ categoryId, subcategoryId })
+ * 2. Multi-category selection ({ categoryIds: [...] })
  * - Rejects null bytes and control characters
- * - Rejects non-string items
  * - Strict schema to prevent mass-assignment
  */
 export const UpdateBusinessCategoriesSchema = z.object({
@@ -243,7 +328,61 @@ export const UpdateBusinessCategoriesSchema = z.object({
     .refine((items) => new Set(items).size === items.length, {
       message: 'Duplicate category selections are not permitted'
     })
-}).strict();
+    .optional(),
+  categoryId: z
+    .string({ message: 'Category ID must be a string' })
+    .trim()
+    .min(1, 'Category ID cannot be empty')
+    .max(100, 'Category ID must not exceed 100 characters')
+    .refine((val) => !/[\u0000-\u001F\u007F]/.test(val), {
+      message: 'Category ID cannot contain control characters or null bytes'
+    })
+    .optional()
+    .nullable(),
+  category: z
+    .string({ message: 'Category must be a string' })
+    .trim()
+    .min(1, 'Category cannot be empty')
+    .max(100, 'Category must not exceed 100 characters')
+    .refine((val) => !/[\u0000-\u001F\u007F]/.test(val), {
+      message: 'Category cannot contain control characters or null bytes'
+    })
+    .optional()
+    .nullable(),
+  subcategoryId: z
+    .string({ message: 'Subcategory ID must be a string' })
+    .trim()
+    .max(100, 'Subcategory ID must not exceed 100 characters')
+    .refine((val) => !/[\u0000-\u001F\u007F]/.test(val), {
+      message: 'Subcategory ID cannot contain control characters or null bytes'
+    })
+    .optional()
+    .nullable()
+    .or(z.literal('')),
+  subcategory: z
+    .string({ message: 'Subcategory must be a string' })
+    .trim()
+    .max(100, 'Subcategory must not exceed 100 characters')
+    .refine((val) => !/[\u0000-\u001F\u007F]/.test(val), {
+      message: 'Subcategory cannot contain control characters or null bytes'
+    })
+    .optional()
+    .nullable()
+    .or(z.literal('')),
+  subcategories: z
+    .array(
+      z.string({ message: 'Subcategory item must be a string' })
+        .trim()
+        .min(1, 'Subcategory item cannot be empty')
+        .max(100, 'Subcategory item must not exceed 100 characters')
+    )
+    .max(10)
+    .optional()
+}).strict().refine((data) => {
+  return data.categoryIds !== undefined || data.categoryId !== undefined || data.category !== undefined;
+}, {
+  message: 'Either categoryId or categoryIds must be provided.'
+});
 
 export type UpdateBusinessCategoriesInput = z.infer<typeof UpdateBusinessCategoriesSchema>;
 
@@ -743,6 +882,51 @@ export function validateAdminReviewPayload(
 
   return {};
 }
+
+/**
+ * Safely sanitizes search query string:
+ * - Strips null bytes and ASCII control characters
+ * - Strips script tags, HTML tags and angle brackets
+ * - Trims leading and trailing whitespace
+ * - Collapses consecutive whitespace into a single space
+ */
+export function sanitizeSearchQuery(input: unknown): string {
+  if (typeof input !== 'string') return '';
+  return input
+    .replace(/\0/g, '')
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+    .replace(/<script\b[\s\S]*?<\/script>/gi, '')
+    .replace(/<[^>]*>/g, '')
+    .replace(/[<>]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Validation schema for public business search query params (Epic 3 Feature 3.2 Task 3.2.1)
+ */
+export const BusinessSearchQuerySchema = z.object({
+  q: z.string({ message: 'Search query is required.' })
+    .transform(val => sanitizeSearchQuery(val))
+    .refine(val => val.length > 0, {
+      message: 'Search query is required and cannot be empty.'
+    })
+    .refine(val => val.length <= 100, {
+      message: 'Search query must not exceed 100 characters.'
+    }),
+  page: z.preprocess((val) => {
+    if (val === undefined || val === null || val === '') return 1;
+    const num = Number(val);
+    return isNaN(num) ? 1 : num;
+  }, z.number().int().min(1).default(1)),
+  limit: z.preprocess((val) => {
+    if (val === undefined || val === null || val === '') return 12;
+    const num = Number(val);
+    return isNaN(num) ? 12 : Math.min(Math.max(num, 1), 50);
+  }, z.number().int().min(1).max(50).default(12)),
+});
+
+export type BusinessSearchQuery = z.infer<typeof BusinessSearchQuerySchema>;
 
 
 

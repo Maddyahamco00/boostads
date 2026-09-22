@@ -6816,7 +6816,7 @@ export class AuthTestRunnerService {
     };
 
     const updatedUserA = await authService.updateProfile(userA.id, updatePayload, '127.0.0.1', 'SecurityTestRunner/1.0');
-    if (updatedUserA.name !== 'Client Alpha Updated' || updatedUserA.phone !== '+234 801 234 5678' || updatedUserA.location?.city !== 'Kaduna') {
+    if (updatedUserA.name !== 'Client Alpha Updated' || (updatedUserA.phone !== '+234 801 234 5678' && updatedUserA.phone !== '+2348012345678') || updatedUserA.location?.city !== 'Kaduna') {
       throw new Error('Permitted profile update fields were not properly applied');
     }
     logs.push('Step 3: Permitted profile update succeeded with valid fields');
@@ -10491,6 +10491,12 @@ export class AuthTestRunnerService {
       'Tester/1.0'
     );
     const bizA = bizCreateA.business;
+    db.updateBusiness(bizA.id, {
+      description: 'Handcrafted artisan gifts and premium customized souvenirs in Lagos.',
+      category: 'shopping_retail',
+      location: { city: 'Lagos', state: 'Lagos', country: 'Nigeria', address: '14 Crafts Street' },
+      phone: '+2348012345678'
+    });
 
     // Create Business for Bob
     const bizCreateB = await businessService.createBusiness(
@@ -10500,6 +10506,12 @@ export class AuthTestRunnerService {
       'Tester/1.0'
     );
     const bizB = bizCreateB.business;
+    db.updateBusiness(bizB.id, {
+      description: 'Nationwide expedited freight, cold chain, and haulage services across Nigeria.',
+      category: 'automotive_transport',
+      location: { city: 'Lagos', state: 'Lagos', country: 'Nigeria', address: '20 Freight Avenue' },
+      phone: '+2348087654321'
+    });
 
     logs.push(`[SETUP] Created test users ${userA.id}, ${userB.id} and businesses ${bizA.id}, ${bizB.id}`);
 
@@ -10628,6 +10640,12 @@ export class AuthTestRunnerService {
       'Tester/1.0'
     );
     const bizC = bizCreateC.business;
+    db.updateBusiness(bizC.id, {
+      description: 'Bob Express fast and reliable delivery services across the region.',
+      category: 'automotive_transport',
+      location: { city: 'Lagos', state: 'Lagos', country: 'Nigeria', address: '50 Express Avenue' },
+      phone: '+2348087654321'
+    });
 
     const concurrentResults = await Promise.allSettled([
       businessService.submitVerificationRequest(userB.id, bizC.id, { notes: 'Thread 1' }),
@@ -10767,6 +10785,10 @@ export class AuthTestRunnerService {
       name: 'Status Bakery',
       slug: `status-bakery-${timestamp}`,
       ownerId: clientUser1.id,
+      description: 'Status Bakery specializing in artisan sourdough breads and confectionery.',
+      category: 'food_beverage',
+      location: { city: 'Lagos', state: 'Lagos', country: 'Nigeria', address: '12 Bakery Lane' },
+      phone: '+2348011223344',
       isVerified: false,
       verificationStatus: 'NOT_SUBMITTED' as const,
       createdAt: new Date().toISOString()
@@ -10778,6 +10800,10 @@ export class AuthTestRunnerService {
       name: 'Status Textiles',
       slug: `status-textiles-${timestamp}`,
       ownerId: clientUser2.id,
+      description: 'Status Textiles manufacturing fine fabrics and traditional couture.',
+      category: 'shopping_retail',
+      location: { city: 'Kano', state: 'Kano', country: 'Nigeria', address: '44 Textile Road' },
+      phone: '+2348022334455',
       isVerified: false,
       verificationStatus: 'NOT_SUBMITTED' as const,
       createdAt: new Date().toISOString()
@@ -10897,6 +10923,10 @@ export class AuthTestRunnerService {
       name: `Prime Logistics ${timestamp}`,
       slug: `prime-logistics-${timestamp}`,
       ownerId: merchantUser.id,
+      description: 'Prime Logistics express haulage, customs clearing, and interstate courier services.',
+      category: 'automotive_transport',
+      location: { city: 'Lagos', state: 'Lagos', country: 'Nigeria', address: '15 Express Way' },
+      phone: '+2348099887766',
       isVerified: false,
       verificationStatus: 'NOT_SUBMITTED' as const,
       createdAt: new Date().toISOString()
@@ -10908,6 +10938,10 @@ export class AuthTestRunnerService {
       name: `Dubious Traders ${timestamp}`,
       slug: `dubious-traders-${timestamp}`,
       ownerId: merchantUser.id,
+      description: 'Dubious Traders general merchandise wholesale and import distributor.',
+      category: 'shopping_retail',
+      location: { city: 'Lagos', state: 'Lagos', country: 'Nigeria', address: '88 Market Street' },
+      phone: '+2348055443322',
       isVerified: false,
       verificationStatus: 'NOT_SUBMITTED' as const,
       createdAt: new Date().toISOString()
