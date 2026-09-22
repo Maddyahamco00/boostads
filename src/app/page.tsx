@@ -3,6 +3,7 @@
 import React from 'react';
 import { useApp } from '../context/AppContext';
 import { Header } from '../components/Header';
+import { LandingPageView } from '../components/LandingPageView';
 import { DiscoverView } from '../components/DiscoverView';
 import { BusinessProfileView } from '../components/BusinessProfileView';
 import { MerchantDashboardView } from '../components/MerchantDashboardView';
@@ -27,6 +28,8 @@ export default function HomePage() {
 
   const renderCurrentView = () => {
     switch (activeView) {
+      case 'landing':
+        return <LandingPageView />;
       case 'discover':
       case 'create_ad':
         return <DiscoverView />;
@@ -57,7 +60,7 @@ export default function HomePage() {
       case 'create_business':
         return <CreateBusinessView />;
       default:
-        return <DiscoverView />;
+        return <LandingPageView />;
     }
   };
 

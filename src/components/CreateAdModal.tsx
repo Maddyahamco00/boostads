@@ -19,15 +19,6 @@ import {
 } from 'lucide-react';
 import { BusinessCategoryType } from '../types';
 
-const SAMPLE_MEDIA_OPTIONS = [
-  { label: 'Auto Services', url: 'https://images.unsplash.com/photo-1486006920555-c77dce18193b?w=800&auto=format&fit=crop&q=80' },
-  { label: 'Tech & Laptops', url: 'https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=800&auto=format&fit=crop&q=80' },
-  { label: 'Fashion & Footwear', url: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=800&auto=format&fit=crop&q=80' },
-  { label: 'Gourmet & Dining', url: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&auto=format&fit=crop&q=80' },
-  { label: 'Creative Studio', url: 'https://images.unsplash.com/photo-1558655146-d09347e92766?w=800&auto=format&fit=crop&q=80' },
-  { label: 'Real Estate', url: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800&auto=format&fit=crop&q=80' }
-];
-
 export const CreateAdModal: React.FC = () => {
   const { 
     isCreateAdModalOpen, 
@@ -41,17 +32,31 @@ export const CreateAdModal: React.FC = () => {
 
   const userBiz = businesses.find(b => b.ownerId === currentUser.id) || businesses[0];
 
-  const [title, setTitle] = useState('Premium Diagnostics & Fast Repair Service');
-  const [description, setDescription] = useState('Professional computer diagnosis and precision maintenance for all vehicle models with zero guesswork in Kaduna and surrounding areas.');
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
   const [category, setCategory] = useState<BusinessCategoryType>(userBiz?.category || 'services');
-  const [price, setPrice] = useState('15000');
-  const [mediaUrl, setMediaUrl] = useState(SAMPLE_MEDIA_OPTIONS[0].url);
-  const [tags, setTags] = useState('repairs, auto, diagnostics, kaduna');
-  const [whatsapp, setWhatsapp] = useState(userBiz?.whatsapp || '+2348039876543');
-  const [isBoosted, setIsBoosted] = useState(true);
+  const [price, setPrice] = useState('');
+  const [mediaUrl, setMediaUrl] = useState('');
+  const [tags, setTags] = useState('');
+  const [whatsapp, setWhatsapp] = useState(userBiz?.whatsapp || userBiz?.phone || '');
+  const [isBoosted, setIsBoosted] = useState(false);
   const [boostPlanDays, setBoostPlanDays] = useState(7);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [customMediaInput, setCustomMediaInput] = useState(false);
+
+  // Sync state when modal opens or business changes
+  React.useEffect(() => {
+    if (isCreateAdModalOpen && userBiz) {
+      if (!whatsapp && (userBiz.whatsapp || userBiz.phone)) {
+        setWhatsapp(userBiz.whatsapp || userBiz.phone || '');
+      }
+      if (!mediaUrl && (userBiz.coverImageUrl || userBiz.logoUrl)) {
+        setMediaUrl(userBiz.coverImageUrl || userBiz.logoUrl || '');
+      }
+      if (userBiz.category) {
+        setCategory(userBiz.category);
+      }
+    }
+  }, [isCreateAdModalOpen, userBiz]);
 
   if (!isCreateAdModalOpen) return null;
 
@@ -72,7 +77,7 @@ export const CreateAdModal: React.FC = () => {
           title,
           description,
           category: categories.find(c => c.id === category)?.name || 'General',
-          mediaUrls: [mediaUrl],
+          mediaUrls: mediaUrl ? [mediaUrl] : [],
           mediaType: 'image',
           price: price ? Number(price) : undefined,
           location: userBiz.location || currentLocation,
@@ -85,6 +90,11 @@ export const CreateAdModal: React.FC = () => {
       const data = await res.json();
       if (data.success) {
         setIsCreateAdModalOpen(false);
+        setTitle('');
+        setDescription('');
+        setPrice('');
+        setTags('');
+        setIsBoosted(false);
         refreshData();
       }
     } catch (err) {
@@ -207,45 +217,36 @@ export const CreateAdModal: React.FC = () => {
             {/* Visual Media Selection */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="text-slate-700 dark:text-slate-300 font-bold">Ad Visual Media</label>
-                <button
-                  type="button"
-                  onClick={() => setCustomMediaInput(!customMediaInput)}
-                  className="text-indigo-600 dark:text-cyan-400 hover:underline font-semibold text-[11px] cursor-pointer"
-                >
-                  {customMediaInput ? 'Choose from Presets' : 'Custom Image URL'}
-                </button>
-              </div>
-
-              {customMediaInput ? (
-                <input
-                  type="url"
-                  value={mediaUrl}
-                  onChange={(e) => setMediaUrl(e.target.value)}
-                  placeholder="https://images.unsplash.com/..."
-                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-xs text-slate-900 dark:text-white"
-                />
-              ) : (
-                <div className="grid grid-cols-3 gap-2">
-                  {SAMPLE_MEDIA_OPTIONS.map((opt) => (
+                <label className="text-slate-700 dark:text-slate-300 font-bold">Ad Visual Media URL</label>
+                <div className="flex items-center gap-2">
+                  {userBiz?.coverImageUrl && (
                     <button
                       type="button"
-                      key={opt.label}
-                      onClick={() => setMediaUrl(opt.url)}
-                      className={`relative rounded-xl overflow-hidden aspect-video border-2 transition-all cursor-pointer ${
-                        mediaUrl === opt.url
-                          ? 'border-indigo-600 ring-2 ring-indigo-500/30 shadow-xs'
-                          : 'border-transparent opacity-70 hover:opacity-100'
-                      }`}
+                      onClick={() => setMediaUrl(userBiz.coverImageUrl || '')}
+                      className="text-indigo-600 dark:text-cyan-400 hover:underline font-semibold text-[11px] cursor-pointer"
                     >
-                      <img src={opt.url} alt={opt.label} className="w-full h-full object-cover" />
-                      <div className="absolute inset-x-0 bottom-0 bg-black/60 px-1 py-0.5 text-[9px] font-bold text-white truncate text-center">
-                        {opt.label}
-                      </div>
+                      Use Business Cover
                     </button>
-                  ))}
+                  )}
+                  {userBiz?.logoUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setMediaUrl(userBiz.logoUrl || '')}
+                      className="text-indigo-600 dark:text-cyan-400 hover:underline font-semibold text-[11px] cursor-pointer"
+                    >
+                      Use Logo
+                    </button>
+                  )}
                 </div>
-              )}
+              </div>
+
+              <input
+                type="url"
+                value={mediaUrl}
+                onChange={(e) => setMediaUrl(e.target.value)}
+                placeholder="https://example.com/ad-image.jpg"
+                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+              />
             </div>
 
             {/* Direct Contact WhatsApp & Tags */}
@@ -377,11 +378,17 @@ export const CreateAdModal: React.FC = () => {
               
               <div className="p-3 flex items-center justify-between border-b border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-2">
-                  <img 
-                    src={userBiz?.logoUrl || 'https://images.unsplash.com/photo-1560179707-f14e90ef3623?w=100&auto=format&fit=crop&q=80'} 
-                    alt={userBiz?.name}
-                    className="w-8 h-8 rounded-lg object-cover"
-                  />
+                  {userBiz?.logoUrl ? (
+                    <img 
+                      src={userBiz.logoUrl} 
+                      alt={userBiz?.name}
+                      className="w-8 h-8 rounded-lg object-cover"
+                    />
+                  ) : (
+                    <div className="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-950/60 text-indigo-600 dark:text-cyan-400 font-black text-xs flex items-center justify-center">
+                      {(userBiz?.name || 'B').charAt(0).toUpperCase()}
+                    </div>
+                  )}
                   <div>
                     <div className="font-bold text-slate-900 dark:text-white text-xs">{userBiz?.name || 'Your Business'}</div>
                     <div className="text-[10px] text-slate-500 capitalize">{category}</div>
@@ -394,8 +401,15 @@ export const CreateAdModal: React.FC = () => {
                 )}
               </div>
 
-              <div className="relative aspect-video bg-slate-950">
-                <img src={mediaUrl} alt={title} className="w-full h-full object-cover" />
+              <div className="relative aspect-video bg-slate-100 dark:bg-slate-950 flex items-center justify-center overflow-hidden">
+                {mediaUrl ? (
+                  <img src={mediaUrl} alt={title || 'Ad Preview'} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="text-center p-4 text-slate-400 dark:text-slate-600">
+                    <ImageIcon className="w-8 h-8 mx-auto mb-1 opacity-50" />
+                    <span className="text-[10px]">Provide an image URL to preview visual</span>
+                  </div>
+                )}
                 {price && (
                   <div className="absolute bottom-2 left-2 px-2.5 py-1 rounded-lg bg-slate-900/90 text-cyan-300 text-xs font-bold border border-white/20">
                     ₦{Number(price).toLocaleString()}

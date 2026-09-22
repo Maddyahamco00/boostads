@@ -5,26 +5,26 @@ import { AppProvider } from '../context/AppContext';
 
 export const metadata: Metadata = {
   title: {
-    default: 'Boost Market - Business Advertising & Local Marketplace',
+    default: 'Boost Market — AI-Powered Advertising for Growing Businesses',
     template: '%s | Boost Market',
   },
-  description: 'Full-stack SaaS business advertising, local discovery, real-time messaging, portfolio showcase, and invoicing payment platform for all business types by Real Boosters.',
+  description: 'Smart Advertising. Better Results. Powered by AI. Boost Market connects businesses, products, services, and customers across Nigeria.',
   applicationName: 'Boost Market',
-  keywords: ['business advertising', 'local marketplace', 'boosters', 'invoicing', 'real boosters', 'nigeria business'],
-  authors: [{ name: 'Real Boosters' }],
+  keywords: ['business advertising', 'local marketplace', 'boosters', 'ai marketing', 'nigeria business', 'boost market'],
+  authors: [{ name: 'Boost Market' }],
   icons: {
-    icon: '/favicon.ico',
+    icon: '/favicon.svg',
   },
   openGraph: {
-    title: 'Boost Market - Business Advertising & Local Marketplace',
-    description: 'Full-stack SaaS business advertising and marketplace platform by Real Boosters.',
+    title: 'Boost Market — AI-Powered Advertising for Growing Businesses',
+    description: 'Smart Advertising. Better Results. Powered by AI.',
     type: 'website',
     siteName: 'Boost Market',
   },
 };
 
 export const viewport: Viewport = {
-  themeColor: '#4F46E5',
+  themeColor: '#16C784',
   width: 'device-width',
   initialScale: 1,
 };
@@ -36,7 +36,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="min-h-screen bg-[#F8FAFC] dark:bg-[#0B0F19] text-slate-900 dark:text-slate-100 antialiased selection:bg-indigo-600 selection:text-white transition-colors">
+      <body className="min-h-screen bg-[#F8FAFC] dark:bg-[#071A17] text-slate-900 dark:text-slate-100 antialiased selection:bg-[#16C784] selection:text-[#071A17] transition-colors">
         <AppProvider>
           {children}
         </AppProvider>

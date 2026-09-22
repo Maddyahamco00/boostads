@@ -22,6 +22,7 @@ import {
 import { authApi, onAuthStateChange, ApiError } from '../lib/api';
 
 export type AppView = 
+  | 'landing'
   | 'discover' 
   | 'business_detail' 
   | 'ai_marketing' 
@@ -187,8 +188,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (window.location.pathname === '/verify-email' || window.location.search.includes('verifyToken=') || (window.location.pathname === '/' && window.location.search.includes('token='))) {
         return 'verify_email';
       }
+      if (window.location.pathname === '/discover' || window.location.search.includes('view=discover')) {
+        return 'discover';
+      }
     }
-    return 'discover';
+    return 'landing';
   });
 
   // Check auth session on startup
@@ -318,7 +322,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setActiveViewState(targetView);
     if (typeof window !== 'undefined') {
       let targetPath = '/';
-      if (targetView === 'login') targetPath = '/login';
+      if (targetView === 'landing') targetPath = '/';
+      else if (targetView === 'discover') targetPath = '/discover';
+      else if (targetView === 'login') targetPath = '/login';
       else if (targetView === 'register') targetPath = '/register';
       else if (targetView === 'verify_email') targetPath = '/verify-email';
       else if (targetView === 'forgot_password') targetPath = '/forgot-password';
@@ -326,6 +332,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       else if (targetView === 'profile') targetPath = '/profile';
       else if (targetView === 'admin_login') targetPath = '/admin/login';
       else if (targetView === 'admin_panel') targetPath = '/admin';
+      else if (targetView === 'merchant_dashboard') targetPath = '/dashboard';
+      else if (targetView === 'campaigns') targetPath = '/campaigns';
 
       if (window.location.pathname !== targetPath && !window.location.search.includes('token=')) {
         window.history.pushState({}, '', targetPath);
@@ -352,12 +360,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setActiveViewState('reset_password');
       } else if (p === '/verify-email' || window.location.search.includes('verifyToken=') || window.location.search.includes('token=')) {
         setActiveViewState('verify_email');
+      } else if (p === '/discover') {
+        setActiveViewState('discover');
+      } else if (p === '/') {
+        setActiveViewState('landing');
       } else {
         setActiveViewState(prev => {
           if (!isAuthenticated && ['merchant_dashboard', 'invoices', 'campaigns', 'create_ad', 'ai_marketing', 'admin_panel', 'profile'].includes(prev)) {
             return 'login';
           }
-          return 'discover';
+          return 'landing';
         });
       }
     };

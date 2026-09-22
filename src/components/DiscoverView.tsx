@@ -57,9 +57,6 @@ export const DiscoverView: React.FC = () => {
   const [feedTab, setFeedTab] = useState<'all' | 'promoted' | 'nearby' | 'trending' | 'advertisements' | 'businesses' | 'products' | 'services'>('all');
   const [selectedRadiusKm, setSelectedRadiusKm] = useState<number>(25);
 
-  // Interactive Reach Calculator State
-  const [calcBudget, setCalcBudget] = useState<number>(5000);
-
   // Top-level categories (roots) for primary filter bar
   const topLevelCategories = useMemo(() => {
     return categories.filter(c => !c.parentId && c.active !== false);
@@ -530,11 +527,6 @@ export const DiscoverView: React.FC = () => {
     setHasExecutedAdSearch(false);
     setAdSearchError(null);
   };
-
-  // Reach estimates for calculator
-  const estimatedReach = Math.floor(calcBudget * 2.8);
-  const estimatedClicks = Math.floor(calcBudget * 0.14);
-  const estimatedLeads = Math.max(3, Math.floor(calcBudget * 0.018));
 
   return (
     <div id="discover-view-container" className="min-h-screen pb-24 text-slate-900 dark:text-slate-100 transition-colors">
@@ -1985,77 +1977,64 @@ export const DiscoverView: React.FC = () => {
             </div>
           </div>
 
-          {/* Interactive Reach Calculator */}
+          {/* Campaign Boost Placements Overview */}
           <div className="glass-card p-8 sm:p-10 rounded-3xl border-indigo-400/40 dark:border-indigo-500/40 shadow-xl">
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 mb-4">
               <Zap className="w-3.5 h-3.5" />
-              <span>Reach Estimator</span>
+              <span>Promotion Engine</span>
             </div>
             <h3 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight mb-2">
-              Estimate Your Audience Reach
+              Multi-Channel Placement
             </h3>
             <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mb-6">
-              Adjust your daily ad budget to calculate your projected reach and lead inquiries.
+              When you boost your advertisement on Boost Market, your offerings are systematically distributed across high-intent discovery points.
             </p>
 
-            {/* Budget Slider */}
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">Campaign Ad Spend</span>
-                <span className="text-lg font-black text-indigo-600 dark:text-cyan-400">
-                  ₦{calcBudget.toLocaleString()}
-                </span>
-              </div>
-
-              <input 
-                type="range"
-                min="1000"
-                max="50000"
-                step="1000"
-                value={calcBudget}
-                onChange={(e) => setCalcBudget(Number(e.target.value))}
-                className="w-full accent-indigo-600 cursor-pointer h-2 bg-slate-200 dark:bg-slate-700 rounded-lg"
-              />
-              <div className="flex justify-between text-[11px] text-slate-400 font-medium">
-                <span>₦1,000 Starter</span>
-                <span>₦25,000 Growth</span>
-                <span>₦50,000 Enterprise</span>
-              </div>
-            </div>
-
-            {/* Metric Projections */}
-            <div className="mt-8 grid grid-cols-3 gap-3 text-center">
-              <div className="p-3.5 rounded-2xl bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/50">
-                <div className="text-xl sm:text-2xl font-black text-indigo-600 dark:text-cyan-400">
-                  {estimatedReach.toLocaleString()}
+            <div className="space-y-3.5">
+              <div className="p-3.5 rounded-2xl bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/50 flex items-start gap-3">
+                <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 text-xs font-bold">
+                  01
                 </div>
-                <div className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold mt-0.5">
-                  Est. Reach
+                <div>
+                  <h4 className="font-bold text-sm text-slate-900 dark:text-white">Discovery Spotlight</h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Premium prominence at the top of city-wide feeds and category explorer grids.
+                  </p>
                 </div>
               </div>
 
-              <div className="p-3.5 rounded-2xl bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/50">
-                <div className="text-xl sm:text-2xl font-black text-indigo-600 dark:text-cyan-400">
-                  {estimatedClicks.toLocaleString()}
+              <div className="p-3.5 rounded-2xl bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/50 flex items-start gap-3">
+                <div className="w-8 h-8 rounded-xl bg-cyan-600 text-white flex items-center justify-center shrink-0 text-xs font-bold">
+                  02
                 </div>
-                <div className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold mt-0.5">
-                  Est. Clicks
+                <div>
+                  <h4 className="font-bold text-sm text-slate-900 dark:text-white">Local Search Priority</h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    High priority score ranking when customers search by keyword, category, or city.
+                  </p>
                 </div>
               </div>
 
-              <div className="p-3.5 rounded-2xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-100 dark:border-emerald-900/50">
-                <div className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400">
-                  {estimatedLeads.toLocaleString()}+
+              <div className="p-3.5 rounded-2xl bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/50 flex items-start gap-3">
+                <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 text-xs font-bold">
+                  03
                 </div>
-                <div className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold mt-0.5">
-                  Direct Leads
+                <div>
+                  <h4 className="font-bold text-sm text-slate-900 dark:text-white">Direct WhatsApp Inquiries</h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Instant lead connection straight to your verified WhatsApp and telephone line.
+                  </p>
                 </div>
               </div>
             </div>
 
-            <p className="text-[11px] text-slate-400 mt-4 text-center">
-              Based on aggregated multi-platform distribution benchmarks across Nigerian commercial cities.
-            </p>
+            <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
+              <span className="text-slate-500 font-medium">Real-Time Performance Tracking</span>
+              <span className="text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1">
+                <CheckCircle2 className="w-4 h-4" />
+                Live In Merchant Dashboard
+              </span>
+            </div>
           </div>
 
         </div>

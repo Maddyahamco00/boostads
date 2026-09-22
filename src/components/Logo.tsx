@@ -21,69 +21,69 @@ export const BoostSymbol: React.FC<{ size?: number; className?: string }> = ({ s
       xmlns="http://www.w3.org/2000/svg"
     >
       <defs>
-        <linearGradient id="sym-indigo-blue" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#818CF8" />
-          <stop offset="45%" stopColor="#4F46E5" />
-          <stop offset="100%" stopColor="#06B6D4" />
+        <linearGradient id="bm-sym-lime-green" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#A3FF12" />
+          <stop offset="50%" stopColor="#16C784" />
+          <stop offset="100%" stopColor="#14B8A6" />
         </linearGradient>
 
-        <linearGradient id="sym-blue-top" x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="#93C5FD" />
-          <stop offset="100%" stopColor="#3B82F6" />
+        <linearGradient id="bm-sym-lime-top" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="#C4FF45" />
+          <stop offset="100%" stopColor="#16C784" />
         </linearGradient>
 
-        <linearGradient id="sym-purple-bot" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#6366F1" />
-          <stop offset="100%" stopColor="#8B5CF6" />
+        <linearGradient id="bm-sym-teal-bot" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#16C784" />
+          <stop offset="100%" stopColor="#14B8A6" />
         </linearGradient>
 
-        <linearGradient id="sym-glow-stroke" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#93C5FD" stopOpacity="0.9" />
-          <stop offset="50%" stopColor="#6366F1" stopOpacity="0.7" />
-          <stop offset="100%" stopColor="#06B6D4" stopOpacity="0.9" />
+        <linearGradient id="bm-sym-glow-stroke" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#A3FF12" stopOpacity="0.95" />
+          <stop offset="50%" stopColor="#16C784" stopOpacity="0.8" />
+          <stop offset="100%" stopColor="#14B8A6" stopOpacity="0.95" />
         </linearGradient>
       </defs>
 
       {/* Speed Distribution Dots (Network Signal / Distribution) */}
-      <circle cx="20" cy="24" r="5" fill="#38BDF8" />
-      <circle cx="10" cy="42" r="4.5" fill="#818CF8" />
-      <circle cx="20" cy="60" r="4" fill="#6366F1" />
-      <circle cx="34" cy="84" r="5" fill="#8B5CF6" />
+      <circle cx="20" cy="24" r="5.5" fill="#A3FF12" />
+      <circle cx="10" cy="42" r="5" fill="#A3FF12" />
+      <circle cx="20" cy="60" r="4.5" fill="#16C784" />
+      <circle cx="34" cy="84" r="5.5" fill="#14B8A6" />
 
       {/* Streamlined Speed Capsules */}
-      <rect x="32" y="19" width="22" height="10" rx="5" fill="url(#sym-blue-top)" />
-      <rect x="22" y="37" width="36" height="10" rx="5" fill="#4F46E5" />
-      <rect x="30" y="55" width="28" height="10" rx="5" fill="url(#sym-indigo-blue)" />
-      <rect x="28" y="73" width="18" height="10" rx="5" fill="url(#sym-purple-bot)" />
+      <rect x="32" y="19" width="22" height="10" rx="5" fill="url(#bm-sym-lime-top)" />
+      <rect x="22" y="37" width="36" height="10" rx="5" fill="#16C784" />
+      <rect x="30" y="55" width="28" height="10" rx="5" fill="url(#bm-sym-lime-green)" />
+      <rect x="28" y="73" width="18" height="10" rx="5" fill="url(#bm-sym-teal-bot)" />
 
       {/* Main Stylized 'B' Structure */}
       {/* Top Lobe */}
       <path 
         d="M 48 19 L 66 19 C 78 19 86 26 86 38 C 86 48 80 54 68 56 L 48 56 Z" 
-        fill="url(#sym-blue-top)" 
+        fill="url(#bm-sym-lime-top)" 
       />
       {/* Top Inner Hole */}
       <path 
         d="M 56 27 L 66 27 C 72 27 77 31 77 38 C 77 45 72 48 66 48 L 56 48 Z" 
-        fill="#0B0F19" 
+        fill="#071A17" 
       />
 
       {/* Bottom Lobe */}
       <path 
         d="M 48 48 L 70 48 C 84 48 92 56 92 69 C 92 82 80 88 66 88 L 48 88 Z" 
-        fill="url(#sym-purple-bot)" 
+        fill="url(#bm-sym-teal-bot)" 
       />
       {/* Bottom Inner Hole */}
       <path 
         d="M 56 56 L 67 56 C 75 56 81 61 81 69 C 81 77 75 80 67 80 L 56 80 Z" 
-        fill="#0B0F19" 
+        fill="#071A17" 
       />
 
-      {/* Dynamic Highlight Stroke on Backbone */}
+      {/* Dynamic Highlight Ribbon on Spine */}
       <path 
         d="M 66 19 C 79 19 86 26 86 38 C 86 46 81 52 73 54 C 85 57 92 64 92 73 C 92 84 81 88 66 88" 
-        stroke="url(#sym-glow-stroke)" 
-        strokeWidth="1.5" 
+        stroke="url(#bm-sym-glow-stroke)" 
+        strokeWidth="2" 
         strokeLinecap="round" 
         fill="none" 
       />
@@ -116,14 +116,14 @@ export const Logo: React.FC<LogoProps> = ({
         className={`inline-flex items-center justify-center relative ${onClick ? 'cursor-pointer' : ''} ${className}`}
         title="Boost Market"
       >
-        <div className={`relative flex items-center justify-center rounded-xl p-1.5 bg-[#0B0F19] border border-indigo-500/30 shadow-xs ${withGlow ? 'shadow-[0_0_15px_rgba(99,102,241,0.35)]' : ''}`}>
+        <div className={`relative flex items-center justify-center rounded-xl p-1.5 bg-[#071A17] border border-[#16C784]/30 shadow-xs ${withGlow ? 'shadow-[0_0_16px_rgba(22,199,132,0.4)]' : ''}`}>
           <BoostSymbol size={iconPixelSize} />
         </div>
       </div>
     );
   }
 
-  // 2. FULL GLASSMORPHIC BADGE
+  // 2. FULL 3D GLASSMORPHIC TILE (Matches Prototype Reference file_0000000084f4820a8c55c8e89e59ab16.png)
   if (variant === 'badge') {
     return (
       <div 
@@ -131,38 +131,41 @@ export const Logo: React.FC<LogoProps> = ({
         className={`relative inline-flex flex-col items-center justify-center text-center select-none ${onClick ? 'cursor-pointer' : ''} ${className}`}
       >
         {/* Luminous Ambient Glow */}
-        <div className="absolute -inset-1 bg-gradient-to-b from-indigo-500/20 via-blue-500/20 to-cyan-500/20 rounded-3xl blur-xl opacity-80" />
+        <div className="absolute -inset-2 bg-gradient-to-b from-[#A3FF12]/25 via-[#16C784]/20 to-[#14B8A6]/25 rounded-3xl blur-2xl opacity-75 pointer-events-none" />
 
-        {/* Outer Glass Container */}
-        <div className="relative w-full max-w-[340px] px-8 py-7 rounded-3xl bg-[#0F172A]/95 backdrop-blur-xl border border-indigo-500/30 shadow-2xl shadow-black/60 flex flex-col items-center">
-          <div className="absolute top-0 inset-x-8 h-px bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent" />
+        {/* Outer Translucent Glass Container */}
+        <div className="relative w-full max-w-[360px] p-8 sm:p-10 rounded-[32px] bg-[#071A17]/95 backdrop-blur-2xl border border-[#16C784]/40 shadow-[0_20px_50px_rgba(0,0,0,0.8)] flex flex-col items-center overflow-hidden">
+          {/* Subtle Diagonal Glass Highlight */}
+          <div className="absolute -top-10 -left-10 w-48 h-48 bg-white/5 rounded-full blur-xl pointer-events-none" />
+          <div className="absolute top-0 inset-x-8 h-px bg-gradient-to-r from-transparent via-[#A3FF12]/60 to-transparent" />
           
-          <div className="mb-4 relative">
-            <div className="absolute inset-0 bg-indigo-500/30 blur-lg rounded-full" />
-            <BoostSymbol size={size === 'xl' ? 90 : size === 'lg' ? 76 : 64} className="relative z-10" />
+          {/* Symbol Centerpiece */}
+          <div className="mb-6 relative">
+            <div className="absolute inset-0 bg-[#16C784]/25 blur-xl rounded-full" />
+            <BoostSymbol size={size === 'xl' ? 96 : size === 'lg' ? 80 : 68} className="relative z-10" />
           </div>
 
-          <div className="flex items-center justify-center gap-2.5 tracking-tight mb-1">
-            <span className="text-2xl sm:text-3xl font-black text-white tracking-tight drop-shadow-xs font-sans">
+          {/* BOOST MARKET Wordmark */}
+          <div className="flex items-center justify-center gap-2.5 tracking-tight mb-2">
+            <span className="text-3xl sm:text-4xl font-black text-white tracking-tight font-sans drop-shadow-sm">
               BOOST
             </span>
-            <span className="text-2xl sm:text-3xl font-black bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent tracking-tight font-sans">
+            <span className="text-3xl sm:text-4xl font-black text-[#16C784] tracking-tight font-sans drop-shadow-sm">
               MARKET
             </span>
           </div>
 
-          {showTagline && (
-            <div className="w-full pt-3 mt-1 border-t border-indigo-500/20 flex items-center justify-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_6px_#22D3EE]" />
-              <span className="text-[11px] font-semibold text-indigo-300 tracking-wider uppercase">
-                Business Advertising Platform
-              </span>
-              <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 shadow-[0_0_6px_#818CF8]" />
-            </div>
-          )}
+          {/* Subtitle with Flanking Rules */}
+          <div className="w-full pt-3 mt-1 flex items-center justify-center gap-3">
+            <span className="h-[1.5px] w-6 sm:w-8 bg-[#A3FF12]/80 rounded-full" />
+            <span className="text-[11px] sm:text-xs font-semibold text-slate-200 tracking-wide">
+              AI-Powered Advertising Agent
+            </span>
+            <span className="h-[1.5px] w-6 sm:w-8 bg-[#A3FF12]/80 rounded-full" />
+          </div>
 
           {adminBadge && (
-            <div className="mt-2.5 px-2.5 py-0.5 rounded-full bg-indigo-500/20 border border-indigo-400/40 text-cyan-300 text-[10px] font-bold tracking-wider uppercase">
+            <div className="mt-3 px-3 py-0.5 rounded-full bg-[#16C784]/20 border border-[#16C784]/40 text-[#A3FF12] text-[10px] font-bold tracking-wider uppercase">
               Super Admin Console
             </div>
           )}
@@ -171,14 +174,14 @@ export const Logo: React.FC<LogoProps> = ({
     );
   }
 
-  // 3. HORIZONTAL LOGO (For Headers, Top Navbars, Footers, Modals)
+  // 3. HORIZONTAL LOGO (For Headers, Navbars, Footers, Modals)
   return (
     <div 
       onClick={onClick}
-      className={`inline-flex items-center gap-2.5 select-none ${onClick ? 'cursor-pointer' : ''} ${className}`}
+      className={`inline-flex items-center gap-3 select-none ${onClick ? 'cursor-pointer' : ''} ${className}`}
     >
-      {/* Icon Emblem with Glass Pill Frame */}
-      <div className="relative flex items-center justify-center p-1.5 rounded-xl bg-[#0B0F19] border border-indigo-500/30 shadow-xs shrink-0">
+      {/* Icon Emblem with Glass Frame */}
+      <div className="relative flex items-center justify-center p-1.5 sm:p-2 rounded-xl bg-[#071A17] border border-[#16C784]/30 shadow-xs shrink-0">
         <BoostSymbol size={iconPixelSize} />
       </div>
 
@@ -188,18 +191,18 @@ export const Logo: React.FC<LogoProps> = ({
           <span className="text-lg sm:text-xl font-black text-slate-900 dark:text-white tracking-tight font-sans">
             BOOST
           </span>
-          <span className="text-lg sm:text-xl font-black bg-gradient-to-r from-indigo-600 to-blue-600 dark:from-indigo-400 dark:to-cyan-400 bg-clip-text text-transparent tracking-tight font-sans">
+          <span className="text-lg sm:text-xl font-black text-[#16C784] tracking-tight font-sans">
             MARKET
           </span>
           {adminBadge && (
-            <span className="ml-1.5 px-2 py-0.5 rounded-md bg-indigo-900/80 text-cyan-300 text-[10px] font-extrabold border border-indigo-500/40 tracking-wider">
+            <span className="ml-1.5 px-2 py-0.5 rounded-md bg-[#071A17] text-[#A3FF12] text-[10px] font-extrabold border border-[#16C784]/40 tracking-wider">
               ADMIN
             </span>
           )}
         </div>
         {showTagline && (
-          <span className="text-[10px] font-semibold text-slate-500 dark:text-indigo-300 tracking-wide mt-1">
-            Business Advertising Platform
+          <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400 tracking-wide mt-1">
+            AI-Powered Advertising Agent
           </span>
         )}
       </div>

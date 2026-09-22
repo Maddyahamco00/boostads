@@ -50,8 +50,31 @@ export const AdminPanelView: React.FC = () => {
   } = useApp();
 
   const [activeTab, setActiveTab] = useState<'businesses' | 'verifications' | 'categories' | 'ads' | 'reports' | 'financials' | 'audit_logs' | 'users' | 'security'>('businesses');
-  const [fxSpread, setFxSpread] = useState<number>(2.0);
+  const [fxSpread, setFxSpread] = useState<number>(0.8);
+  const [fxLoading, setFxLoading] = useState<boolean>(false);
+  const [fxSaving, setFxSaving] = useState<boolean>(false);
+  const [fxSuccessMessage, setFxSuccessMessage] = useState<string | null>(null);
+  const [fxErrorMessage, setFxErrorMessage] = useState<string | null>(null);
   const [isTestSuiteOpen, setIsTestSuiteOpen] = useState(false);
+
+  // Load platform config for FX settings
+  useEffect(() => {
+    if (activeTab === 'financials') {
+      setFxLoading(true);
+      fetchWithAuth<{ success: boolean; config?: { fxSpreadPercent?: number } }>('/api/admin/config')
+        .then(res => {
+          if (res.success && res.config?.fxSpreadPercent !== undefined) {
+            setFxSpread(res.config.fxSpreadPercent);
+          }
+        })
+        .catch(err => {
+          console.error('Failed to load admin config:', err);
+        })
+        .finally(() => {
+          setFxLoading(false);
+        });
+    }
+  }, [activeTab]);
 
   // Verifications State (Epic 2 Feature 2.3 Task 2.3.3)
   const [verificationRequests, setVerificationRequests] = useState<AdminVerificationRequestItem[]>([]);
@@ -456,6 +479,29 @@ export const AdminPanelView: React.FC = () => {
       refreshData();
     } catch (err) {
       console.error('Failed to resolve report:', err);
+    }
+  };
+
+  const handleSaveFxSettings = async () => {
+    setFxSaving(true);
+    setFxSuccessMessage(null);
+    setFxErrorMessage(null);
+    try {
+      const res = await fetchWithAuth<{ success: boolean; config?: { fxSpreadPercent?: number } }>('/api/admin/config', {
+        method: 'PUT',
+        body: JSON.stringify({ fxSpreadPercent: fxSpread })
+      });
+      if (res.success) {
+        setFxSuccessMessage(`FX spread margin successfully saved at ${res.config?.fxSpreadPercent ?? fxSpread}%.`);
+        setTimeout(() => setFxSuccessMessage(null), 4000);
+      } else {
+        setFxErrorMessage('Failed to update FX settings');
+      }
+    } catch (err: unknown) {
+      const formatted = formatAuthError(err);
+      setFxErrorMessage(formatted.message || 'Error updating FX settings');
+    } finally {
+      setFxSaving(false);
     }
   };
 
@@ -1073,12 +1119,33 @@ export const AdminPanelView: React.FC = () => {
         {/* 4. FINANCIALS TAB */}
         {activeTab === 'financials' && (
           <div className="max-w-xl bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-xs">
-            <h3 className="text-sm font-semibold text-slate-900 mb-2">
-              Foreign Exchange (FX) Spread Settings
-            </h3>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-semibold text-slate-900">
+                Foreign Exchange (FX) Spread Settings
+              </h3>
+              {fxLoading && (
+                <span className="text-[11px] text-slate-400 flex items-center gap-1">
+                  <RefreshCw className="w-3 h-3 animate-spin" /> Loading config...
+                </span>
+              )}
+            </div>
             <p className="text-xs text-slate-500 mb-6">
-              Configure the margin applied to international customer transactions.
+              Configure the margin applied to international customer transactions and settlement conversions.
             </p>
+
+            {fxSuccessMessage && (
+              <div className="mb-4 p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{fxSuccessMessage}</span>
+              </div>
+            )}
+
+            {fxErrorMessage && (
+              <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-800 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                <span>{fxErrorMessage}</span>
+              </div>
+            )}
 
             <div className="space-y-4 text-xs">
               <div>
@@ -1088,12 +1155,12 @@ export const AdminPanelView: React.FC = () => {
                 </div>
                 <input
                   type="range"
-                  min={0.5}
+                  min={0.1}
                   max={5.0}
                   step={0.1}
                   value={fxSpread}
                   onChange={(e) => setFxSpread(Number(e.target.value))}
-                  className="w-full accent-[#16C784]"
+                  className="w-full accent-[#16C784] cursor-pointer"
                 />
               </div>
 
@@ -1111,10 +1178,19 @@ export const AdminPanelView: React.FC = () => {
               </div>
 
               <button
-                onClick={() => alert(`FX Margin updated to ${fxSpread}%.`)}
-                className="w-full py-2 rounded-lg bg-[#16C784] hover:bg-[#14B8A6] text-white font-semibold text-xs transition-colors cursor-pointer shadow-xs"
+                type="button"
+                disabled={fxSaving}
+                onClick={handleSaveFxSettings}
+                className="w-full py-2.5 rounded-lg bg-[#16C784] hover:bg-[#14B8A6] text-white font-semibold text-xs transition-colors cursor-pointer shadow-xs disabled:opacity-50 flex items-center justify-center gap-1.5"
               >
-                Save FX Settings
+                {fxSaving ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Persisting FX Configuration...</span>
+                  </>
+                ) : (
+                  <span>Save FX Settings</span>
+                )}
               </button>
             </div>
           </div>

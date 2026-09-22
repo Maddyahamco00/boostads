@@ -120,7 +120,7 @@ export const Header: React.FC = () => {
         {/* Left: Brand & Location Selector */}
         <div className="flex items-center gap-4 sm:gap-6">
           <button 
-            onClick={() => setActiveView('discover')}
+            onClick={() => setActiveView('landing')}
             className="flex items-center cursor-pointer group focus:outline-none"
             id="logo-brand-btn"
           >
@@ -216,15 +216,27 @@ export const Header: React.FC = () => {
           {/* Main Desktop Nav Items */}
           <nav className="hidden xl:flex items-center gap-1 text-sm font-semibold">
             <button
+              id="nav-home-btn"
+              onClick={() => setActiveView('landing')}
+              className={`px-3.5 py-2 rounded-xl transition-all cursor-pointer ${
+                activeView === 'landing'
+                  ? 'text-[#16C784] bg-[#16C784]/10 font-bold'
+                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+              }`}
+            >
+              Home
+            </button>
+
+            <button
               id="nav-explore-ads-btn"
               onClick={() => setActiveView('discover')}
               className={`px-3.5 py-2 rounded-xl transition-all cursor-pointer ${
                 activeView === 'discover'
-                  ? 'text-indigo-600 dark:text-cyan-400 bg-indigo-50 dark:bg-indigo-950/50 font-bold'
+                  ? 'text-[#16C784] bg-[#16C784]/10 font-bold'
                   : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
             >
-              Explore Ads
+              Directory & Ads
             </button>
 
             <button
@@ -232,7 +244,7 @@ export const Header: React.FC = () => {
               onClick={() => setActiveView('campaigns')}
               className={`px-3.5 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 ${
                 activeView === 'campaigns'
-                  ? 'text-indigo-600 dark:text-cyan-400 bg-indigo-50 dark:bg-indigo-950/50 font-bold'
+                  ? 'text-[#16C784] bg-[#16C784]/10 font-bold'
                   : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
             >
@@ -245,7 +257,7 @@ export const Header: React.FC = () => {
               onClick={() => setActiveView('merchant_dashboard')}
               className={`px-3.5 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 ${
                 activeView === 'merchant_dashboard'
-                  ? 'text-indigo-600 dark:text-cyan-400 bg-indigo-50 dark:bg-indigo-950/50 font-bold'
+                  ? 'text-[#16C784] bg-[#16C784]/10 font-bold'
                   : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
             >
@@ -272,7 +284,7 @@ export const Header: React.FC = () => {
           <button
             id="header-create-ad-btn"
             onClick={() => setIsCreateAdModalOpen(true)}
-            className="btn-advertise px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 shadow-md cursor-pointer whitespace-nowrap"
+            className="btn-bm-primary px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 shadow-md cursor-pointer whitespace-nowrap"
           >
             <PlusCircle className="w-4 h-4" />
             <span className="hidden xs:inline">Advertise</span>
@@ -305,6 +317,13 @@ export const Header: React.FC = () => {
                 className="px-3 sm:px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
               >
                 Sign In
+              </button>
+              <button
+                id="header-register-btn"
+                onClick={() => setActiveView('register')}
+                className="btn-bm-primary px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold hidden sm:flex items-center gap-1.5 cursor-pointer shadow-sm"
+              >
+                Get Started
               </button>
             </div>
           ) : (
@@ -461,26 +480,49 @@ export const Header: React.FC = () => {
 
           <div className="flex flex-col gap-1 text-sm font-semibold">
             <button
+              onClick={() => { setActiveView('landing'); setIsMobileMenuOpen(false); }}
+              className={`p-2.5 rounded-xl text-left flex items-center gap-2.5 ${activeView === 'landing' ? 'bg-[#16C784] text-[#071A17] font-bold' : 'text-slate-700 dark:text-slate-200'}`}
+            >
+              <Store className="w-4 h-4" />
+              <span>Home</span>
+            </button>
+            <button
               onClick={() => { setActiveView('discover'); setIsMobileMenuOpen(false); }}
-              className={`p-2.5 rounded-xl text-left flex items-center gap-2.5 ${activeView === 'discover' ? 'bg-indigo-600 text-white' : 'text-slate-700 dark:text-slate-200'}`}
+              className={`p-2.5 rounded-xl text-left flex items-center gap-2.5 ${activeView === 'discover' ? 'bg-[#16C784] text-[#071A17] font-bold' : 'text-slate-700 dark:text-slate-200'}`}
             >
               <Sparkles className="w-4 h-4" />
-              <span>Explore Advertisements</span>
+              <span>Directory & Advertisements</span>
             </button>
             <button
               onClick={() => { setActiveView('campaigns'); setIsMobileMenuOpen(false); }}
-              className={`p-2.5 rounded-xl text-left flex items-center gap-2.5 ${activeView === 'campaigns' ? 'bg-indigo-600 text-white' : 'text-slate-700 dark:text-slate-200'}`}
+              className={`p-2.5 rounded-xl text-left flex items-center gap-2.5 ${activeView === 'campaigns' ? 'bg-[#16C784] text-[#071A17] font-bold' : 'text-slate-700 dark:text-slate-200'}`}
             >
               <Megaphone className="w-4 h-4" />
               <span>Multi-Platform Campaigns</span>
             </button>
             <button
               onClick={() => { setActiveView('merchant_dashboard'); setIsMobileMenuOpen(false); }}
-              className={`p-2.5 rounded-xl text-left flex items-center gap-2.5 ${activeView === 'merchant_dashboard' ? 'bg-indigo-600 text-white' : 'text-slate-700 dark:text-slate-200'}`}
+              className={`p-2.5 rounded-xl text-left flex items-center gap-2.5 ${activeView === 'merchant_dashboard' ? 'bg-[#16C784] text-[#071A17] font-bold' : 'text-slate-700 dark:text-slate-200'}`}
             >
               <Store className="w-4 h-4" />
               <span>Merchant Business Hub</span>
             </button>
+            {!isAuthenticated && (
+              <div className="pt-2 mt-2 border-t border-slate-200 dark:border-slate-800 flex gap-2">
+                <button
+                  onClick={() => { setActiveView('login'); setIsMobileMenuOpen(false); }}
+                  className="flex-1 py-2 text-center rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-white"
+                >
+                  Sign In
+                </button>
+                <button
+                  onClick={() => { setActiveView('register'); setIsMobileMenuOpen(false); }}
+                  className="flex-1 py-2 text-center rounded-xl btn-bm-primary text-xs font-bold"
+                >
+                  Get Started
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

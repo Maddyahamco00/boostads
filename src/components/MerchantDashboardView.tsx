@@ -45,7 +45,7 @@ import {
 } from 'lucide-react';
 import { AdvertisementCard } from './AdvertisementCard';
 import { businessApi } from '../lib/api';
-import { NIGERIAN_STATES, LocationCoordinates, DAYS_OF_WEEK, OpeningHour, TimePeriod, formatOpeningHourDisplay, formatTime12h, PublicVerificationRequestDTO, BusinessVerificationStatus } from '../types';
+import { NIGERIAN_STATES, LocationCoordinates, DAYS_OF_WEEK, OpeningHour, TimePeriod, formatOpeningHourDisplay, formatTime12h, PublicVerificationRequestDTO, BusinessVerificationStatus, Product, Service } from '../types';
 
 export const MerchantDashboardView: React.FC = () => {
   const { 
@@ -68,7 +68,7 @@ export const MerchantDashboardView: React.FC = () => {
   const userCampaigns = campaigns.filter(c => c.businessId === userBiz?.id || currentUser.role === 'SUPER_ADMIN');
   const userLeads = leads.filter(l => l.businessId === userBiz?.id || currentUser.role === 'SUPER_ADMIN');
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'ads' | 'leads' | 'products' | 'services' | 'bank_payouts'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'ads' | 'leads' | 'products' | 'services'>('overview');
 
   // Business Logo Management States (Epic 2 Feature 2.2 Task 2.2.2)
   const logoFileInputRef = useRef<HTMLInputElement>(null);
@@ -322,19 +322,48 @@ export const MerchantDashboardView: React.FC = () => {
   const [newProdName, setNewProdName] = useState('');
   const [newProdPrice, setNewProdPrice] = useState('');
   const [newProdDesc, setNewProdDesc] = useState('');
-  const [newProdImg, setNewProdImg] = useState('https://images.unsplash.com/photo-1549298916-b41d501d3772?w=600&auto=format&fit=crop&q=80');
+  const [newProdImg, setNewProdImg] = useState('');
 
   const [newServName, setNewServName] = useState('');
   const [newServPrice, setNewServPrice] = useState('');
   const [newServDesc, setNewServDesc] = useState('');
+  const [newServImg, setNewServImg] = useState('');
+  const [newServMode, setNewServMode] = useState<'on_premise' | 'remote' | 'hybrid'>('on_premise');
 
-  const [bankName, setBankName] = useState('Guaranty Trust Bank (GTBank)');
-  const [accountNumber, setAccountNumber] = useState('0123456789');
-  const [accountName, setAccountName] = useState(userBiz?.name || 'Boost Market Merchant');
-  const [bankSaved, setBankSaved] = useState(false);
+  // Real merchant products & services state
+  const [bizProducts, setBizProducts] = useState<Product[]>([]);
+  const [bizServices, setBizServices] = useState<Service[]>([]);
+  const [isLoadingCatalog, setIsLoadingCatalog] = useState(false);
 
-  const totalAdViews = userAds.reduce((acc, curr) => acc + (curr.viewsCount || 0), 0) || 1420;
-  const totalAdClicks = userAds.reduce((acc, curr) => acc + (curr.clicksCount || 0), 0) || 168;
+  const loadCatalog = React.useCallback(async () => {
+    if (!userBiz?.id) return;
+    setIsLoadingCatalog(true);
+    try {
+      const [prodRes, servRes] = await Promise.all([
+        fetch(`/api/products?businessId=${encodeURIComponent(userBiz.id)}`),
+        fetch(`/api/services?businessId=${encodeURIComponent(userBiz.id)}`)
+      ]);
+      const prodData = await prodRes.json();
+      const servData = await servRes.json();
+      if (prodData.success && Array.isArray(prodData.products)) {
+        setBizProducts(prodData.products);
+      }
+      if (servData.success && Array.isArray(servData.services)) {
+        setBizServices(servData.services);
+      }
+    } catch (err) {
+      console.error('Failed to load merchant catalog:', err);
+    } finally {
+      setIsLoadingCatalog(false);
+    }
+  }, [userBiz?.id]);
+
+  useEffect(() => {
+    loadCatalog();
+  }, [loadCatalog]);
+
+  const totalAdViews = userAds.reduce((acc, curr) => acc + (curr.viewsCount || 0), 0);
+  const totalAdClicks = userAds.reduce((acc, curr) => acc + (curr.clicksCount || 0), 0);
 
   const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -346,16 +375,18 @@ export const MerchantDashboardView: React.FC = () => {
         body: JSON.stringify({
           businessId: userBiz.id,
           name: newProdName,
-          description: newProdDesc || 'High quality product on Boost Market',
+          description: newProdDesc || '',
           price: Number(newProdPrice),
           category: userBiz.categoryLabel || userBiz.category,
-          imageUrls: [newProdImg],
+          imageUrls: newProdImg ? [newProdImg] : [],
           inStock: true
         })
       });
       setNewProdName('');
       setNewProdPrice('');
       setNewProdDesc('');
+      setNewProdImg('');
+      await loadCatalog();
       refreshData();
     } catch (err) {
       console.error('Failed to add product:', err);
@@ -372,27 +403,23 @@ export const MerchantDashboardView: React.FC = () => {
         body: JSON.stringify({
           businessId: userBiz.id,
           name: newServName,
-          description: newServDesc || 'Professional service',
+          description: newServDesc || '',
           startingPrice: Number(newServPrice),
           category: userBiz.categoryLabel || userBiz.category,
-          imageUrls: ['https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=600&auto=format&fit=crop&q=80'],
+          imageUrls: newServImg ? [newServImg] : [],
           durationUnit: 'service',
-          deliveryMode: 'on_premise'
+          deliveryMode: newServMode
         })
       });
       setNewServName('');
       setNewServPrice('');
       setNewServDesc('');
+      setNewServImg('');
+      await loadCatalog();
       refreshData();
     } catch (err) {
       console.error('Failed to add service:', err);
     }
-  };
-
-  const handleSaveBank = (e: React.FormEvent) => {
-    e.preventDefault();
-    setBankSaved(true);
-    setTimeout(() => setBankSaved(false), 3000);
   };
 
   // Business Logo Handlers (Epic 2 Task 2.2.2)
@@ -2869,7 +2896,7 @@ export const MerchantDashboardView: React.FC = () => {
               <Users className="w-4 h-4 text-emerald-500" />
             </div>
             <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">
-              {userLeads.length || 14}
+              {userLeads.length}
             </div>
             <div className="text-xs text-emerald-600 dark:text-emerald-400 font-bold mt-1">
               WhatsApp & Calls
@@ -2882,7 +2909,7 @@ export const MerchantDashboardView: React.FC = () => {
               <Megaphone className="w-4 h-4 text-amber-500" />
             </div>
             <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">
-              {userAds.filter(a => a.isBoosted).length || 2} Boosted
+              {userAds.filter(a => a.isBoosted).length} Boosted
             </div>
             <div className="text-xs text-indigo-600 dark:text-cyan-400 font-bold mt-1">
               Multi-platform distribution
@@ -2929,7 +2956,7 @@ export const MerchantDashboardView: React.FC = () => {
             }`}
           >
             <Users className="w-4 h-4 text-emerald-500" />
-            <span>Direct Leads ({userLeads.length || 6})</span>
+            <span>Direct Leads ({userLeads.length})</span>
           </button>
 
           <button
@@ -2954,18 +2981,6 @@ export const MerchantDashboardView: React.FC = () => {
           >
             <Wrench className="w-4 h-4" />
             <span>Services Menu</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('bank_payouts')}
-            className={`pb-2.5 px-4 flex items-center gap-2 border-b-2 transition-colors whitespace-nowrap cursor-pointer ${
-              activeTab === 'bank_payouts'
-                ? 'border-indigo-600 text-indigo-600 dark:text-cyan-400'
-                : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <CreditCard className="w-4 h-4" />
-            <span>Payout Account</span>
           </button>
         </div>
       </div>
@@ -3083,51 +3098,84 @@ export const MerchantDashboardView: React.FC = () => {
         {activeTab === 'leads' && (
           <div className="glass-card rounded-2xl overflow-hidden p-5">
             <h3 className="text-base font-bold text-slate-900 dark:text-white mb-4">
-              Direct Customer Inquiries & Leads
+              Direct Customer Inquiries & Leads ({userLeads.length})
             </h3>
             
-            <div className="divide-y divide-slate-100 dark:divide-slate-800">
-              {[
-                { name: 'Alhaji Musa Ibrahim', phone: '+2348031122334', ad: 'Premium Computer Diagnostics', time: '10 mins ago', message: 'Hello, what is your pricing for engine scanning?' },
-                { name: 'Chinedu Okafor', phone: '+2348029988776', ad: 'Full Transmission Overhaul', time: '2 hours ago', message: 'Can you service my Honda Accord tomorrow morning?' },
-                { name: 'Fatima Bello', phone: '+2348095544332', ad: 'Special Diagnostic Promo', time: 'Yesterday', message: 'Do you offer home visit inspections in Kaduna?' }
-              ].map((lead, idx) => (
-                <div key={idx} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-sm text-slate-900 dark:text-white">{lead.name}</span>
-                      <span className="text-[11px] text-slate-400 font-medium">{lead.time}</span>
-                    </div>
-                    <div className="text-xs text-indigo-600 dark:text-cyan-400 font-semibold mt-0.5">
-                      Interested in: {lead.ad}
-                    </div>
-                    <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 italic">
-                      "{lead.message}"
-                    </p>
-                  </div>
+            {userLeads.length === 0 ? (
+              <div className="text-center py-12 text-slate-500 dark:text-slate-400">
+                <Users className="w-12 h-12 mx-auto mb-3 opacity-30 text-slate-400" />
+                <p className="font-bold text-sm text-slate-800 dark:text-slate-200">No leads recorded yet</p>
+                <p className="text-xs mt-1 max-w-sm mx-auto">
+                  Direct customer inquiries, calls, and WhatsApp messages generated through your active advertisements will appear here.
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                {userLeads.map((lead) => {
+                  const linkedAd = lead.adId ? advertisements.find(a => a.id === lead.adId) : null;
+                  const cleanPhone = lead.customerPhone?.replace(/[^0-9]/g, '');
+                  return (
+                    <div key={lead.id} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-sm text-slate-900 dark:text-white">{lead.customerName || 'Inquirer'}</span>
+                          <span className="text-[11px] text-slate-400 font-medium">
+                            {lead.createdAt ? new Date(lead.createdAt).toLocaleDateString() : 'Recent'}
+                          </span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-semibold capitalize">
+                            {lead.source || 'direct'}
+                          </span>
+                        </div>
+                        {linkedAd && (
+                          <div className="text-xs text-indigo-600 dark:text-cyan-400 font-semibold mt-0.5">
+                            Interested in: {linkedAd.title}
+                          </div>
+                        )}
+                        {lead.interestItem && !linkedAd && (
+                          <div className="text-xs text-indigo-600 dark:text-cyan-400 font-semibold mt-0.5">
+                            Item: {lead.interestItem}
+                          </div>
+                        )}
+                        {lead.notes && (
+                          <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 italic">
+                            "{lead.notes}"
+                          </p>
+                        )}
+                        {lead.customerEmail && (
+                          <div className="text-[11px] text-slate-500 mt-0.5">
+                            {lead.customerEmail}
+                          </div>
+                        )}
+                      </div>
 
-                  <div className="flex items-center gap-2 self-start sm:self-auto">
-                    <a
-                      href={`https://wa.me/${lead.phone.replace(/[^0-9]/g, '')}?text=Hello%20${encodeURIComponent(lead.name)},%20thank%20you%20for%20your%20inquiry%20on%20Boost%20Market!`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 transition-colors"
-                    >
-                      <MessageSquare className="w-3.5 h-3.5" />
-                      <span>Reply on WhatsApp</span>
-                    </a>
+                      <div className="flex items-center gap-2 self-start sm:self-auto">
+                        {cleanPhone && (
+                          <>
+                            <a
+                              href={`https://wa.me/${cleanPhone}?text=Hello%20${encodeURIComponent(lead.customerName || '')},%20thank%20you%20for%20your%20inquiry%20on%20Boost%20Market!`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 transition-colors"
+                            >
+                              <MessageSquare className="w-3.5 h-3.5" />
+                              <span>Reply on WhatsApp</span>
+                            </a>
 
-                    <a
-                      href={`tel:${lead.phone}`}
-                      className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                      title="Call Lead"
-                    >
-                      <Phone className="w-4 h-4 text-indigo-600" />
-                    </a>
-                  </div>
-                </div>
-              ))}
-            </div>
+                            <a
+                              href={`tel:${cleanPhone}`}
+                              className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                              title="Call Lead"
+                            >
+                              <Phone className="w-4 h-4 text-indigo-600" />
+                            </a>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
@@ -3143,7 +3191,7 @@ export const MerchantDashboardView: React.FC = () => {
                     type="text"
                     value={newProdName}
                     onChange={(e) => setNewProdName(e.target.value)}
-                    placeholder="e.g. Bosch Diagnostic Scanner OBD2"
+                    placeholder="e.g. Engine Oil Filter High-Flow"
                     className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-xs text-slate-900 dark:text-white"
                     required
                   />
@@ -3154,9 +3202,19 @@ export const MerchantDashboardView: React.FC = () => {
                     type="number"
                     value={newProdPrice}
                     onChange={(e) => setNewProdPrice(e.target.value)}
-                    placeholder="45000"
+                    placeholder="15000"
                     className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-xs text-slate-900 dark:text-white"
                     required
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-600 dark:text-slate-400 font-semibold mb-1">Image URL (Optional)</label>
+                  <input
+                    type="url"
+                    value={newProdImg}
+                    onChange={(e) => setNewProdImg(e.target.value)}
+                    placeholder="https://..."
+                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-xs text-slate-900 dark:text-white"
                   />
                 </div>
                 <div>
@@ -3179,8 +3237,55 @@ export const MerchantDashboardView: React.FC = () => {
             </div>
 
             <div className="lg:col-span-8 glass-card p-5 rounded-2xl">
-              <h3 className="font-bold text-slate-900 dark:text-white text-sm mb-4">Current Products</h3>
-              <p className="text-xs text-slate-500">Products in your catalog can be featured in advertisements or ordered directly by customers.</p>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-bold text-slate-900 dark:text-white text-sm">
+                  Catalog Products ({bizProducts.length})
+                </h3>
+                {isLoadingCatalog && (
+                  <span className="text-[11px] text-slate-400">Loading catalog...</span>
+                )}
+              </div>
+              
+              {bizProducts.length === 0 ? (
+                <div className="text-center py-12 text-slate-500 dark:text-slate-400">
+                  <ShoppingBag className="w-12 h-12 mx-auto mb-3 opacity-30 text-slate-400" />
+                  <p className="font-bold text-sm text-slate-800 dark:text-slate-200">No products in catalog yet</p>
+                  <p className="text-xs mt-1 max-w-sm mx-auto">
+                    Add products using the form on the left to display inventory and showcase items to customers.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {bizProducts.map((prod) => (
+                    <div key={prod.id} className="p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col justify-between">
+                      {prod.imageUrls?.[0] && (
+                        <img
+                          src={prod.imageUrls[0]}
+                          alt={prod.name}
+                          className="w-full h-32 object-cover rounded-lg mb-2.5"
+                        />
+                      )}
+                      <div>
+                        <div className="flex items-start justify-between gap-2">
+                          <h4 className="font-bold text-sm text-slate-900 dark:text-white">{prod.name}</h4>
+                          <span className="font-black text-sm text-indigo-600 dark:text-cyan-400 whitespace-nowrap">
+                            ₦{Number(prod.price).toLocaleString()}
+                          </span>
+                        </div>
+                        {prod.description && (
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">
+                            {prod.description}
+                          </p>
+                        )}
+                      </div>
+                      <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
+                        <span className="capitalize">{prod.category}</span>
+                        <span className="text-emerald-600 dark:text-emerald-400 font-semibold">In Stock</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -3197,7 +3302,7 @@ export const MerchantDashboardView: React.FC = () => {
                     type="text"
                     value={newServName}
                     onChange={(e) => setNewServName(e.target.value)}
-                    placeholder="e.g. Complete Engine Overhaul & Tune-Up"
+                    placeholder="e.g. Routine Vehicle Inspection"
                     className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-xs text-slate-900 dark:text-white"
                     required
                   />
@@ -3211,6 +3316,28 @@ export const MerchantDashboardView: React.FC = () => {
                     placeholder="25000"
                     className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-xs text-slate-900 dark:text-white"
                     required
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-600 dark:text-slate-400 font-semibold mb-1">Delivery Mode</label>
+                  <select
+                    value={newServMode}
+                    onChange={(e) => setNewServMode(e.target.value as 'on_premise' | 'remote' | 'hybrid')}
+                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-xs text-slate-900 dark:text-white"
+                  >
+                    <option value="on_premise">On-Premise / At Shop</option>
+                    <option value="remote">Remote / Digital</option>
+                    <option value="hybrid">Hybrid</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-slate-600 dark:text-slate-400 font-semibold mb-1">Image URL (Optional)</label>
+                  <input
+                    type="url"
+                    value={newServImg}
+                    onChange={(e) => setNewServImg(e.target.value)}
+                    placeholder="https://..."
+                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-xs text-slate-900 dark:text-white"
                   />
                 </div>
                 <div>
@@ -3233,62 +3360,56 @@ export const MerchantDashboardView: React.FC = () => {
             </div>
 
             <div className="lg:col-span-8 glass-card p-5 rounded-2xl">
-              <h3 className="font-bold text-slate-900 dark:text-white text-sm mb-4">Service Offerings</h3>
-              <p className="text-xs text-slate-500">Service listings allow clients to request quotes and book directly.</p>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-bold text-slate-900 dark:text-white text-sm">
+                  Service Offerings ({bizServices.length})
+                </h3>
+                {isLoadingCatalog && (
+                  <span className="text-[11px] text-slate-400">Loading services...</span>
+                )}
+              </div>
+
+              {bizServices.length === 0 ? (
+                <div className="text-center py-12 text-slate-500 dark:text-slate-400">
+                  <Wrench className="w-12 h-12 mx-auto mb-3 opacity-30 text-slate-400" />
+                  <p className="font-bold text-sm text-slate-800 dark:text-slate-200">No services listed yet</p>
+                  <p className="text-xs mt-1 max-w-sm mx-auto">
+                    Create service offerings so prospective clients can review your capabilities and book services.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {bizServices.map((serv) => (
+                    <div key={serv.id} className="p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col justify-between">
+                      {serv.imageUrls?.[0] && (
+                        <img
+                          src={serv.imageUrls[0]}
+                          alt={serv.name}
+                          className="w-full h-32 object-cover rounded-lg mb-2.5"
+                        />
+                      )}
+                      <div>
+                        <div className="flex items-start justify-between gap-2">
+                          <h4 className="font-bold text-sm text-slate-900 dark:text-white">{serv.name}</h4>
+                          <span className="font-black text-sm text-indigo-600 dark:text-cyan-400 whitespace-nowrap">
+                            From ₦{Number(serv.startingPrice).toLocaleString()}
+                          </span>
+                        </div>
+                        {serv.description && (
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">
+                            {serv.description}
+                          </p>
+                        )}
+                      </div>
+                      <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
+                        <span className="capitalize">{serv.category}</span>
+                        <span className="capitalize">{serv.deliveryMode?.replace('_', ' ') || 'Service'}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-          </div>
-        )}
-
-        {/* BANK PAYOUTS TAB */}
-        {activeTab === 'bank_payouts' && (
-          <div className="max-w-xl glass-card rounded-2xl p-6">
-            <h3 className="font-bold text-slate-900 dark:text-white text-base mb-2">Merchant Bank Account</h3>
-            <p className="text-xs text-slate-500 mb-4">Receive direct bank settlements for client invoices, orders, and services.</p>
-            
-            <form onSubmit={handleSaveBank} className="space-y-4 text-xs">
-              <div>
-                <label className="block text-slate-600 dark:text-slate-400 font-semibold mb-1">Bank Name</label>
-                <input
-                  type="text"
-                  value={bankName}
-                  onChange={(e) => setBankName(e.target.value)}
-                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-xs text-slate-900 dark:text-white"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-600 dark:text-slate-400 font-semibold mb-1">Account Number</label>
-                <input
-                  type="text"
-                  value={accountNumber}
-                  onChange={(e) => setAccountNumber(e.target.value)}
-                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-xs text-slate-900 dark:text-white"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-600 dark:text-slate-400 font-semibold mb-1">Account Name</label>
-                <input
-                  type="text"
-                  value={accountName}
-                  onChange={(e) => setAccountName(e.target.value)}
-                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-xs text-slate-900 dark:text-white"
-                  required
-                />
-              </div>
-
-              <div className="pt-2">
-                <button
-                  type="submit"
-                  className="w-full py-2.5 rounded-xl btn-advertise font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>{bankSaved ? 'Bank Details Updated!' : 'Save Payout Details'}</span>
-                </button>
-              </div>
-            </form>
           </div>
         )}
 
