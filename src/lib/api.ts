@@ -1562,6 +1562,26 @@ export const productApi = {
       throw new ApiError(data.error || 'Failed to fetch products.', res.status, data.code);
     }
     return data;
+  },
+
+  /**
+   * Create a new product for a business
+   */
+  async create(data: {
+    businessId: string;
+    name: string;
+    description?: string;
+    price: number;
+    currency?: string;
+    imageUrls?: string[];
+    category?: string;
+    inStock?: boolean;
+    sku?: string;
+  }): Promise<{ success: boolean; product: Product }> {
+    return fetchWithAuth<{ success: boolean; product: Product }>('/api/products/create', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
   }
 };
 
@@ -1624,6 +1644,26 @@ export const serviceApi = {
       throw new ApiError(data.error || 'Failed to fetch services.', res.status, data.code);
     }
     return data;
+  },
+
+  /**
+   * Create a new service for a business
+   */
+  async create(data: {
+    businessId: string;
+    name: string;
+    description?: string;
+    startingPrice: number;
+    currency?: string;
+    durationUnit?: string;
+    imageUrls?: string[];
+    category?: string;
+    deliveryMode?: 'on_premise' | 'remote' | 'hybrid';
+  }): Promise<{ success: boolean; service: Service }> {
+    return fetchWithAuth<{ success: boolean; service: Service }>('/api/services/create', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
   }
 };
 
@@ -1692,5 +1732,46 @@ export const advertisementApi = {
       throw new ApiError(data.error || 'Failed to fetch advertisements.', res.status, data.code);
     }
     return data;
+  },
+
+  /**
+   * Create a new advertisement
+   */
+  async create(data: {
+    businessId: string;
+    businessName?: string;
+    businessLogo?: string;
+    businessCategory?: string;
+    title: string;
+    description: string;
+    category?: string;
+    subcategory?: string;
+    mediaUrls?: string[];
+    mediaType?: 'image' | 'video';
+    price?: number;
+    currency?: string;
+    location?: any;
+    tags?: string[];
+    contactPhone?: string;
+    contactWhatsApp?: string;
+    targetRadiusKm?: number;
+    isDraft?: boolean;
+    isBoosted?: boolean;
+    boostPlan?: any;
+  }): Promise<{ success: boolean; ad: Advertisement }> {
+    return fetchWithAuth<{ success: boolean; ad: Advertisement }>('/api/ads/create', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  /**
+   * Boost an advertisement
+   */
+  async boost(id: string, boostPlan?: any): Promise<{ success: boolean; ad: Advertisement }> {
+    return fetchWithAuth<{ success: boolean; ad: Advertisement }>(`/api/ads/${encodeURIComponent(id)}/boost`, {
+      method: 'POST',
+      body: JSON.stringify({ boostPlan })
+    });
   }
 };

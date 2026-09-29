@@ -66,6 +66,7 @@ export const CampaignManagementView: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<'campaigns' | 'leads' | 'analytics'>('campaigns');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [campaignModalError, setCampaignModalError] = useState<string | null>(null);
   const [isAddLeadModalOpen, setIsAddLeadModalOpen] = useState(false);
 
   // Wizard state
@@ -173,8 +174,9 @@ export const CampaignManagementView: React.FC = () => {
   };
 
   const handleLaunchCampaign = async () => {
+    setCampaignModalError(null);
     if (!campaignTitle || !headline || !bodyCopy || !userBiz) {
-      alert('Please fill out all required fields.');
+      setCampaignModalError('Please fill out all required fields.');
       return;
     }
     try {
@@ -216,10 +218,11 @@ export const CampaignManagementView: React.FC = () => {
         setBodyCopy('');
         refreshData();
       } else {
-        alert(data.error || 'Failed to create campaign');
+        setCampaignModalError(data.error || 'Failed to create campaign');
       }
     } catch (err) {
       console.error('Error creating campaign:', err);
+      setCampaignModalError('An unexpected network error occurred. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -686,12 +689,22 @@ export const CampaignManagementView: React.FC = () => {
                 <h2 className="text-base font-bold text-gray-900">Create Campaign</h2>
               </div>
               <button
-                onClick={() => setIsCreateModalOpen(false)}
+                onClick={() => {
+                  setIsCreateModalOpen(false);
+                  setCampaignModalError(null);
+                }}
                 className="w-7 h-7 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-500 flex items-center justify-center cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            {campaignModalError && (
+              <div className="mt-3 p-2.5 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs flex items-center justify-between">
+                <span>{campaignModalError}</span>
+                <button type="button" onClick={() => setCampaignModalError(null)} className="text-red-500 font-bold ml-2 cursor-pointer">✕</button>
+              </div>
+            )}
 
             {/* Step 1 */}
             {step === 1 && (
@@ -852,10 +865,11 @@ export const CampaignManagementView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => {
-                    if (step === 1 && !campaignTitle) {
-                      alert('Please provide a campaign title.');
+                    if (step === 1 && !campaignTitle.trim()) {
+                      setCampaignModalError('Please provide a campaign title.');
                       return;
                     }
+                    setCampaignModalError(null);
                     setStep(step + 1);
                   }}
                   className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs cursor-pointer"

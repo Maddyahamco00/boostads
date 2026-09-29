@@ -21,24 +21,23 @@ import {
   SlidersHorizontal,
   Compass,
   FileText,
-  Video,
-  Award,
-  ExternalLink,
-  Target
+  Key,
+  DollarSign,
+  Package,
+  Wrench,
+  Tag,
+  Check
 } from 'lucide-react';
 
 export const LandingPageView: React.FC = () => {
   const { 
     setActiveView, 
     businesses, 
-    advertisements, 
     categories, 
     setSelectedCategory, 
     setSearchQuery, 
-    setIsCreateAdModalOpen,
     isAuthenticated,
-    viewBusinessDetail,
-    viewAdDetail
+    viewBusinessDetail
   } = useApp();
 
   const [heroSearchInput, setHeroSearchInput] = useState('');
@@ -56,23 +55,23 @@ export const LandingPageView: React.FC = () => {
     setActiveView('discover');
   };
 
-  // Curated list of confirmed real categories with intuitive icons
-  const quickCategories = [
-    { id: 'cat_retail', name: 'Retail & Shopping', count: businesses.filter(b => b.category === 'cat_retail' || b.category === 'Retail').length || 'Browse' },
-    { id: 'cat_food', name: 'Food & Restaurants', count: businesses.filter(b => b.category === 'cat_food' || b.category === 'Food & Beverage').length || 'Browse' },
-    { id: 'cat_tech', name: 'Technology & Electronics', count: businesses.filter(b => b.category === 'cat_tech' || b.category === 'Technology').length || 'Browse' },
-    { id: 'cat_services', name: 'Professional Services', count: businesses.filter(b => b.category === 'cat_services' || b.category === 'Services').length || 'Browse' },
-    { id: 'cat_fashion', name: 'Fashion & Apparel', count: businesses.filter(b => b.category === 'cat_fashion' || b.category === 'Fashion').length || 'Browse' },
-    { id: 'cat_health', name: 'Health & Wellness', count: businesses.filter(b => b.category === 'cat_health' || b.category === 'Healthcare').length || 'Browse' },
+  // Curated list of confirmed real top-level categories
+  const topCategories = [
+    { id: 'cat_retail', name: 'Retail & Shopping', icon: Package },
+    { id: 'cat_food', name: 'Food & Restaurants', icon: Store },
+    { id: 'cat_tech', name: 'Technology & Digital', icon: Zap },
+    { id: 'cat_services', name: 'Professional Services', icon: Wrench },
+    { id: 'cat_fashion', name: 'Fashion & Apparel', icon: Tag },
+    { id: 'cat_health', name: 'Health & Wellness', icon: Sparkles }
   ];
 
   return (
-    <div className="w-full bg-[#071A17] text-slate-100 selection:bg-[#16C784] selection:text-[#071A17] overflow-hidden">
+    <div className="w-full bg-[#071A17] text-slate-100 selection:bg-[#16C784] selection:text-[#071A17] overflow-x-hidden">
       
       {/* ========================================================================
-          HERO SECTION — High Visual Impact with Official 3D Glass Emblem Tile
+          1. HERO SECTION — Professional Visual Identity with Official Glass Emblem
           ======================================================================== */}
-      <section className="relative pt-12 pb-20 md:pt-20 md:pb-32 px-4 sm:px-6 lg:px-8 border-b border-[#16C784]/20">
+      <section className="relative pt-12 pb-20 md:pt-20 md:pb-28 px-4 sm:px-6 lg:px-8 border-b border-[#16C784]/20">
         
         {/* Luminous Ambient Background Glows */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[450px] bg-gradient-to-b from-[#A3FF12]/15 via-[#16C784]/10 to-transparent blur-[120px] pointer-events-none -z-10" />
@@ -82,7 +81,7 @@ export const LandingPageView: React.FC = () => {
         <div className="max-w-7xl mx-auto">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-8 items-center">
             
-            {/* Left Column: Core Value Proposition & Action (7 cols) */}
+            {/* Left Column: Core Positioning & Search (7 cols) */}
             <div className="lg:col-span-7 flex flex-col items-start text-left z-10">
               
               {/* Official AI-Powered Tagline Pill */}
@@ -98,14 +97,13 @@ export const LandingPageView: React.FC = () => {
 
               {/* Marquee Headline */}
               <h1 className="text-4xl sm:text-5xl md:text-6xl font-black text-white tracking-tight leading-[1.08] mb-6">
-                Smart Advertising. <br />
-                <span className="bm-gradient-text">Better Results.</span> <br />
-                Powered by AI.
+                AI-Powered Advertising <br />
+                <span className="bm-gradient-text">for Growing Businesses</span>
               </h1>
 
-              {/* Subtitle describing true platform mechanism */}
+              {/* Clear Product Positioning Statement */}
               <p className="text-base sm:text-lg text-slate-300 max-w-xl leading-relaxed mb-8">
-                Boost Market connects growing businesses across Kaduna, Lagos, Abuja, and nationwide. Create verified profiles, generate high-converting AI marketing copy, launch targeted ads, and receive direct customer leads via WhatsApp.
+                Create, promote and discover businesses, products, services and advertisements in one unified platform. Boost Market connects verified Nigerian merchants with active local customers.
               </p>
 
               {/* Interactive Search Bar / Discovery Trigger */}
@@ -113,6 +111,7 @@ export const LandingPageView: React.FC = () => {
                 <div className="relative flex items-center p-1.5 rounded-2xl bg-[#0B2521]/90 border border-[#16C784]/40 shadow-[0_8px_30px_rgba(0,0,0,0.6)] focus-within:border-[#A3FF12] focus-within:ring-2 focus-within:ring-[#A3FF12]/20 transition-all">
                   <Search className="w-5 h-5 text-[#16C784] ml-3.5 shrink-0" />
                   <input
+                    id="hero-search-input"
                     type="text"
                     value={heroSearchInput}
                     onChange={(e) => setHeroSearchInput(e.target.value)}
@@ -120,6 +119,7 @@ export const LandingPageView: React.FC = () => {
                     className="w-full bg-transparent px-3 py-2.5 text-sm sm:text-base text-white placeholder:text-slate-400 focus:outline-none"
                   />
                   <button
+                    id="hero-search-submit-btn"
                     type="submit"
                     className="px-5 py-2.5 rounded-xl btn-bm-primary text-xs sm:text-sm font-bold flex items-center gap-1.5 shrink-0 cursor-pointer"
                   >
@@ -130,37 +130,39 @@ export const LandingPageView: React.FC = () => {
               </form>
 
               {/* Primary Dual CTA System */}
-              <div className="flex flex-wrap items-center gap-4 mb-10 w-full sm:w-auto">
+              <div className="flex flex-wrap items-center gap-4 mb-8 w-full sm:w-auto">
                 <button
+                  id="hero-primary-cta-btn"
                   onClick={() => setActiveView(isAuthenticated ? 'merchant_dashboard' : 'register')}
-                  className="w-full sm:w-auto px-7 py-3.5 rounded-xl btn-bm-primary text-sm sm:text-base font-bold flex items-center justify-center gap-2 cursor-pointer"
+                  className="w-full sm:w-auto px-7 py-3.5 rounded-xl btn-bm-primary text-sm sm:text-base font-bold flex items-center justify-center gap-2 cursor-pointer shadow-lg"
                 >
                   <Sparkles className="w-4 h-4" />
-                  <span>{isAuthenticated ? 'Go to Business Hub' : 'Get Started — Register Business'}</span>
+                  <span>{isAuthenticated ? 'Go to Business Hub' : 'Get Started'}</span>
                 </button>
 
                 <button
+                  id="hero-secondary-cta-btn"
                   onClick={() => setActiveView('discover')}
                   className="w-full sm:w-auto px-7 py-3.5 rounded-xl bg-white/5 hover:bg-white/10 text-white border border-[#16C784]/30 hover:border-[#16C784]/60 text-sm sm:text-base font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer"
                 >
                   <Store className="w-4 h-4 text-[#A3FF12]" />
-                  <span>Explore Businesses & Ads</span>
+                  <span>Explore Businesses</span>
                 </button>
               </div>
 
               {/* Verified Trust Badges (Real Capabilities Only) */}
-              <div className="flex flex-wrap items-center gap-y-2 gap-x-6 text-xs text-slate-300 pt-2 border-t border-white/10 w-full">
+              <div className="flex flex-wrap items-center gap-y-2 gap-x-6 text-xs text-slate-300 pt-3 border-t border-white/10 w-full">
                 <div className="flex items-center gap-1.5">
                   <CheckCircle2 className="w-4 h-4 text-[#16C784]" />
                   <span>Verified Merchant Profiles</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <CheckCircle2 className="w-4 h-4 text-[#A3FF12]" />
-                  <span>Direct WhatsApp Inbound Leads</span>
+                  <span>Direct WhatsApp Inquiries</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <CheckCircle2 className="w-4 h-4 text-[#14B8A6]" />
-                  <span>Multi-City Geo Targeting</span>
+                  <span>Multi-Domain Search</span>
                 </div>
               </div>
 
@@ -169,31 +171,30 @@ export const LandingPageView: React.FC = () => {
             {/* Right Column: Official 3D Glassmorphic Emblem Card (5 cols) */}
             <div className="lg:col-span-5 flex justify-center items-center relative">
               
-              {/* Outer decorative halo */}
               <div className="relative w-full max-w-[420px] flex justify-center items-center">
                 
-                {/* Official 3D Glassmorphism Brand Badge from Prototype */}
+                {/* Official 3D Glassmorphism Brand Badge from Prototype Reference */}
                 <Logo variant="badge" size="xl" showTagline={true} />
 
                 {/* Floating Interactive Badge (Direct WhatsApp Connect) */}
-                <div className="absolute -bottom-6 -left-4 sm:-left-8 p-3.5 rounded-2xl bg-[#0B2521]/95 border border-[#16C784]/40 shadow-xl backdrop-blur-xl flex items-center gap-3 animate-bounce [animation-duration:4s]">
-                  <div className="w-10 h-10 rounded-xl bg-[#16C784]/20 border border-[#16C784]/40 flex items-center justify-center text-[#A3FF12] shrink-0">
-                    <MessageSquare className="w-5 h-5" />
+                <div className="absolute -bottom-5 -left-4 sm:-left-6 p-3 rounded-2xl bg-[#0B2521]/95 border border-[#16C784]/40 shadow-xl backdrop-blur-xl flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-[#16C784]/20 border border-[#16C784]/40 flex items-center justify-center text-[#A3FF12] shrink-0">
+                    <MessageSquare className="w-4 h-4" />
                   </div>
                   <div>
-                    <div className="text-[11px] font-bold text-slate-200">Instant Customer Leads</div>
-                    <div className="text-[10px] text-[#A3FF12] font-semibold">Direct WhatsApp routing</div>
+                    <div className="text-[11px] font-bold text-slate-200">Customer Connect</div>
+                    <div className="text-[10px] text-[#A3FF12] font-semibold">Direct WhatsApp messaging</div>
                   </div>
                 </div>
 
                 {/* Floating Interactive Badge (AI Marketing Engine) */}
-                <div className="absolute -top-4 -right-4 sm:-right-6 p-3 rounded-2xl bg-[#0B2521]/95 border border-[#A3FF12]/40 shadow-xl backdrop-blur-xl flex items-center gap-3">
+                <div className="absolute -top-3 -right-4 sm:-right-6 p-3 rounded-2xl bg-[#0B2521]/95 border border-[#A3FF12]/40 shadow-xl backdrop-blur-xl flex items-center gap-3">
                   <div className="w-9 h-9 rounded-xl bg-[#A3FF12]/20 border border-[#A3FF12]/40 flex items-center justify-center text-[#A3FF12] shrink-0">
                     <Zap className="w-4 h-4" />
                   </div>
                   <div>
                     <div className="text-[11px] font-bold text-slate-200">AI Copy & Storyboards</div>
-                    <div className="text-[10px] text-slate-400">Gemini 2.5 Flash Engine</div>
+                    <div className="text-[10px] text-slate-400">Integrated Gemini engine</div>
                   </div>
                 </div>
 
@@ -207,67 +208,248 @@ export const LandingPageView: React.FC = () => {
 
 
       {/* ========================================================================
-          DISCOVERY & CATEGORY EXPLORATION — Instant Navigation into Real Data
+          2. PRODUCT POSITIONING FLOW — The Real Platform Mechanism
           ======================================================================== */}
-      <section className="py-16 sm:py-20 px-4 sm:px-6 lg:px-8 border-b border-[#16C784]/15 bg-[#051513]">
+      <section className="py-12 px-4 sm:px-6 lg:px-8 border-b border-[#16C784]/15 bg-[#051513]">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-6">
+            <span className="text-xs font-bold text-[#A3FF12] uppercase tracking-wider">
+              Core Platform Flow
+            </span>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 text-xs sm:text-sm font-semibold">
+            <div className="px-3.5 py-2 rounded-xl bg-[#09221E] border border-[#16C784]/30 text-white flex items-center gap-2">
+              <Store className="w-4 h-4 text-[#A3FF12]" />
+              <span>Business</span>
+            </div>
+            <span className="text-[#16C784] font-bold">→</span>
+            <div className="px-3.5 py-2 rounded-xl bg-[#09221E] border border-[#16C784]/30 text-white flex items-center gap-2">
+              <Megaphone className="w-4 h-4 text-[#16C784]" />
+              <span>Create Advertisement</span>
+            </div>
+            <span className="text-[#16C784] font-bold">→</span>
+            <div className="px-3.5 py-2 rounded-xl bg-[#09221E] border border-[#16C784]/30 text-white flex items-center gap-2">
+              <Compass className="w-4 h-4 text-[#14B8A6]" />
+              <span>Promote / Discover</span>
+            </div>
+            <span className="text-[#16C784] font-bold">→</span>
+            <div className="px-3.5 py-2 rounded-xl bg-[#09221E] border border-[#16C784]/30 text-white flex items-center gap-2">
+              <Users className="w-4 h-4 text-[#A3FF12]" />
+              <span>Reach Customers</span>
+            </div>
+            <span className="text-[#16C784] font-bold">→</span>
+            <div className="px-3.5 py-2 rounded-xl bg-[#09221E] border border-[#16C784]/30 text-white flex items-center gap-2">
+              <MessageSquare className="w-4 h-4 text-[#16C784]" />
+              <span>Engage Directly</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+
+      {/* ========================================================================
+          3. HOW BOOST MARKET WORKS — 4 Clean Practical Steps
+          ======================================================================== */}
+      <section id="how-it-works" className="py-20 px-4 sm:px-6 lg:px-8 border-b border-[#16C784]/20 bg-[#071A17]">
+        <div className="max-w-7xl mx-auto">
+          
+          <div className="text-center max-w-2xl mx-auto mb-16">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#16C784]/15 border border-[#16C784]/30 text-xs font-bold text-[#A3FF12] uppercase tracking-wider mb-3">
+              <Zap className="w-3.5 h-3.5" />
+              <span>How It Works</span>
+            </div>
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
+              Get Started in Four Simple Steps
+            </h2>
+            <p className="text-slate-300 text-sm sm:text-base mt-3 leading-relaxed">
+              Launch your commercial presence and connect with prospective customers.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            
+            {/* Step 1 */}
+            <div className="p-6 rounded-2xl bg-[#09221E] border border-[#16C784]/25 relative">
+              <div className="text-3xl font-black text-[#A3FF12] mb-3">01</div>
+              <h3 className="text-lg font-bold text-white mb-2">Create Your Business</h3>
+              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                Set up your official business profile with city location, categories, operating hours, and verified contact information.
+              </p>
+            </div>
+
+            {/* Step 2 */}
+            <div className="p-6 rounded-2xl bg-[#09221E] border border-[#16C784]/25 relative">
+              <div className="text-3xl font-black text-[#16C784] mb-3">02</div>
+              <h3 className="text-lg font-bold text-white mb-2">Create Your Advertisement</h3>
+              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                Promote your products or services with pricing, imagery, targeted descriptions, and direct WhatsApp contact options.
+              </p>
+            </div>
+
+            {/* Step 3 */}
+            <div className="p-6 rounded-2xl bg-[#09221E] border border-[#16C784]/25 relative">
+              <div className="text-3xl font-black text-[#14B8A6] mb-3">03</div>
+              <h3 className="text-lg font-bold text-white mb-2">Get Discovered</h3>
+              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                Customers can discover businesses, products, services, and advertisements through dedicated real-time search.
+              </p>
+            </div>
+
+            {/* Step 4 */}
+            <div className="p-6 rounded-2xl bg-[#09221E] border border-[#16C784]/25 relative">
+              <div className="text-3xl font-black text-[#A3FF12] mb-3">04</div>
+              <h3 className="text-lg font-bold text-white mb-2">Connect and Grow</h3>
+              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                Engage directly with interested buyers via WhatsApp and utilize platform tools to manage your offerings and visibility.
+              </p>
+            </div>
+
+          </div>
+
+          <div className="mt-12 text-center">
+            <button
+              id="how-it-works-cta-btn"
+              onClick={() => setActiveView(isAuthenticated ? 'merchant_dashboard' : 'register')}
+              className="px-8 py-3.5 rounded-xl btn-bm-primary text-sm sm:text-base font-bold inline-flex items-center gap-2 cursor-pointer shadow-lg"
+            >
+              <span>{isAuthenticated ? 'Open Business Hub' : 'Register Your Business'}</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+
+        </div>
+      </section>
+
+
+      {/* ========================================================================
+          4. DISCOVERY & SEARCH SECTION — Real Multi-Domain Exploration
+          ======================================================================== */}
+      <section className="py-20 px-4 sm:px-6 lg:px-8 border-b border-[#16C784]/15 bg-[#051513]">
         <div className="max-w-7xl mx-auto">
           
           <div className="flex flex-col md:flex-row md:items-end justify-between mb-10 gap-4">
             <div>
               <div className="flex items-center gap-2 text-[#A3FF12] text-xs font-bold uppercase tracking-wider mb-2">
                 <Compass className="w-4 h-4" />
-                <span>Marketplace Discovery</span>
+                <span>Commercial Discovery</span>
               </div>
               <h2 className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-white tracking-tight">
-                Discover Verified Businesses & Offers
+                Discover Verified Businesses, Products & Services
               </h2>
               <p className="text-sm sm:text-base text-slate-400 mt-2 max-w-xl">
-                Explore local commercial establishments, catalogs, active promotional ads, and professional services across Nigerian metropolitan centers.
+                Boost Market provides four dedicated search engines to connect buyers and sellers across Nigerian commerce.
               </p>
             </div>
 
             <button
+              id="landing-view-directory-btn"
               onClick={() => setActiveView('discover')}
               className="inline-flex items-center gap-2 text-sm font-bold text-[#16C784] hover:text-[#A3FF12] transition-colors cursor-pointer self-start md:self-auto"
             >
-              <span>View Full Directory</span>
+              <span>Open Directory & Search</span>
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
 
-          {/* Quick Category Grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 mb-12">
-            {quickCategories.map((cat) => (
-              <button
-                key={cat.id}
-                onClick={() => handleCategoryClick(cat.id)}
-                className="group p-4 rounded-2xl bg-[#09221E]/80 hover:bg-[#0E322C] border border-[#16C784]/20 hover:border-[#16C784]/60 text-left transition-all duration-200 cursor-pointer flex flex-col justify-between"
-              >
-                <div className="w-10 h-10 rounded-xl bg-[#16C784]/10 group-hover:bg-[#16C784]/20 border border-[#16C784]/30 flex items-center justify-center text-[#A3FF12] mb-3 transition-colors">
-                  <Store className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="text-xs sm:text-sm font-bold text-white group-hover:text-[#A3FF12] transition-colors line-clamp-2">
-                    {cat.name}
-                  </div>
-                  <div className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
-                    <span>{cat.count}</span>
-                    <span>listings</span>
-                  </div>
-                </div>
-              </button>
-            ))}
+          {/* 4 Search Capabilities Showcase */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-12">
+            <div 
+              onClick={() => setActiveView('discover')}
+              className="p-5 rounded-2xl bg-[#09221E] border border-[#16C784]/25 hover:border-[#16C784]/60 transition-all cursor-pointer group"
+            >
+              <div className="w-10 h-10 rounded-xl bg-[#16C784]/15 flex items-center justify-center text-[#A3FF12] mb-3">
+                <Store className="w-5 h-5" />
+              </div>
+              <h3 className="text-base font-bold text-white group-hover:text-[#A3FF12] transition-colors">
+                Business Search
+              </h3>
+              <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                Locate verified commercial merchants, physical stores, and registered companies by name, category, or city.
+              </p>
+            </div>
+
+            <div 
+              onClick={() => setActiveView('discover')}
+              className="p-5 rounded-2xl bg-[#09221E] border border-[#16C784]/25 hover:border-[#16C784]/60 transition-all cursor-pointer group"
+            >
+              <div className="w-10 h-10 rounded-xl bg-[#16C784]/15 flex items-center justify-center text-[#A3FF12] mb-3">
+                <Package className="w-5 h-5" />
+              </div>
+              <h3 className="text-base font-bold text-white group-hover:text-[#A3FF12] transition-colors">
+                Product Search
+              </h3>
+              <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                Find specific catalog items, inventory goods, and retail products with transparent pricing and stock flags.
+              </p>
+            </div>
+
+            <div 
+              onClick={() => setActiveView('discover')}
+              className="p-5 rounded-2xl bg-[#09221E] border border-[#16C784]/25 hover:border-[#16C784]/60 transition-all cursor-pointer group"
+            >
+              <div className="w-10 h-10 rounded-xl bg-[#16C784]/15 flex items-center justify-center text-[#A3FF12] mb-3">
+                <Wrench className="w-5 h-5" />
+              </div>
+              <h3 className="text-base font-bold text-white group-hover:text-[#A3FF12] transition-colors">
+                Service Search
+              </h3>
+              <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                Explore professional services with delivery modes: on-premise, remote, or hybrid delivery options.
+              </p>
+            </div>
+
+            <div 
+              onClick={() => setActiveView('discover')}
+              className="p-5 rounded-2xl bg-[#09221E] border border-[#16C784]/25 hover:border-[#16C784]/60 transition-all cursor-pointer group"
+            >
+              <div className="w-10 h-10 rounded-xl bg-[#16C784]/15 flex items-center justify-center text-[#A3FF12] mb-3">
+                <Megaphone className="w-5 h-5" />
+              </div>
+              <h3 className="text-base font-bold text-white group-hover:text-[#A3FF12] transition-colors">
+                Advertisement Search
+              </h3>
+              <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                Browse active promotional advertisements, discounts, and commercial offers from verified merchants.
+              </p>
+            </div>
           </div>
 
-          {/* Live Platform Highlights (Real Items from Database) */}
+          {/* Quick Category Grid */}
+          <div className="mb-10">
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">
+              Browse by Industry Sector
+            </h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              {topCategories.map((cat) => {
+                const IconComponent = cat.icon;
+                return (
+                  <button
+                    key={cat.id}
+                    onClick={() => handleCategoryClick(cat.id)}
+                    className="p-3.5 rounded-xl bg-[#09221E]/80 hover:bg-[#0E322C] border border-[#16C784]/20 hover:border-[#16C784]/50 text-left transition-all cursor-pointer flex items-center gap-2.5 group"
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-[#16C784]/10 group-hover:bg-[#16C784]/20 text-[#A3FF12] flex items-center justify-center shrink-0">
+                      <IconComponent className="w-4 h-4" />
+                    </div>
+                    <span className="text-xs font-semibold text-white group-hover:text-[#A3FF12] transition-colors line-clamp-1">
+                      {cat.name}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Live Verified Businesses from Database */}
           {businesses.length > 0 && (
             <div>
               <div className="flex items-center justify-between mb-4">
                 <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                  Featured Verified Merchants
+                  Featured Verified Businesses
                 </span>
                 <span className="text-xs text-[#16C784]">
-                  Kaduna • Lagos • Abuja
+                  Active in Nigerian Centers
                 </span>
               </div>
 
@@ -290,9 +472,9 @@ export const LandingPageView: React.FC = () => {
                           </div>
                         )}
                       </div>
-                      <h3 className="font-bold text-sm sm:text-base text-white hover:text-[#A3FF12] transition-colors line-clamp-1">
+                      <h4 className="font-bold text-sm sm:text-base text-white hover:text-[#A3FF12] transition-colors line-clamp-1">
                         {biz.name}
-                      </h3>
+                      </h4>
                       <p className="text-xs text-slate-400 line-clamp-2 mt-1 leading-relaxed">
                         {biz.description || 'Verified commercial business listing on Boost Market.'}
                       </p>
@@ -301,7 +483,7 @@ export const LandingPageView: React.FC = () => {
                     <div className="pt-3 mt-3 border-t border-white/10 flex items-center justify-between text-xs text-slate-400">
                       <div className="flex items-center gap-1">
                         <MapPin className="w-3 h-3 text-[#16C784]" />
-                        <span className="truncate max-w-[120px]">{biz.location?.city || 'Kaduna'}</span>
+                        <span className="truncate max-w-[120px]">{biz.location?.city || 'Nigeria'}</span>
                       </div>
                       <span className="text-[#A3FF12] font-semibold text-[11px] group-hover:underline">
                         View Profile →
@@ -318,7 +500,7 @@ export const LandingPageView: React.FC = () => {
 
 
       {/* ========================================================================
-          CORE CAPABILITIES — Bento-Grid Layout (Confirmed Real Features Only)
+          5. REAL FEATURES SECTION — Confirmed Functional Capabilities
           ======================================================================== */}
       <section id="features" className="py-20 px-4 sm:px-6 lg:px-8 border-b border-[#16C784]/20 bg-[#071A17]">
         <div className="max-w-7xl mx-auto">
@@ -326,13 +508,13 @@ export const LandingPageView: React.FC = () => {
           <div className="text-center max-w-2xl mx-auto mb-16">
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#16C784]/15 border border-[#16C784]/30 text-xs font-bold text-[#A3FF12] uppercase tracking-wider mb-3">
               <Layers className="w-3.5 h-3.5" />
-              <span>Full-Stack Advertising Platform</span>
+              <span>Core Features</span>
             </div>
             <h2 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
-              Everything Your Business Needs to Grow
+              Built for Commercial Growth
             </h2>
             <p className="text-slate-300 text-sm sm:text-base mt-3 leading-relaxed">
-              Real capabilities built specifically for commercial merchants, service providers, and consumers.
+              Every tool and capability is engineered to establish your digital presence and connect you with customers.
             </p>
           </div>
 
@@ -351,7 +533,7 @@ export const LandingPageView: React.FC = () => {
                   Verified Merchant Business Profiles
                 </h3>
                 <p className="text-slate-300 text-sm sm:text-base leading-relaxed max-w-xl mb-6">
-                  Set up your official business profile with verified address, operating hours, phone contact, social profiles, and instant WhatsApp chat integration. Customers can find and contact you in seconds.
+                  Establish your official business profile with verified physical address, operating hours (including split shifts), telephone contact, and direct WhatsApp customer chat integration.
                 </p>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
@@ -367,63 +549,59 @@ export const LandingPageView: React.FC = () => {
                   </div>
                   <div className="p-3.5 rounded-xl bg-black/30 border border-white/10">
                     <MapPin className="w-4 h-4 text-[#14B8A6] mb-1.5" />
-                    <div className="text-xs font-bold text-white">Geo Location</div>
+                    <div className="text-xs font-bold text-white">Geolocation</div>
                     <div className="text-[11px] text-slate-400 mt-0.5">Target local city customers</div>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Bento Card 2: Multi-City Ad Campaigns (Col-Span 1) */}
+            {/* Bento Card 2: Security & Authentication (Col-Span 1) */}
             <div className="p-8 rounded-3xl bg-[#09221E]/90 border border-[#16C784]/30 relative overflow-hidden group hover:border-[#16C784]/60 transition-all flex flex-col justify-between">
               <div>
                 <div className="text-xs font-bold text-[#A3FF12] tracking-wider uppercase mb-2">
-                  02. Targeted Reach
+                  02. Account Protection
                 </div>
                 <h3 className="text-xl font-bold text-white mb-2">
-                  Multi-Tier Ad Campaigns
+                  Enterprise Security & 2FA
                 </h3>
                 <p className="text-slate-300 text-xs sm:text-sm leading-relaxed mb-4">
-                  Create and publish promotional advertisements with custom pricing, media, call-to-action buttons, and targeted regional distribution.
+                  Multi-layered authentication with cryptographic email verification, bcrypt password hashing, and optional TOTP two-factor authentication.
                 </p>
               </div>
 
               <div className="p-4 rounded-2xl bg-black/40 border border-[#16C784]/20 space-y-2 mt-4">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-300 font-medium">Standard Campaign</span>
-                  <span className="text-[#16C784] font-bold">Active</span>
+                  <span className="text-slate-300 font-medium">Password Hashing</span>
+                  <span className="text-[#16C784] font-bold">Bcrypt 12 Rounds</span>
                 </div>
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-300 font-medium">City-Targeted Distribution</span>
-                  <span className="text-[#A3FF12] font-bold">Kaduna / Lagos</span>
+                  <span className="text-slate-300 font-medium">Two-Factor Auth</span>
+                  <span className="text-[#A3FF12] font-bold">TOTP Authenticator</span>
                 </div>
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-300 font-medium">Direct Inbound Leads</span>
-                  <span className="text-[#14B8A6] font-bold">Tracked</span>
+                  <span className="text-slate-300 font-medium">Session Protection</span>
+                  <span className="text-[#14B8A6] font-bold">Secure JWT</span>
                 </div>
               </div>
             </div>
 
-            {/* Bento Card 3: AI Marketing Studio (Col-Span 1) */}
-            <div id="ai-marketing" className="p-8 rounded-3xl bg-[#09221E]/90 border border-[#16C784]/30 relative overflow-hidden group hover:border-[#A3FF12]/60 transition-all flex flex-col justify-between">
+            {/* Bento Card 3: AI Marketing Engine (Col-Span 1) */}
+            <div id="ai-marketing-card" className="p-8 rounded-3xl bg-[#09221E]/90 border border-[#16C784]/30 relative overflow-hidden group hover:border-[#A3FF12]/60 transition-all flex flex-col justify-between">
               <div>
                 <div className="text-xs font-bold text-[#A3FF12] tracking-wider uppercase mb-2 flex items-center gap-1.5">
                   <Sparkles className="w-3.5 h-3.5" />
                   <span>03. AI Studio</span>
                 </div>
                 <h3 className="text-xl font-bold text-white mb-2">
-                  AI Marketing Copy & Storyboards
+                  AI Marketing Copywriter
                 </h3>
                 <p className="text-slate-300 text-xs sm:text-sm leading-relaxed mb-4">
-                  Generate compelling marketing headlines, audience hooks, ad descriptions, and 4-scene video storyboards in seconds using our integrated Gemini engine.
+                  Generate promotional headlines, audience hooks, commercial copy, and 4-scene video storyboards in seconds using our integrated Gemini engine.
                 </p>
               </div>
 
-              <div className="p-4 rounded-2xl bg-black/40 border border-[#A3FF12]/20">
-                <div className="flex items-center gap-2 text-xs font-bold text-[#A3FF12] mb-1.5">
-                  <FileText className="w-3.5 h-3.5" />
-                  <span>Instant Commercial Copy</span>
-                </div>
+              <div className="p-3.5 rounded-2xl bg-black/40 border border-[#A3FF12]/20">
                 <div className="text-[11px] text-slate-300 italic">
                   &ldquo;Premium tailored outfits handcrafted in Kaduna. Order directly on WhatsApp today.&rdquo;
                 </div>
@@ -437,10 +615,10 @@ export const LandingPageView: React.FC = () => {
                   04. Catalog
                 </div>
                 <h3 className="text-xl font-bold text-white mb-2">
-                  Products & Services Inventory
+                  Products & Services
                 </h3>
                 <p className="text-slate-300 text-xs sm:text-sm leading-relaxed mb-4">
-                  Organize your offerings with detailed pricing, high-resolution media, category hierarchy, and real-time availability statuses.
+                  Publish catalog products and service offerings with detailed descriptions, imagery, starting prices, and delivery options.
                 </p>
               </div>
 
@@ -449,116 +627,50 @@ export const LandingPageView: React.FC = () => {
                   ₦
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-white">Transparent Pricing</div>
-                  <div className="text-[11px] text-slate-400">Fixed, negotiable, or quote-based</div>
+                  <div className="text-xs font-bold text-white">Item Pricing & Delivery</div>
+                  <div className="text-[11px] text-slate-400">On-premise, remote, or hybrid</div>
                 </div>
               </div>
             </div>
 
-            {/* Bento Card 5: Inbound Leads Hub & Pipeline (Col-Span 1) */}
+            {/* Bento Card 5: Invoicing Engine (Col-Span 1) */}
             <div className="p-8 rounded-3xl bg-[#09221E]/90 border border-[#16C784]/30 relative overflow-hidden group hover:border-[#16C784]/60 transition-all flex flex-col justify-between">
               <div>
                 <div className="text-xs font-bold text-[#A3FF12] tracking-wider uppercase mb-2">
-                  05. Sales Pipeline
+                  05. Billing
                 </div>
                 <h3 className="text-xl font-bold text-white mb-2">
-                  Customer Lead Management
+                  Multi-Currency Invoicing
                 </h3>
                 <p className="text-slate-300 text-xs sm:text-sm leading-relaxed mb-4">
-                  Track every customer who shows interest. Manage lead states from New to Contacted, Qualified, and Closed directly inside your Merchant Hub.
+                  Generate professional customer invoices with dynamic foreign exchange rates supporting NGN, USD, GBP, EUR, and AED.
                 </p>
               </div>
 
-              <div className="flex items-center gap-2 pt-2">
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">New</span>
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">Contacted</span>
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#16C784]/20 text-[#A3FF12] border border-[#16C784]/30">Closed</span>
+              <div className="flex items-center gap-2 pt-2 text-[10px] font-bold">
+                <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-[#A3FF12] border border-emerald-500/30">NGN</span>
+                <span className="px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">USD</span>
+                <span className="px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">GBP</span>
+                <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">EUR</span>
               </div>
             </div>
 
           </div>
 
-        </div>
-      </section>
-
-
-      {/* ========================================================================
-          HOW IT WORKS — 4 Clear Practical Steps
-          ======================================================================== */}
-      <section id="how-it-works" className="py-20 px-4 sm:px-6 lg:px-8 border-b border-[#16C784]/20 bg-[#051513]">
-        <div className="max-w-7xl mx-auto">
-          
-          <div className="text-center max-w-2xl mx-auto mb-16">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#16C784]/15 border border-[#16C784]/30 text-xs font-bold text-[#A3FF12] uppercase tracking-wider mb-3">
-              <Zap className="w-3.5 h-3.5" />
-              <span>Simple Workflow</span>
-            </div>
-            <h2 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
-              How Boost Market Works
-            </h2>
-            <p className="text-slate-300 text-sm sm:text-base mt-3 leading-relaxed">
-              Launch your business presence and reach potential customers in four simple steps.
+          <div className="mt-8 text-center">
+            <p className="text-xs text-slate-400 italic">
+              More capabilities coming as Boost Market expands.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            
-            {/* Step 1 */}
-            <div className="p-6 rounded-2xl bg-[#09221E] border border-[#16C784]/25 relative">
-              <div className="text-3xl font-black text-[#A3FF12] mb-3">01</div>
-              <h3 className="text-lg font-bold text-white mb-2">Register Business</h3>
-              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-                Create your authenticated account and complete your verified business profile with city location and WhatsApp contact.
-              </p>
-            </div>
-
-            {/* Step 2 */}
-            <div className="p-6 rounded-2xl bg-[#09221E] border border-[#16C784]/25 relative">
-              <div className="text-3xl font-black text-[#16C784] mb-3">02</div>
-              <h3 className="text-lg font-bold text-white mb-2">Upload Catalog</h3>
-              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-                Add your products and services with images, descriptions, pricing, and appropriate category tags.
-              </p>
-            </div>
-
-            {/* Step 3 */}
-            <div className="p-6 rounded-2xl bg-[#09221E] border border-[#16C784]/25 relative">
-              <div className="text-3xl font-black text-[#14B8A6] mb-3">03</div>
-              <h3 className="text-lg font-bold text-white mb-2">Launch Ad Campaigns</h3>
-              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-                Use the AI Studio to craft high-impact ad copy and publish promotions targeted to your city or nationwide.
-              </p>
-            </div>
-
-            {/* Step 4 */}
-            <div className="p-6 rounded-2xl bg-[#09221E] border border-[#16C784]/25 relative">
-              <div className="text-3xl font-black text-[#A3FF12] mb-3">04</div>
-              <h3 className="text-lg font-bold text-white mb-2">Convert Inbound Leads</h3>
-              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-                Receive direct inquiries from customers via WhatsApp, track lead pipeline in your dashboard, and grow sales.
-              </p>
-            </div>
-
-          </div>
-
-          <div className="mt-12 text-center">
-            <button
-              onClick={() => setActiveView(isAuthenticated ? 'merchant_dashboard' : 'register')}
-              className="px-8 py-3.5 rounded-xl btn-bm-primary text-sm sm:text-base font-bold inline-flex items-center gap-2 cursor-pointer shadow-lg"
-            >
-              <span>{isAuthenticated ? 'Open Merchant Hub' : 'Register Your Business Now'}</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </div>
-
         </div>
       </section>
 
 
       {/* ========================================================================
-          AI MARKETING SHOWCASE — Real Functional Feature Highlight
+          6. AI MARKETING COPYWRITER SECTION — Real Functional AI Feature
           ======================================================================== */}
-      <section className="py-20 px-4 sm:px-6 lg:px-8 border-b border-[#16C784]/20 bg-[#071A17] relative">
+      <section id="ai-marketing" className="py-20 px-4 sm:px-6 lg:px-8 border-b border-[#16C784]/20 bg-[#051513] relative">
         <div className="max-w-7xl mx-auto">
           
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
@@ -566,13 +678,13 @@ export const LandingPageView: React.FC = () => {
             <div className="lg:col-span-6">
               <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#A3FF12]/15 border border-[#A3FF12]/30 text-xs font-bold text-[#A3FF12] uppercase tracking-wider mb-4">
                 <Sparkles className="w-3.5 h-3.5" />
-                <span>Gemini-Powered Engine</span>
+                <span>AI Marketing Engine</span>
               </div>
               <h2 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight mb-4">
-                Generate High-Converting Ad Copy & Video Storyboards
+                Create Better Marketing Content with AI
               </h2>
               <p className="text-slate-300 text-sm sm:text-base leading-relaxed mb-6">
-                Never struggle with writing marketing content again. Boost Market includes an integrated AI copywriter that crafts targeted headlines, body copy, audience hooks, and multi-scene video ad scripts tailored to your specific business offerings.
+                Boost Market includes an integrated AI copywriter powered by Google Gemini. It assists merchants in crafting targeted promotional headlines, commercial body copy, audience hooks, and 4-scene video storyboards.
               </p>
 
               <div className="space-y-3 mb-8">
@@ -581,8 +693,8 @@ export const LandingPageView: React.FC = () => {
                     <CheckCircle2 className="w-3.5 h-3.5" />
                   </div>
                   <div>
-                    <span className="text-sm font-bold text-white">Automated Commercial Headlines: </span>
-                    <span className="text-xs sm:text-sm text-slate-300">Creates attention-grabbing titles optimized for customer click-through.</span>
+                    <span className="text-sm font-bold text-white">Commercial Ad Headlines: </span>
+                    <span className="text-xs sm:text-sm text-slate-300">Creates attention-grabbing titles tailored to your products and services.</span>
                   </div>
                 </div>
 
@@ -592,7 +704,7 @@ export const LandingPageView: React.FC = () => {
                   </div>
                   <div>
                     <span className="text-sm font-bold text-white">4-Scene Video Storyboards: </span>
-                    <span className="text-xs sm:text-sm text-slate-300">Detailed visual descriptions, voiceover scripts, and duration tags for video ads.</span>
+                    <span className="text-xs sm:text-sm text-slate-300">Generates scene descriptions and voiceover scripts for video advertising.</span>
                   </div>
                 </div>
 
@@ -601,13 +713,14 @@ export const LandingPageView: React.FC = () => {
                     <CheckCircle2 className="w-3.5 h-3.5" />
                   </div>
                   <div>
-                    <span className="text-sm font-bold text-white">Target Audience Segmentation: </span>
-                    <span className="text-xs sm:text-sm text-slate-300">Identifies who to target based on product category and city demographics.</span>
+                    <span className="text-sm font-bold text-white">Audience Hooks: </span>
+                    <span className="text-xs sm:text-sm text-slate-300">Formulates compelling value propositions that drive customer inquiries.</span>
                   </div>
                 </div>
               </div>
 
               <button
+                id="ai-section-cta-btn"
                 onClick={() => {
                   if (isAuthenticated) {
                     setActiveView('merchant_dashboard');
@@ -615,7 +728,7 @@ export const LandingPageView: React.FC = () => {
                     setActiveView('register');
                   }
                 }}
-                className="px-6 py-3 rounded-xl btn-bm-lime text-xs sm:text-sm font-bold inline-flex items-center gap-2 cursor-pointer"
+                className="px-6 py-3 rounded-xl btn-bm-lime text-xs sm:text-sm font-bold inline-flex items-center gap-2 cursor-pointer shadow-md"
               >
                 <span>Try AI Marketing in Merchant Hub</span>
                 <ArrowRight className="w-4 h-4" />
@@ -631,7 +744,7 @@ export const LandingPageView: React.FC = () => {
                     <span className="text-xs font-bold text-white">AI Marketing Generator</span>
                   </div>
                   <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#16C784]/20 text-[#A3FF12] border border-[#16C784]/30">
-                    Live Engine
+                    Server-Side Gemini
                   </span>
                 </div>
 
@@ -674,51 +787,57 @@ export const LandingPageView: React.FC = () => {
 
 
       {/* ========================================================================
-          FINAL CONVERSION BANNER — High Contrast Call to Action
+          7. DUAL CALL TO ACTION — Business CTA & Discovery CTA
           ======================================================================== */}
       <section className="py-20 px-4 sm:px-6 lg:px-8 bg-gradient-to-b from-[#071A17] to-[#041210]">
-        <div className="max-w-5xl mx-auto p-8 sm:p-12 md:p-16 rounded-[36px] bg-[#09221E] border border-[#16C784]/40 shadow-2xl relative overflow-hidden text-center">
+        <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-8">
           
-          {/* Ambient Glow */}
-          <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-96 h-96 bg-[#16C784]/20 rounded-full blur-3xl pointer-events-none" />
-
-          <div className="relative z-10">
-            <div className="inline-flex items-center justify-center p-2 rounded-2xl bg-[#071A17] border border-[#16C784]/30 mb-6">
-              <BoostSymbol size={48} />
+          {/* Card 1: For Businesses */}
+          <div className="p-8 sm:p-10 rounded-3xl bg-[#09221E] border border-[#16C784]/40 shadow-xl flex flex-col justify-between">
+            <div>
+              <div className="w-12 h-12 rounded-2xl bg-[#071A17] border border-[#16C784]/30 flex items-center justify-center text-[#A3FF12] mb-6">
+                <Store className="w-6 h-6" />
+              </div>
+              <h3 className="text-2xl sm:text-3xl font-extrabold text-white mb-3">
+                Ready to put your business in front of more customers?
+              </h3>
+              <p className="text-sm text-slate-300 leading-relaxed mb-6">
+                Register your business, publish promotional advertisements, organize your catalog, and receive direct WhatsApp customer inquiries.
+              </p>
             </div>
 
-            <h2 className="text-3xl sm:text-4xl md:text-5xl font-black text-white tracking-tight mb-4">
-              Ready to Grow with Boost Market?
-            </h2>
+            <button
+              id="business-cta-btn"
+              onClick={() => setActiveView(isAuthenticated ? 'merchant_dashboard' : 'register')}
+              className="w-full py-3.5 rounded-xl btn-bm-primary text-sm font-bold flex items-center justify-center gap-2 cursor-pointer shadow-lg"
+            >
+              <span>{isAuthenticated ? 'Open Business Hub' : 'Register Your Business'}</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
 
-            <p className="text-slate-300 text-sm sm:text-base max-w-xl mx-auto mb-8 leading-relaxed">
-              Join merchants across Nigeria advertising and discovering verified products, services, and commercial offers on one unified platform.
-            </p>
-
-            <div className="flex flex-wrap items-center justify-center gap-4">
-              <button
-                onClick={() => setActiveView(isAuthenticated ? 'merchant_dashboard' : 'register')}
-                className="px-8 py-3.5 rounded-xl btn-bm-primary text-sm sm:text-base font-bold flex items-center justify-center gap-2 cursor-pointer shadow-xl"
-              >
-                <span>{isAuthenticated ? 'Open Business Hub' : 'Register Your Business'}</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-
-              <button
-                onClick={() => setActiveView('discover')}
-                className="px-8 py-3.5 rounded-xl bg-white/5 hover:bg-white/10 text-white border border-[#16C784]/30 hover:border-[#16C784]/60 text-sm sm:text-base font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer"
-              >
-                <Store className="w-4 h-4 text-[#A3FF12]" />
-                <span>Explore Directory</span>
-              </button>
+          {/* Card 2: For Discoverers / Shoppers */}
+          <div className="p-8 sm:p-10 rounded-3xl bg-[#09221E] border border-[#16C784]/40 shadow-xl flex flex-col justify-between">
+            <div>
+              <div className="w-12 h-12 rounded-2xl bg-[#071A17] border border-[#16C784]/30 flex items-center justify-center text-[#14B8A6] mb-6">
+                <Compass className="w-6 h-6" />
+              </div>
+              <h3 className="text-2xl sm:text-3xl font-extrabold text-white mb-3">
+                Discover businesses, products and services.
+              </h3>
+              <p className="text-sm text-slate-300 leading-relaxed mb-6">
+                Explore verified businesses, catalog items, services, and commercial offers across Nigerian metropolitan centers.
+              </p>
             </div>
 
-            {/* Prototype Footer Tagline Echo */}
-            <div className="mt-12 pt-6 border-t border-white/10 text-xs text-slate-400 flex flex-wrap items-center justify-center gap-3">
-              <span className="font-semibold text-slate-300">Smart advertising. Better results. Powered by AI.</span>
-              <span>•</span>
-              <span>© {new Date().getFullYear()} Boost Market. All rights reserved.</span>
-            </div>
+            <button
+              id="discovery-cta-btn"
+              onClick={() => setActiveView('discover')}
+              className="w-full py-3.5 rounded-xl bg-white/5 hover:bg-white/10 text-white border border-[#16C784]/30 hover:border-[#16C784]/60 text-sm font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer"
+            >
+              <Store className="w-4 h-4 text-[#A3FF12]" />
+              <span>Explore Boost Directory</span>
+            </button>
           </div>
 
         </div>

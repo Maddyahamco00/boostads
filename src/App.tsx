@@ -3,6 +3,7 @@
 import React from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { Header } from './components/Header';
+import { LandingPageView } from './components/LandingPageView';
 import { DiscoverView } from './components/DiscoverView';
 import { BusinessProfileView } from './components/BusinessProfileView';
 import { MerchantDashboardView } from './components/MerchantDashboardView';
@@ -32,6 +33,7 @@ const MainLayout: React.FC = () => {
 
       {/* Main Content Body */}
       <main className="flex-1 w-full">
+        {activeView === 'landing' && <LandingPageView />}
         {activeView === 'discover' && <DiscoverView />}
         {activeView === 'create_ad' && <DiscoverView />}
         {activeView === 'business_detail' && <BusinessProfileView />}

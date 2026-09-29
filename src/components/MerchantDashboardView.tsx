@@ -44,7 +44,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { AdvertisementCard } from './AdvertisementCard';
-import { businessApi } from '../lib/api';
+import { businessApi, productApi, serviceApi } from '../lib/api';
 import { NIGERIAN_STATES, LocationCoordinates, DAYS_OF_WEEK, OpeningHour, TimePeriod, formatOpeningHourDisplay, formatTime12h, PublicVerificationRequestDTO, BusinessVerificationStatus, Product, Service } from '../types';
 
 export const MerchantDashboardView: React.FC = () => {
@@ -340,16 +340,14 @@ export const MerchantDashboardView: React.FC = () => {
     setIsLoadingCatalog(true);
     try {
       const [prodRes, servRes] = await Promise.all([
-        fetch(`/api/products?businessId=${encodeURIComponent(userBiz.id)}`),
-        fetch(`/api/services?businessId=${encodeURIComponent(userBiz.id)}`)
+        productApi.getByBusiness(userBiz.id),
+        serviceApi.getByBusiness(userBiz.id)
       ]);
-      const prodData = await prodRes.json();
-      const servData = await servRes.json();
-      if (prodData.success && Array.isArray(prodData.products)) {
-        setBizProducts(prodData.products);
+      if (prodRes.success && Array.isArray(prodRes.products)) {
+        setBizProducts(prodRes.products);
       }
-      if (servData.success && Array.isArray(servData.services)) {
-        setBizServices(servData.services);
+      if (servRes.success && Array.isArray(servRes.services)) {
+        setBizServices(servRes.services);
       }
     } catch (err) {
       console.error('Failed to load merchant catalog:', err);
@@ -369,25 +367,21 @@ export const MerchantDashboardView: React.FC = () => {
     e.preventDefault();
     if (!newProdName || !newProdPrice || !userBiz) return;
     try {
-      await fetch('/api/products/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          businessId: userBiz.id,
-          name: newProdName,
-          description: newProdDesc || '',
-          price: Number(newProdPrice),
-          category: userBiz.categoryLabel || userBiz.category,
-          imageUrls: newProdImg ? [newProdImg] : [],
-          inStock: true
-        })
+      await productApi.create({
+        businessId: userBiz.id,
+        name: newProdName,
+        description: newProdDesc || '',
+        price: Number(newProdPrice),
+        category: userBiz.categoryLabel || userBiz.category,
+        imageUrls: newProdImg ? [newProdImg] : [],
+        inStock: true
       });
       setNewProdName('');
       setNewProdPrice('');
       setNewProdDesc('');
       setNewProdImg('');
       await loadCatalog();
-      refreshData();
+      await refreshData();
     } catch (err) {
       console.error('Failed to add product:', err);
     }
@@ -397,26 +391,22 @@ export const MerchantDashboardView: React.FC = () => {
     e.preventDefault();
     if (!newServName || !newServPrice || !userBiz) return;
     try {
-      await fetch('/api/services/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          businessId: userBiz.id,
-          name: newServName,
-          description: newServDesc || '',
-          startingPrice: Number(newServPrice),
-          category: userBiz.categoryLabel || userBiz.category,
-          imageUrls: newServImg ? [newServImg] : [],
-          durationUnit: 'service',
-          deliveryMode: newServMode
-        })
+      await serviceApi.create({
+        businessId: userBiz.id,
+        name: newServName,
+        description: newServDesc || '',
+        startingPrice: Number(newServPrice),
+        category: userBiz.categoryLabel || userBiz.category,
+        imageUrls: newServImg ? [newServImg] : [],
+        durationUnit: 'service',
+        deliveryMode: newServMode
       });
       setNewServName('');
       setNewServPrice('');
       setNewServDesc('');
       setNewServImg('');
       await loadCatalog();
-      refreshData();
+      await refreshData();
     } catch (err) {
       console.error('Failed to add service:', err);
     }

@@ -25,7 +25,8 @@ import {
   X,
   Store,
   Layers,
-  Sparkles
+  Sparkles,
+  Zap
 } from 'lucide-react';
 import { Logo } from './Logo';
 import { SecuritySettingsModal } from './SecuritySettingsModal';
@@ -216,18 +217,6 @@ export const Header: React.FC = () => {
           {/* Main Desktop Nav Items */}
           <nav className="hidden xl:flex items-center gap-1 text-sm font-semibold">
             <button
-              id="nav-home-btn"
-              onClick={() => setActiveView('landing')}
-              className={`px-3.5 py-2 rounded-xl transition-all cursor-pointer ${
-                activeView === 'landing'
-                  ? 'text-[#16C784] bg-[#16C784]/10 font-bold'
-                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-              }`}
-            >
-              Home
-            </button>
-
-            <button
               id="nav-explore-ads-btn"
               onClick={() => setActiveView('discover')}
               className={`px-3.5 py-2 rounded-xl transition-all cursor-pointer ${
@@ -236,34 +225,57 @@ export const Header: React.FC = () => {
                   : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
             >
-              Directory & Ads
+              Discover
             </button>
 
             <button
-              id="nav-campaigns-btn"
-              onClick={() => setActiveView('campaigns')}
-              className={`px-3.5 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 ${
-                activeView === 'campaigns'
-                  ? 'text-[#16C784] bg-[#16C784]/10 font-bold'
-                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-              }`}
+              id="nav-how-it-works-btn"
+              onClick={() => {
+                if (activeView !== 'landing') {
+                  setActiveView('landing');
+                  setTimeout(() => {
+                    document.getElementById('how-it-works')?.scrollIntoView({ behavior: 'smooth' });
+                  }, 100);
+                } else {
+                  document.getElementById('how-it-works')?.scrollIntoView({ behavior: 'smooth' });
+                }
+              }}
+              className="px-3.5 py-2 rounded-xl transition-all cursor-pointer text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
             >
-              <Megaphone className="w-3.5 h-3.5" />
-              <span>Campaigns</span>
+              How It Works
             </button>
 
             <button
-              id="nav-merchant-btn"
-              onClick={() => setActiveView('merchant_dashboard')}
-              className={`px-3.5 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 ${
-                activeView === 'merchant_dashboard'
-                  ? 'text-[#16C784] bg-[#16C784]/10 font-bold'
-                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-              }`}
+              id="nav-features-btn"
+              onClick={() => {
+                if (activeView !== 'landing') {
+                  setActiveView('landing');
+                  setTimeout(() => {
+                    document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' });
+                  }, 100);
+                } else {
+                  document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' });
+                }
+              }}
+              className="px-3.5 py-2 rounded-xl transition-all cursor-pointer text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
             >
-              <BarChart2 className="w-3.5 h-3.5" />
-              <span>Business Hub</span>
+              Features
             </button>
+
+            {isAuthenticated && (
+              <button
+                id="nav-merchant-btn"
+                onClick={() => setActiveView('merchant_dashboard')}
+                className={`px-3.5 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 ${
+                  activeView === 'merchant_dashboard'
+                    ? 'text-[#16C784] bg-[#16C784]/10 font-bold'
+                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
+              >
+                <BarChart2 className="w-3.5 h-3.5" />
+                <span>Business Hub</span>
+              </button>
+            )}
           </nav>
 
           {/* Theme Toggle Button */}
@@ -480,33 +492,43 @@ export const Header: React.FC = () => {
 
           <div className="flex flex-col gap-1 text-sm font-semibold">
             <button
-              onClick={() => { setActiveView('landing'); setIsMobileMenuOpen(false); }}
-              className={`p-2.5 rounded-xl text-left flex items-center gap-2.5 ${activeView === 'landing' ? 'bg-[#16C784] text-[#071A17] font-bold' : 'text-slate-700 dark:text-slate-200'}`}
-            >
-              <Store className="w-4 h-4" />
-              <span>Home</span>
-            </button>
-            <button
               onClick={() => { setActiveView('discover'); setIsMobileMenuOpen(false); }}
               className={`p-2.5 rounded-xl text-left flex items-center gap-2.5 ${activeView === 'discover' ? 'bg-[#16C784] text-[#071A17] font-bold' : 'text-slate-700 dark:text-slate-200'}`}
             >
               <Sparkles className="w-4 h-4" />
-              <span>Directory & Advertisements</span>
+              <span>Discover</span>
             </button>
             <button
-              onClick={() => { setActiveView('campaigns'); setIsMobileMenuOpen(false); }}
-              className={`p-2.5 rounded-xl text-left flex items-center gap-2.5 ${activeView === 'campaigns' ? 'bg-[#16C784] text-[#071A17] font-bold' : 'text-slate-700 dark:text-slate-200'}`}
+              onClick={() => {
+                setIsMobileMenuOpen(false);
+                if (activeView !== 'landing') setActiveView('landing');
+                setTimeout(() => document.getElementById('how-it-works')?.scrollIntoView({ behavior: 'smooth' }), 100);
+              }}
+              className="p-2.5 rounded-xl text-left flex items-center gap-2.5 text-slate-700 dark:text-slate-200"
             >
-              <Megaphone className="w-4 h-4" />
-              <span>Multi-Platform Campaigns</span>
+              <Zap className="w-4 h-4" />
+              <span>How It Works</span>
             </button>
             <button
-              onClick={() => { setActiveView('merchant_dashboard'); setIsMobileMenuOpen(false); }}
-              className={`p-2.5 rounded-xl text-left flex items-center gap-2.5 ${activeView === 'merchant_dashboard' ? 'bg-[#16C784] text-[#071A17] font-bold' : 'text-slate-700 dark:text-slate-200'}`}
+              onClick={() => {
+                setIsMobileMenuOpen(false);
+                if (activeView !== 'landing') setActiveView('landing');
+                setTimeout(() => document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' }), 100);
+              }}
+              className="p-2.5 rounded-xl text-left flex items-center gap-2.5 text-slate-700 dark:text-slate-200"
             >
-              <Store className="w-4 h-4" />
-              <span>Merchant Business Hub</span>
+              <Layers className="w-4 h-4" />
+              <span>Features</span>
             </button>
+            {isAuthenticated && (
+              <button
+                onClick={() => { setActiveView('merchant_dashboard'); setIsMobileMenuOpen(false); }}
+                className={`p-2.5 rounded-xl text-left flex items-center gap-2.5 ${activeView === 'merchant_dashboard' ? 'bg-[#16C784] text-[#071A17] font-bold' : 'text-slate-700 dark:text-slate-200'}`}
+              >
+                <Store className="w-4 h-4" />
+                <span>Business Hub</span>
+              </button>
+            )}
             {!isAuthenticated && (
               <div className="pt-2 mt-2 border-t border-slate-200 dark:border-slate-800 flex gap-2">
                 <button

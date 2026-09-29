@@ -4572,7 +4572,7 @@ async function startServer() {
     res.json({ success: true, ad });
   });
 
-  app.post('/api/ads/create', (req, res) => {
+  const handleCreateAd = (req: express.Request, res: express.Response) => {
     try {
       const {
         businessId,
@@ -4589,7 +4589,9 @@ async function startServer() {
         contactPhone,
         contactWhatsApp,
         targetRadiusKm,
-        isDraft
+        isDraft,
+        isBoosted,
+        boostPlan
       } = req.body;
 
       if (!title || !description || !businessId) {
@@ -4617,7 +4619,8 @@ async function startServer() {
         tags: Array.isArray(tags) ? tags : ['BoostMarket', 'Business'],
         targetRadiusKm: targetRadiusKm || 50,
         status: isDraft ? 'draft' : 'active',
-        isBoosted: false,
+        isBoosted: Boolean(isBoosted),
+        boostPlan: isBoosted ? boostPlan : undefined,
         expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
         viewsCount: 0,
         clicksCount: 0,
@@ -4634,7 +4637,10 @@ async function startServer() {
       const message = err instanceof Error ? err.message : 'Unknown error';
       res.status(500).json({ success: false, error: message });
     }
-  });
+  };
+
+  app.post('/api/ads/create', handleCreateAd);
+  app.post('/api/advertisements/create', handleCreateAd);
 
   app.post('/api/ads/:id/boost', (req, res) => {
     const { id } = req.params;

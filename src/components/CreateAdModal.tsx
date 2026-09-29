@@ -12,12 +12,14 @@ import {
   Eye, 
   MapPin, 
   MessageSquare, 
-  Zap,
-  CheckCircle2,
-  HelpCircle,
-  Upload
+  Zap, 
+  CheckCircle2, 
+  HelpCircle, 
+  Upload,
+  AlertCircle
 } from 'lucide-react';
 import { BusinessCategoryType } from '../types';
+import { advertisementApi, ApiError } from '../lib/api';
 
 export const CreateAdModal: React.FC = () => {
   const { 
@@ -42,10 +44,12 @@ export const CreateAdModal: React.FC = () => {
   const [isBoosted, setIsBoosted] = useState(false);
   const [boostPlanDays, setBoostPlanDays] = useState(7);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Sync state when modal opens or business changes
   React.useEffect(() => {
     if (isCreateAdModalOpen && userBiz) {
+      setErrorMessage(null);
       if (!whatsapp && (userBiz.whatsapp || userBiz.phone)) {
         setWhatsapp(userBiz.whatsapp || userBiz.phone || '');
       }
@@ -62,43 +66,59 @@ export const CreateAdModal: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title || !description || !userBiz) return;
+    setErrorMessage(null);
+    if (!title.trim()) {
+      setErrorMessage('Please enter an advertisement title.');
+      return;
+    }
+    if (!description.trim()) {
+      setErrorMessage('Please enter an advertisement description.');
+      return;
+    }
+    if (!userBiz) {
+      setErrorMessage('No business profile associated with your account.');
+      return;
+    }
 
     setIsSubmitting(true);
     try {
-      const res = await fetch('/api/advertisements/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          businessId: userBiz.id,
-          businessName: userBiz.name,
-          businessLogo: userBiz.logoUrl,
-          businessCategory: category,
-          title,
-          description,
-          category: categories.find(c => c.id === category)?.name || 'General',
-          mediaUrls: mediaUrl ? [mediaUrl] : [],
-          mediaType: 'image',
-          price: price ? Number(price) : undefined,
-          location: userBiz.location || currentLocation,
-          tags: tags.split(',').map(t => t.trim()).filter(Boolean),
-          contactWhatsApp: whatsapp,
-          isBoosted,
-          boostPlan: isBoosted ? { type: 'featured', days: boostPlanDays, priorityScore: 95 } : undefined
-        })
+      const response = await advertisementApi.create({
+        businessId: userBiz.id,
+        businessName: userBiz.name,
+        businessLogo: userBiz.logoUrl,
+        businessCategory: category,
+        title: title.trim(),
+        description: description.trim(),
+        category: categories.find(c => c.id === category)?.name || 'General',
+        mediaUrls: mediaUrl ? [mediaUrl] : [],
+        mediaType: 'image',
+        price: price ? Number(price) : undefined,
+        location: userBiz.location || currentLocation,
+        tags: tags.split(',').map(t => t.trim()).filter(Boolean),
+        contactWhatsApp: whatsapp,
+        isBoosted,
+        boostPlan: isBoosted ? { type: 'featured', days: boostPlanDays, priorityScore: 95 } : undefined
       });
-      const data = await res.json();
-      if (data.success) {
+
+      if (response && response.success) {
         setIsCreateAdModalOpen(false);
         setTitle('');
         setDescription('');
         setPrice('');
         setTags('');
         setIsBoosted(false);
-        refreshData();
+        await refreshData();
+      } else {
+        throw new Error('Failed to create advertisement.');
       }
-    } catch (err) {
-      console.error('Failed to create advertisement:', err);
+    } catch (err: unknown) {
+      if (err instanceof ApiError) {
+        setErrorMessage(err.message || 'Failed to create advertisement.');
+      } else if (err instanceof Error) {
+        setErrorMessage(err.message);
+      } else {
+        setErrorMessage('An unexpected error occurred while publishing the advertisement.');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -136,6 +156,12 @@ export const CreateAdModal: React.FC = () => {
           
           {/* Left Form */}
           <form onSubmit={handleSubmit} className="lg:col-span-7 space-y-4 text-xs">
+            {errorMessage && (
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{errorMessage}</span>
+              </div>
+            )}
             
             {/* Target Business Identity */}
             <div>

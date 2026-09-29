@@ -213,7 +213,7 @@ export const CategoryManagementTab: React.FC = () => {
         await refreshData();
       }
     } catch (err: any) {
-      alert(err.message || 'Failed to add subcategory tag');
+      setStatusMessage({ type: 'error', text: err.message || 'Failed to add subcategory tag' });
     } finally {
       setIsAddingTag(false);
     }
@@ -230,7 +230,7 @@ export const CategoryManagementTab: React.FC = () => {
         await refreshData();
       }
     } catch (err: any) {
-      alert(err.message || 'Failed to remove tag');
+      setStatusMessage({ type: 'error', text: err.message || 'Failed to remove tag' });
     }
   };
 
@@ -280,7 +280,7 @@ export const CategoryManagementTab: React.FC = () => {
         setTestSummary(res.summary);
       }
     } catch (err: any) {
-      alert(err.message || 'Failed to run test suite.');
+      setStatusMessage({ type: 'error', text: err.message || 'Failed to run test suite.' });
     } finally {
       setIsRunningTests(false);
     }

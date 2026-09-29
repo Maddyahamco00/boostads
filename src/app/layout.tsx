@@ -5,10 +5,10 @@ import { AppProvider } from '../context/AppContext';
 
 export const metadata: Metadata = {
   title: {
-    default: 'Boost Market — AI-Powered Advertising for Growing Businesses',
+    default: 'Boost Market - Business Advertising & Local Marketplace',
     template: '%s | Boost Market',
   },
-  description: 'Smart Advertising. Better Results. Powered by AI. Boost Market connects businesses, products, services, and customers across Nigeria.',
+  description: 'Full-stack SaaS business advertising, local discovery, real-time messaging, portfolio showcase, and invoicing payment platform for all business types by Real Boosters.',
   applicationName: 'Boost Market',
   keywords: ['business advertising', 'local marketplace', 'boosters', 'ai marketing', 'nigeria business', 'boost market'],
   authors: [{ name: 'Boost Market' }],
@@ -16,8 +16,8 @@ export const metadata: Metadata = {
     icon: '/favicon.svg',
   },
   openGraph: {
-    title: 'Boost Market — AI-Powered Advertising for Growing Businesses',
-    description: 'Smart Advertising. Better Results. Powered by AI.',
+    title: 'Boost Market - Business Advertising & Local Marketplace',
+    description: 'Full-stack SaaS business advertising, local discovery, real-time messaging, portfolio showcase, and invoicing payment platform for all business types by Real Boosters.',
     type: 'website',
     siteName: 'Boost Market',
   },

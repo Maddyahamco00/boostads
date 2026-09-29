@@ -514,11 +514,11 @@ export const AdminPanelView: React.FC = () => {
       if (data.success) {
         await refreshData();
       } else {
-        alert(data.error || 'Failed to update user status');
+        setActionError(data.error || 'Failed to update user status');
       }
     } catch (err) {
       const formatted = formatAuthError(err);
-      alert(formatted.message);
+      setActionError(formatted.message);
     }
   };
 

@@ -41,26 +41,36 @@ export const Footer: React.FC = () => {
             <ul className="space-y-2">
               <li>
                 <button 
-                  onClick={() => setActiveView('landing')} 
-                  className="hover:text-[#16C784] transition-colors cursor-pointer"
-                >
-                  Home
-                </button>
-              </li>
-              <li>
-                <button 
                   onClick={() => setActiveView('discover')} 
                   className="hover:text-[#16C784] transition-colors cursor-pointer"
                 >
-                  Explore Directory & Ads
+                  Discover Directory & Search
                 </button>
               </li>
               <li>
                 <button 
-                  onClick={() => setActiveView('campaigns')} 
+                  onClick={() => {
+                    setActiveView('landing');
+                    setTimeout(() => {
+                      document.getElementById('how-it-works')?.scrollIntoView({ behavior: 'smooth' });
+                    }, 100);
+                  }} 
                   className="hover:text-[#16C784] transition-colors cursor-pointer"
                 >
-                  Boost Campaigns
+                  How It Works
+                </button>
+              </li>
+              <li>
+                <button 
+                  onClick={() => {
+                    setActiveView('landing');
+                    setTimeout(() => {
+                      document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' });
+                    }, 100);
+                  }} 
+                  className="hover:text-[#16C784] transition-colors cursor-pointer"
+                >
+                  Features & AI Studio
                 </button>
               </li>
               <li>
